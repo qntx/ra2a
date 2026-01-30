@@ -12,7 +12,8 @@ use crate::error::{A2AError, Result};
 use crate::types::{Message, Task, TaskArtifactUpdateEvent, TaskStatusUpdateEvent};
 
 /// An event that can be sent to clients.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(untagged)]
 pub enum Event {
     /// A status update event.
     StatusUpdate(TaskStatusUpdateEvent),

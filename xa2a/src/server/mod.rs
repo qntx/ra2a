@@ -48,11 +48,13 @@ mod handler;
 mod id_generator;
 mod push_notification;
 mod request_handler;
+mod rest_handler;
 mod result_aggregator;
 mod sse;
 mod streaming_handler;
 mod task_manager;
 mod task_store;
+mod task_updater;
 
 pub use app::*;
 pub use call_context::*;
@@ -64,11 +66,13 @@ pub use handler::*;
 pub use id_generator::*;
 pub use push_notification::*;
 pub use request_handler::*;
+pub use rest_handler::*;
 pub use result_aggregator::*;
 pub use sse::*;
 pub use streaming_handler::*;
 pub use task_manager::*;
 pub use task_store::*;
+pub use task_updater::*;
 
 use async_trait::async_trait;
 use futures::Stream;
