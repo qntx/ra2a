@@ -2,6 +2,7 @@
 //!
 //! This module defines the error types used throughout the SDK, following
 //! the JSON-RPC 2.0 error specification and A2A-specific error codes.
+//! Client-specific error types mirror Python's `client/errors.py`.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -48,6 +49,230 @@ pub enum A2AError {
     /// Internal errors
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// Client HTTP error with status code and body.
+    #[error("HTTP {status}: {message}")]
+    ClientHttp {
+        /// HTTP status code.
+        status: u16,
+        /// Error message or response body.
+        message: String,
+        /// Optional response body.
+        body: Option<String>,
+    },
+
+    /// Client JSON parsing error.
+    #[error("Failed to parse JSON response: {message}")]
+    ClientJson {
+        /// Error message.
+        message: String,
+        /// Raw response that failed to parse.
+        raw_response: Option<String>,
+    },
+
+    /// Client JSON-RPC error from server response.
+    #[error("JSON-RPC error [{code}]: {message}")]
+    ClientJsonRpc {
+        /// JSON-RPC error code.
+        code: i32,
+        /// Error message.
+        message: String,
+        /// Additional error data.
+        data: Option<serde_json::Value>,
+    },
+
+    /// Client timeout error.
+    #[error("Request timed out after {duration_secs}s: {message}")]
+    ClientTimeout {
+        /// Timeout duration in seconds.
+        duration_secs: u64,
+        /// Error message.
+        message: String,
+    },
+
+    /// Client invalid state error.
+    #[error("Invalid client state: {message}")]
+    ClientInvalidState {
+        /// Error message.
+        message: String,
+    },
+
+    /// Agent card error.
+    #[error("Agent card error: {message}")]
+    AgentCard {
+        /// Error message.
+        message: String,
+    },
+
+    /// Unsupported transport error.
+    #[error("Unsupported transport: {transport}")]
+    UnsupportedTransport {
+        /// Transport type name.
+        transport: String,
+    },
+
+    /// Server error - used by server-side code.
+    #[error("Server error: {0}")]
+    Server(#[from] ServerError),
+}
+
+impl A2AError {
+    /// Creates a client HTTP error.
+    pub fn client_http(status: u16, message: impl Into<String>) -> Self {
+        Self::ClientHttp {
+            status,
+            message: message.into(),
+            body: None,
+        }
+    }
+
+    /// Creates a client HTTP error with body.
+    pub fn client_http_with_body(
+        status: u16,
+        message: impl Into<String>,
+        body: impl Into<String>,
+    ) -> Self {
+        Self::ClientHttp {
+            status,
+            message: message.into(),
+            body: Some(body.into()),
+        }
+    }
+
+    /// Creates a client JSON error.
+    pub fn client_json(message: impl Into<String>) -> Self {
+        Self::ClientJson {
+            message: message.into(),
+            raw_response: None,
+        }
+    }
+
+    /// Creates a client JSON error with raw response.
+    pub fn client_json_with_response(
+        message: impl Into<String>,
+        raw_response: impl Into<String>,
+    ) -> Self {
+        Self::ClientJson {
+            message: message.into(),
+            raw_response: Some(raw_response.into()),
+        }
+    }
+
+    /// Creates a client JSON-RPC error.
+    pub fn client_jsonrpc(code: i32, message: impl Into<String>) -> Self {
+        Self::ClientJsonRpc {
+            code,
+            message: message.into(),
+            data: None,
+        }
+    }
+
+    /// Creates a client JSON-RPC error with data.
+    pub fn client_jsonrpc_with_data(
+        code: i32,
+        message: impl Into<String>,
+        data: serde_json::Value,
+    ) -> Self {
+        Self::ClientJsonRpc {
+            code,
+            message: message.into(),
+            data: Some(data),
+        }
+    }
+
+    /// Creates a client timeout error.
+    pub fn client_timeout(duration_secs: u64, message: impl Into<String>) -> Self {
+        Self::ClientTimeout {
+            duration_secs,
+            message: message.into(),
+        }
+    }
+
+    /// Creates a client invalid state error.
+    pub fn client_invalid_state(message: impl Into<String>) -> Self {
+        Self::ClientInvalidState {
+            message: message.into(),
+        }
+    }
+
+    /// Creates an agent card error.
+    pub fn agent_card(message: impl Into<String>) -> Self {
+        Self::AgentCard {
+            message: message.into(),
+        }
+    }
+
+    /// Creates an unsupported transport error.
+    pub fn unsupported_transport(transport: impl Into<String>) -> Self {
+        Self::UnsupportedTransport {
+            transport: transport.into(),
+        }
+    }
+
+    /// Returns true if this is a client-side error.
+    pub fn is_client_error(&self) -> bool {
+        matches!(
+            self,
+            Self::ClientHttp { .. }
+                | Self::ClientJson { .. }
+                | Self::ClientJsonRpc { .. }
+                | Self::ClientTimeout { .. }
+                | Self::ClientInvalidState { .. }
+        )
+    }
+
+    /// Returns true if this is a timeout error.
+    pub fn is_timeout(&self) -> bool {
+        matches!(self, Self::Timeout(_) | Self::ClientTimeout { .. })
+    }
+
+    /// Returns true if this is a connection error.
+    pub fn is_connection_error(&self) -> bool {
+        matches!(self, Self::Connection(_) | Self::Http(_))
+    }
+
+    /// Extracts the JSON-RPC error code if this is a JSON-RPC error.
+    pub fn jsonrpc_code(&self) -> Option<i32> {
+        match self {
+            Self::JsonRpc(e) => Some(e.code),
+            Self::ClientJsonRpc { code, .. } => Some(*code),
+            _ => None,
+        }
+    }
+}
+
+/// Server-side error wrapper.
+#[derive(Error, Debug)]
+pub struct ServerError {
+    /// The underlying JSON-RPC error.
+    pub error: JsonRpcError,
+}
+
+impl fmt::Display for ServerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.error)
+    }
+}
+
+impl ServerError {
+    /// Creates a new server error.
+    pub fn new(error: JsonRpcError) -> Self {
+        Self { error }
+    }
+
+    /// Creates a server error from an error code.
+    pub fn from_code(code: JsonRpcErrorCode) -> Self {
+        Self {
+            error: JsonRpcError::new(code, code.default_message()),
+        }
+    }
+
+    /// Creates a server error with a custom message.
+    pub fn with_message(code: JsonRpcErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            error: JsonRpcError::new(code, message),
+        }
+    }
 }
 
 /// JSON-RPC 2.0 error codes as defined in the specification.
@@ -253,5 +478,37 @@ mod tests {
         let json = serde_json::to_string(&error).unwrap();
         assert!(json.contains("-32001"));
         assert!(json.contains("test-123"));
+    }
+
+    #[test]
+    fn test_client_http_error() {
+        let error = A2AError::client_http(404, "Not Found");
+        assert!(error.is_client_error());
+        assert!(!error.is_timeout());
+        assert_eq!(error.to_string(), "HTTP 404: Not Found");
+    }
+
+    #[test]
+    fn test_client_jsonrpc_error() {
+        let error = A2AError::client_jsonrpc(-32001, "Task not found");
+        assert!(error.is_client_error());
+        assert_eq!(error.jsonrpc_code(), Some(-32001));
+    }
+
+    #[test]
+    fn test_client_timeout_error() {
+        let error = A2AError::client_timeout(30, "Request timed out");
+        assert!(error.is_timeout());
+        assert!(error.is_client_error());
+    }
+
+    #[test]
+    fn test_server_error() {
+        let server_error = ServerError::from_code(JsonRpcErrorCode::TaskNotFound);
+        assert_eq!(server_error.error.code, -32001);
+
+        let server_error =
+            ServerError::with_message(JsonRpcErrorCode::InternalError, "Custom error");
+        assert_eq!(server_error.error.message, "Custom error");
     }
 }

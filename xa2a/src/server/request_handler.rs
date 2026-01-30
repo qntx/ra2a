@@ -14,6 +14,7 @@ use crate::types::{
     TaskPushNotificationConfig, TaskQueryParams,
 };
 
+use super::call_context::ServerCallContext;
 use super::events::Event;
 
 /// A boxed stream of events for streaming responses.
@@ -118,43 +119,5 @@ impl From<Task> for SendMessageResponse {
 impl From<Message> for SendMessageResponse {
     fn from(message: Message) -> Self {
         Self::Message(message)
-    }
-}
-
-/// Server call context containing request-scoped information.
-#[derive(Debug, Clone, Default)]
-pub struct ServerCallContext {
-    /// Optional user identifier.
-    pub user_id: Option<String>,
-    /// Optional authentication token.
-    pub auth_token: Option<String>,
-    /// Request metadata.
-    pub metadata: std::collections::HashMap<String, serde_json::Value>,
-}
-
-impl ServerCallContext {
-    /// Creates a new empty server call context.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Creates a context with a user ID.
-    pub fn with_user_id(user_id: impl Into<String>) -> Self {
-        Self {
-            user_id: Some(user_id.into()),
-            ..Default::default()
-        }
-    }
-
-    /// Sets the authentication token.
-    pub fn with_auth_token(mut self, token: impl Into<String>) -> Self {
-        self.auth_token = Some(token.into());
-        self
-    }
-
-    /// Adds metadata to the context.
-    pub fn with_metadata(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
-        self.metadata.insert(key.into(), value);
-        self
     }
 }

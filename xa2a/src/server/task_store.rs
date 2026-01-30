@@ -66,6 +66,8 @@ impl TaskStore for InMemoryTaskStore {
 }
 
 /// Push notification configuration store interface.
+///
+/// Mirrors Python's `PushNotificationConfigStore` from `server/tasks/push_notification_config_store.py`.
 #[async_trait]
 pub trait PushNotificationConfigStore: Send + Sync {
     /// Saves a push notification configuration.
@@ -87,6 +89,19 @@ pub trait PushNotificationConfigStore: Send + Sync {
 
     /// Deletes a push notification configuration.
     async fn delete(&self, task_id: &str, config_id: &str) -> Result<()>;
+
+    /// Deletes all push notification configurations for a task.
+    async fn delete_all(&self, task_id: &str) -> Result<()>;
+
+    /// Checks if a configuration exists for a task.
+    async fn exists(&self, task_id: &str, config_id: Option<&str>) -> Result<bool> {
+        Ok(self.get(task_id, config_id).await?.is_some())
+    }
+
+    /// Returns the count of configurations for a task.
+    async fn count(&self, task_id: &str) -> Result<usize> {
+        Ok(self.list(task_id).await?.len())
+    }
 }
 
 /// In-memory implementation of PushNotificationConfigStore.
@@ -154,6 +169,12 @@ impl PushNotificationConfigStore for InMemoryPushNotificationConfigStore {
         if let Some(task_configs) = configs.get_mut(task_id) {
             task_configs.retain(|c| c.id.as_deref() != Some(config_id));
         }
+        Ok(())
+    }
+
+    async fn delete_all(&self, task_id: &str) -> Result<()> {
+        let mut configs = self.configs.write().await;
+        configs.remove(task_id);
         Ok(())
     }
 }

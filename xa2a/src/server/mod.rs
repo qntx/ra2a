@@ -39,6 +39,7 @@
 //! ```
 
 mod app;
+mod call_context;
 mod context;
 mod context_builder;
 mod default_handler;
@@ -54,6 +55,7 @@ mod task_manager;
 mod task_store;
 
 pub use app::*;
+pub use call_context::*;
 pub use context::*;
 pub use context_builder::*;
 pub use default_handler::*;

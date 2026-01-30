@@ -17,8 +17,9 @@ use crate::types::{
     TaskPushNotificationConfig, TaskQueryParams, TaskState, TaskStatus,
 };
 
+use super::call_context::ServerCallContext;
 use super::events::{Event, EventQueue, QueueManager};
-use super::request_handler::{EventStream, RequestHandler, SendMessageResponse, ServerCallContext};
+use super::request_handler::{EventStream, RequestHandler, SendMessageResponse};
 use super::{AgentExecutor, ExecutionContext};
 
 /// Terminal task states that cannot be modified.

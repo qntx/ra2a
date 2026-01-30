@@ -76,13 +76,19 @@ impl ExtendedRequestContextBuilder for SimpleExtendedRequestContextBuilder {
             task_id,
             context_id,
             message: message.clone(),
+            task: existing_task.cloned(),
+            related_tasks: Vec::new(),
             metadata: params.metadata.clone(),
-            extensions: message.extensions.clone(),
+            requested_extensions: message.extensions.clone().unwrap_or_default(),
+            activated_extensions: Vec::new(),
         })
     }
 }
 
 /// Extended request context with additional information.
+///
+/// Mirrors Python's `RequestContext` from `server/agent_execution/context.py`,
+/// providing user input extraction, related task management, and extension support.
 #[derive(Debug, Clone)]
 pub struct ExtendedRequestContext {
     /// The task ID for this request.
@@ -91,10 +97,16 @@ pub struct ExtendedRequestContext {
     pub context_id: String,
     /// The message being processed.
     pub message: Message,
+    /// The current task (if continuing an existing task).
+    pub task: Option<Task>,
+    /// Related tasks attached to this context.
+    pub related_tasks: Vec<Task>,
     /// Optional metadata from the request.
     pub metadata: Option<HashMap<String, serde_json::Value>>,
-    /// Extensions being used.
-    pub extensions: Option<Vec<String>>,
+    /// Extensions requested by the client.
+    pub requested_extensions: Vec<String>,
+    /// Extensions activated for the response.
+    pub activated_extensions: Vec<String>,
 }
 
 impl ExtendedRequestContext {
@@ -108,8 +120,11 @@ impl ExtendedRequestContext {
             task_id: task_id.into(),
             context_id: context_id.into(),
             message,
+            task: None,
+            related_tasks: Vec::new(),
             metadata: None,
-            extensions: None,
+            requested_extensions: Vec::new(),
+            activated_extensions: Vec::new(),
         }
     }
 
@@ -122,16 +137,32 @@ impl ExtendedRequestContext {
         )
     }
 
+    /// Sets the current task.
+    pub fn with_task(mut self, task: Task) -> Self {
+        self.task = Some(task);
+        self
+    }
+
     /// Sets the metadata.
     pub fn with_metadata(mut self, metadata: HashMap<String, serde_json::Value>) -> Self {
         self.metadata = Some(metadata);
         self
     }
 
-    /// Sets the extensions.
+    /// Sets the requested extensions.
     pub fn with_extensions(mut self, extensions: Vec<String>) -> Self {
-        self.extensions = Some(extensions);
+        self.requested_extensions = extensions;
         self
+    }
+
+    /// Attaches a related task to this context.
+    pub fn attach_related_task(&mut self, task: Task) {
+        self.related_tasks.push(task);
+    }
+
+    /// Activates an extension for the response.
+    pub fn activate_extension(&mut self, extension: impl Into<String>) {
+        self.activated_extensions.push(extension.into());
     }
 
     /// Gets a metadata value by key.
@@ -139,12 +170,40 @@ impl ExtendedRequestContext {
         self.metadata.as_ref().and_then(|m| m.get(key))
     }
 
-    /// Checks if a specific extension is enabled.
+    /// Checks if a specific extension is requested.
     pub fn has_extension(&self, uri: &str) -> bool {
-        self.extensions
-            .as_ref()
-            .map(|exts| exts.iter().any(|e| e == uri))
-            .unwrap_or(false)
+        self.requested_extensions.iter().any(|e| e == uri)
+    }
+
+    /// Checks if a specific extension is activated.
+    pub fn is_extension_activated(&self, uri: &str) -> bool {
+        self.activated_extensions.iter().any(|e| e == uri)
+    }
+
+    /// Gets user input text from the message.
+    ///
+    /// Extracts and joins all text parts from the message.
+    pub fn get_user_input(&self) -> String {
+        use crate::types::Part;
+        self.message
+            .parts
+            .iter()
+            .filter_map(|part| match part {
+                Part::Text(text_part) => Some(text_part.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Gets the current task if set.
+    pub fn get_task(&self) -> Option<&Task> {
+        self.task.as_ref()
+    }
+
+    /// Gets the related tasks.
+    pub fn get_related_tasks(&self) -> &[Task] {
+        &self.related_tasks
     }
 }
 

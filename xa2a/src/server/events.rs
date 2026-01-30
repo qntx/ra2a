@@ -222,18 +222,30 @@ impl QueueManager {
 pub type InMemoryQueueManager = QueueManager;
 
 /// A consumer for processing events from a queue.
+///
+/// Mirrors Python's `EventConsumer` from `server/events/event_consumer.py`.
 #[async_trait::async_trait]
 pub trait EventConsumer: Send + Sync {
     /// Processes an event.
     async fn consume(&self, event: &Event) -> Result<()>;
 
-    /// Called when the stream ends.
+    /// Called when the stream ends normally.
     async fn on_complete(&self) -> Result<()> {
         Ok(())
     }
 
     /// Called when an error occurs.
     async fn on_error(&self, _error: &A2AError) -> Result<()> {
+        Ok(())
+    }
+
+    /// Called when a timeout occurs.
+    async fn on_timeout(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Called when the consumer is interrupted/canceled.
+    async fn on_interrupt(&self) -> Result<()> {
         Ok(())
     }
 }
@@ -275,12 +287,168 @@ pub async fn run_consumer<C: EventConsumer>(
                 break;
             }
             Err(broadcast::error::RecvError::Lagged(n)) => {
-                // Log lag but continue
                 tracing::warn!("Event consumer lagged by {} events", n);
             }
         }
     }
     Ok(())
+}
+
+/// Runs an event consumer with a timeout.
+///
+/// Returns Ok(true) if the consumer completed normally,
+/// Ok(false) if it timed out.
+pub async fn run_consumer_with_timeout<C: EventConsumer>(
+    consumer: &C,
+    mut receiver: broadcast::Receiver<Event>,
+    timeout: std::time::Duration,
+) -> Result<bool> {
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            consumer.on_timeout().await?;
+            return Ok(false);
+        }
+
+        match tokio::time::timeout(remaining, receiver.recv()).await {
+            Ok(Ok(event)) => {
+                if let Err(e) = consumer.consume(&event).await {
+                    consumer.on_error(&e).await?;
+                }
+            }
+            Ok(Err(broadcast::error::RecvError::Closed)) => {
+                consumer.on_complete().await?;
+                return Ok(true);
+            }
+            Ok(Err(broadcast::error::RecvError::Lagged(n))) => {
+                tracing::warn!("Event consumer lagged by {} events", n);
+            }
+            Err(_) => {
+                consumer.on_timeout().await?;
+                return Ok(false);
+            }
+        }
+    }
+}
+
+/// Runs an event consumer until a final event or cancellation.
+///
+/// Stops consuming when an event with `is_final() == true` is received
+/// or when the cancellation token is triggered.
+pub async fn run_consumer_until_final<C: EventConsumer>(
+    consumer: &C,
+    mut receiver: broadcast::Receiver<Event>,
+    cancel: tokio::sync::watch::Receiver<bool>,
+) -> Result<()> {
+    loop {
+        tokio::select! {
+            biased;
+
+            _ = async {
+                let mut cancel = cancel.clone();
+                loop {
+                    if *cancel.borrow() {
+                        break;
+                    }
+                    if cancel.changed().await.is_err() {
+                        break;
+                    }
+                }
+            } => {
+                consumer.on_interrupt().await?;
+                break;
+            }
+
+            result = receiver.recv() => {
+                match result {
+                    Ok(event) => {
+                        let is_final = event.is_final();
+                        if let Err(e) = consumer.consume(&event).await {
+                            consumer.on_error(&e).await?;
+                        }
+                        if is_final {
+                            consumer.on_complete().await?;
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        consumer.on_complete().await?;
+                        break;
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!("Event consumer lagged by {} events", n);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A collecting consumer that stores all events.
+#[derive(Debug, Default)]
+pub struct CollectingEventConsumer {
+    events: std::sync::Mutex<Vec<Event>>,
+}
+
+impl CollectingEventConsumer {
+    /// Creates a new collecting consumer.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns all collected events.
+    pub fn events(&self) -> Vec<Event> {
+        self.events.lock().unwrap().clone()
+    }
+
+    /// Returns the number of collected events.
+    pub fn len(&self) -> usize {
+        self.events.lock().unwrap().len()
+    }
+
+    /// Returns true if no events have been collected.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+#[async_trait::async_trait]
+impl EventConsumer for CollectingEventConsumer {
+    async fn consume(&self, event: &Event) -> Result<()> {
+        self.events.lock().unwrap().push(event.clone());
+        Ok(())
+    }
+}
+
+/// A callback-based consumer that calls a function for each event.
+pub struct CallbackEventConsumer<F>
+where
+    F: Fn(&Event) -> Result<()> + Send + Sync,
+{
+    callback: F,
+}
+
+impl<F> CallbackEventConsumer<F>
+where
+    F: Fn(&Event) -> Result<()> + Send + Sync,
+{
+    /// Creates a new callback consumer.
+    pub fn new(callback: F) -> Self {
+        Self { callback }
+    }
+}
+
+#[async_trait::async_trait]
+impl<F> EventConsumer for CallbackEventConsumer<F>
+where
+    F: Fn(&Event) -> Result<()> + Send + Sync,
+{
+    async fn consume(&self, event: &Event) -> Result<()> {
+        (self.callback)(event)
+    }
 }
 
 /// Builder for creating event streams.
