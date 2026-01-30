@@ -1,17 +1,50 @@
 //! A2A Client implementation.
 //!
 //! This module provides the client-side implementation for interacting with A2A agents.
+//!
+//! # Features
+//!
+//! - **HTTP Client**: Basic HTTP/JSON-RPC client for synchronous requests
+//! - **SSE Streaming**: Server-Sent Events support for real-time updates
+//! - **Middleware**: Request/response interceptors for authentication and logging
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use xa2a::client::{A2AClient, Client, StreamingClient};
+//! use xa2a::types::{Message, Part};
+//!
+//! #[tokio::main]
+//! async fn main() -> xa2a::Result<()> {
+//!     // Create a streaming client
+//!     let client = StreamingClient::new("https://agent.example.com")?;
+//!     
+//!     // Send a message and receive streaming updates
+//!     let message = Message::user_text("Hello, agent!");
+//!     let mut stream = client.send_message_streaming(message).await?;
+//!     
+//!     while let Some(event) = futures::StreamExt::next(&mut stream).await {
+//!         println!("Received: {:?}", event?);
+//!     }
+//!     
+//!     Ok(())
+//! }
+//! ```
 
 mod card_resolver;
 mod config;
 mod http;
 mod middleware;
+mod sse;
+mod streaming;
 mod transport;
 
 pub use card_resolver::*;
 pub use config::*;
 pub use http::*;
 pub use middleware::*;
+pub use sse::*;
+pub use streaming::*;
 pub use transport::*;
 
 use async_trait::async_trait;

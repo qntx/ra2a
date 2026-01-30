@@ -1,11 +1,50 @@
 //! A2A Server implementation.
 //!
 //! This module provides the server-side implementation for building A2A agents.
+//!
+//! # Features
+//!
+//! - **HTTP Server**: Axum-based HTTP server with JSON-RPC endpoint
+//! - **SSE Streaming**: Server-Sent Events for real-time task updates
+//! - **Event Queue**: Broadcast-based event distribution to subscribers
+//! - **Task Management**: Task lifecycle and state management
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use xa2a::server::{A2AServer, AgentExecutor, ExecutionContext, ServerConfig};
+//! use xa2a::types::{AgentCard, Message, Task};
+//! use xa2a::error::Result;
+//! use async_trait::async_trait;
+//!
+//! struct MyAgent {
+//!     card: AgentCard,
+//! }
+//!
+//! #[async_trait]
+//! impl AgentExecutor for MyAgent {
+//!     async fn execute(&self, ctx: &ExecutionContext, message: &Message) -> Result<Task> {
+//!         // Process the message and return updated task
+//!         Ok(Task::new(&ctx.task_id, &ctx.context_id))
+//!     }
+//!
+//!     async fn cancel(&self, ctx: &ExecutionContext, task_id: &str) -> Result<Task> {
+//!         Ok(Task::new(task_id, &ctx.context_id))
+//!     }
+//!
+//!     fn agent_card(&self) -> &AgentCard {
+//!         &self.card
+//!     }
+//! }
+//! ```
 
 mod app;
 mod context;
 mod events;
 mod handler;
+mod push_notification;
+mod sse;
+mod streaming_handler;
 mod task_manager;
 mod task_store;
 
@@ -13,6 +52,9 @@ pub use app::*;
 pub use context::*;
 pub use events::*;
 pub use handler::*;
+pub use push_notification::*;
+pub use sse::*;
+pub use streaming_handler::*;
 pub use task_manager::*;
 pub use task_store::*;
 
