@@ -42,7 +42,54 @@ pub mod client;
 #[cfg_attr(docsrs, doc(cfg(feature = "server")))]
 pub mod server;
 
-mod utils;
+// Internal utility modules with specific naming
+mod crypto;
+mod http_helpers;
+mod task_helpers;
+
+/// Tracing span helpers for A2A operations (requires `telemetry` feature).
+#[cfg(feature = "telemetry")]
+pub mod telemetry {
+    use tracing::{Span, info_span};
+
+    /// Creates a span for a send_message operation.
+    pub fn send_message_span(task_id: &str, context_id: &str) -> Span {
+        info_span!(
+            "a2a.send_message",
+            task_id = %task_id,
+            context_id = %context_id,
+            otel.kind = "client"
+        )
+    }
+
+    /// Creates a span for a get_task operation.
+    pub fn get_task_span(task_id: &str) -> Span {
+        info_span!(
+            "a2a.get_task",
+            task_id = %task_id,
+            otel.kind = "client"
+        )
+    }
+
+    /// Creates a span for agent execution.
+    pub fn execute_span(task_id: &str, context_id: &str) -> Span {
+        info_span!(
+            "a2a.execute",
+            task_id = %task_id,
+            context_id = %context_id,
+            otel.kind = "server"
+        )
+    }
+
+    /// Creates a span for handling a request.
+    pub fn handle_request_span(method: &str) -> Span {
+        info_span!(
+            "a2a.handle_request",
+            method = %method,
+            otel.kind = "server"
+        )
+    }
+}
 
 // Re-export commonly used types at crate root
 pub use error::{A2AError, Result};

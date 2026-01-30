@@ -1,10 +1,9 @@
-//! Utility functions and helpers for the A2A SDK.
+//! Task helper functions for the A2A SDK.
+//!
+//! Provides utility functions for creating and manipulating Task objects.
 
 #![allow(dead_code)]
 
-pub mod signing;
-
-use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::types::{
@@ -20,53 +19,6 @@ pub fn generate_id() -> String {
 /// Generates a current timestamp in ISO 8601 format.
 pub fn now_iso8601() -> String {
     chrono::Utc::now().to_rfc3339()
-}
-
-/// Encodes bytes to base64.
-pub fn base64_encode(data: &[u8]) -> String {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.encode(data)
-}
-
-/// Decodes base64 string to bytes.
-pub fn base64_decode(data: &str) -> Result<Vec<u8>, base64::DecodeError> {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.decode(data)
-}
-
-/// Constant-time comparison to prevent timing attacks.
-pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut result = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        result |= x ^ y;
-    }
-    result == 0
-}
-
-/// Extracts query parameters from a URL (simple implementation).
-pub fn parse_query_params(url: &str) -> HashMap<String, String> {
-    let mut params = HashMap::new();
-    if let Some(query_start) = url.find('?') {
-        let query = &url[query_start + 1..];
-        for pair in query.split('&') {
-            if let Some((key, value)) = pair.split_once('=') {
-                params.insert(key.to_string(), value.to_string());
-            }
-        }
-    }
-    params
-}
-
-/// Builds a URL with query parameters.
-pub fn build_url_with_params(base: &str, params: &HashMap<String, String>) -> String {
-    if params.is_empty() {
-        return base.to_string();
-    }
-    let query: Vec<String> = params.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
-    format!("{}?{}", base.trim_end_matches('?'), query.join("&"))
 }
 
 /// Creates a new task object from message send params.
@@ -164,68 +116,6 @@ pub fn get_message_text(message: &Message, delimiter: &str) -> String {
         .join(delimiter)
 }
 
-/// Extension header name for A2A protocol.
-pub const HTTP_EXTENSION_HEADER: &str = "A2A-Extensions";
-
-/// Updates extension header value by adding new extensions.
-pub fn update_extension_header(existing: Option<&str>, new_extensions: &[String]) -> String {
-    let mut extensions: Vec<&str> = existing
-        .map(|e| e.split(',').map(str::trim).collect())
-        .unwrap_or_default();
-
-    for ext in new_extensions {
-        if !extensions.contains(&ext.as_str()) {
-            extensions.push(ext);
-        }
-    }
-
-    extensions.join(", ")
-}
-
-/// Tracing span helper for A2A operations.
-#[cfg(feature = "telemetry")]
-pub mod telemetry {
-    use tracing::{Span, info_span};
-
-    /// Creates a span for a send_message operation.
-    pub fn send_message_span(task_id: &str, context_id: &str) -> Span {
-        info_span!(
-            "a2a.send_message",
-            task_id = %task_id,
-            context_id = %context_id,
-            otel.kind = "client"
-        )
-    }
-
-    /// Creates a span for a get_task operation.
-    pub fn get_task_span(task_id: &str) -> Span {
-        info_span!(
-            "a2a.get_task",
-            task_id = %task_id,
-            otel.kind = "client"
-        )
-    }
-
-    /// Creates a span for agent execution.
-    pub fn execute_span(task_id: &str, context_id: &str) -> Span {
-        info_span!(
-            "a2a.execute",
-            task_id = %task_id,
-            context_id = %context_id,
-            otel.kind = "server"
-        )
-    }
-
-    /// Creates a span for handling a request.
-    pub fn handle_request_span(method: &str) -> Span {
-        info_span!(
-            "a2a.handle_request",
-            method = %method,
-            otel.kind = "server"
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,10 +129,28 @@ mod tests {
     }
 
     #[test]
-    fn test_base64_roundtrip() {
-        let original = b"Hello, World!";
-        let encoded = base64_encode(original);
-        let decoded = base64_decode(&encoded).unwrap();
-        assert_eq!(original.to_vec(), decoded);
+    fn test_now_iso8601() {
+        let ts = now_iso8601();
+        assert!(ts.contains('T'));
+        assert!(ts.len() > 20);
+    }
+
+    #[test]
+    fn test_are_modalities_compatible() {
+        // Both None -> compatible
+        assert!(are_modalities_compatible(None, None));
+
+        // Client None -> compatible
+        assert!(are_modalities_compatible(Some(&["text".to_string()]), None));
+
+        // Common modality -> compatible
+        let server = vec!["text".to_string(), "image".to_string()];
+        let client = vec!["text".to_string()];
+        assert!(are_modalities_compatible(Some(&server), Some(&client)));
+
+        // No common modality -> incompatible
+        let server = vec!["image".to_string()];
+        let client = vec!["text".to_string()];
+        assert!(!are_modalities_compatible(Some(&server), Some(&client)));
     }
 }
