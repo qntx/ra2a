@@ -4,7 +4,7 @@
 
 #![allow(unused_imports)]
 
-use xa2a::{
+use ra2a::{
     Result,
     client::{A2AClient, A2AClientBuilder, Client, ClientConfig},
     types::{Message, Part, TaskQueryParams},
@@ -44,13 +44,13 @@ async fn main() -> Result<()> {
     use futures::StreamExt;
     while let Some(event) = stream.next().await {
         match event? {
-            xa2a::client::ClientEvent::TaskUpdate { task, update } => {
+            ra2a::client::ClientEvent::TaskUpdate { task, update } => {
                 println!("Task status: {:?}", task.status.state);
                 if let Some(update) = update {
                     println!("Update: {:?}", update);
                 }
             }
-            xa2a::client::ClientEvent::Message(msg) => {
+            ra2a::client::ClientEvent::Message(msg) => {
                 if let Some(text) = msg.text_content() {
                     println!("Agent response: {}", text);
                 }

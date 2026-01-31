@@ -11,11 +11,11 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use xa2a::client::{A2AClient, Client, StreamingClient};
-//! use xa2a::types::{Message, Part};
+//! use ra2a::client::{A2AClient, Client, StreamingClient};
+//! use ra2a::types::{Message, Part};
 //!
 //! #[tokio::main]
-//! async fn main() -> xa2a::Result<()> {
+//! async fn main() -> ra2a::Result<()> {
 //!     // Create a streaming client
 //!     let client = StreamingClient::new("https://agent.example.com")?;
 //!     

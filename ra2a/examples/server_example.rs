@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::signal;
 
-use xa2a::{
+use ra2a::{
     error::Result,
     server::{A2AServer, A2AServerBuilder, AgentExecutor, ExecutionContext, ServerConfig},
     types::{AgentCapabilities, AgentCard, AgentSkill, Message, Part, Task, TaskState, TaskStatus},

@@ -16,10 +16,10 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use xa2a::client::{A2AClient, Client};
+//! use ra2a::client::{A2AClient, Client};
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), xa2a::error::A2AError> {
+//! async fn main() -> Result<(), ra2a::error::A2AError> {
 //!     let client = A2AClient::new("https://agent.example.com")?;
 //!     let card = client.get_agent_card().await?;
 //!     println!("Connected to agent: {}", card.name);

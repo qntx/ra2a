@@ -1,13 +1,13 @@
 [workspace]
-members = ["xa2a"]
-default-members = ["xa2a"]
+members = ["ra2a"]
+default-members = ["ra2a"]
 resolver = "3"
 
 [workspace.package]
 version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/pyroth/xa2a"
+repository = "https://github.com/pyroth/ra2a"
 
 [workspace.dependencies]
 async-stream = "0.3"

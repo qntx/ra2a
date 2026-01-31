@@ -1,5 +1,5 @@
 [package]
-name = "xa2a"
+name = "ra2a"
 version.workspace = true
 edition.workspace = true
 authors = ["A2A Project"]

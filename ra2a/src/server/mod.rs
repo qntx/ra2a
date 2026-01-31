@@ -12,9 +12,9 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use xa2a::server::{A2AServer, AgentExecutor, ExecutionContext, ServerConfig};
-//! use xa2a::types::{AgentCard, Message, Task};
-//! use xa2a::error::Result;
+//! use ra2a::server::{A2AServer, AgentExecutor, ExecutionContext, ServerConfig};
+//! use ra2a::types::{AgentCard, Message, Task};
+//! use ra2a::error::Result;
 //! use async_trait::async_trait;
 //!
 //! struct MyAgent {
