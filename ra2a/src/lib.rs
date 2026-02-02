@@ -42,6 +42,10 @@ pub mod client;
 #[cfg_attr(docsrs, doc(cfg(feature = "server")))]
 pub mod server;
 
+#[cfg(feature = "grpc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "grpc")))]
+pub mod grpc;
+
 // Internal utility modules
 mod crypto;
 mod http_helpers;

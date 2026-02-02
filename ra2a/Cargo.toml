@@ -24,6 +24,7 @@ http-body-util = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }
 pin-project-lite.workspace = true
 prost = { workspace = true, optional = true }
+prost-types = { workspace = true, optional = true }
 reqwest.workspace = true
 reqwest-eventsource.workspace = true
 serde.workspace = true
@@ -34,6 +35,8 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tonic = { workspace = true, optional = true }
+tonic-prost = { workspace = true, optional = true }
+google-api-proto = { workspace = true, optional = true }
 tower = { workspace = true, optional = true }
 tower-http = { workspace = true, optional = true }
 tracing.workspace = true
@@ -47,11 +50,14 @@ mockito.workspace = true
 pretty_assertions.workspace = true
 tokio-test.workspace = true
 
+[build-dependencies]
+tonic-prost-build = { workspace = true, optional = true }
+
 [features]
 default = ["client", "server"]
 client = []
 server = ["axum", "tower", "tower-http", "http-body", "http-body-util"]
-grpc = ["tonic", "prost"]
+grpc = ["tonic", "prost", "prost-types", "tonic-prost", "tonic-prost-build", "google-api-proto"]
 telemetry = ["opentelemetry", "tracing-opentelemetry"]
 postgresql = ["sqlx", "sqlx/postgres"]
 mysql = ["sqlx", "sqlx/mysql"]
