@@ -66,13 +66,13 @@ sql = ["postgresql", "mysql", "sqlite"]
 full = ["server", "grpc", "telemetry", "sql"]
 
 [[example]]
-name = "client_example"
-path = "examples/client_example.rs"
+name = "client"
+path = "examples/client.rs"
 required-features = ["client"]
 
 [[example]]
-name = "server_example"
-path = "examples/server_example.rs"
+name = "server"
+path = "examples/server.rs"
 required-features = ["server"]
 
 [package.metadata.docs.rs]
