@@ -14,7 +14,7 @@ async-stream = "0.3"
 async-trait = "0.1"
 axum = "0.8"
 base64 = "0.22"
-bytes = "1.9"
+bytes = "1.11"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 hex = "0.4"
