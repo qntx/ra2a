@@ -27,7 +27,7 @@ pub enum TransportProtocol {
 
 
 /// The `AgentCard` is a self-describing manifest for an agent.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentCard {
     /// A human-readable name for the agent.

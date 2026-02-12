@@ -48,7 +48,7 @@ pub trait AgentCardProducer: Send + Sync {
 /// A static card always returns a clone of itself.
 #[async_trait]
 impl AgentCardProducer for AgentCard {
-    async fn card(&self) -> Result<AgentCard> {
+    async fn card(&self) -> Result<Self> {
         Ok(self.clone())
     }
 }

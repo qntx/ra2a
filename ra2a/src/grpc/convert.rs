@@ -223,7 +223,7 @@ impl From<NativeMessage> for proto::Message {
 
 impl From<proto::Message> for NativeMessage {
     fn from(msg: proto::Message) -> Self {
-        let mut native = NativeMessage::new(
+        let mut native = Self::new(
             msg.message_id,
             NativeRole::from(msg.role),
             msg.parts.into_iter().map(NativePart::from).collect(),
@@ -351,7 +351,7 @@ impl From<proto::Task> for NativeTask {
         let status = task
             .status.map_or_else(|| NativeTaskStatus::new(NativeTaskState::Unknown), NativeTaskStatus::from);
 
-        let mut native = NativeTask::new(task.id, task.context_id);
+        let mut native = Self::new(task.id, task.context_id);
         native.status = status;
         native.artifacts = if task.artifacts.is_empty() {
             None

@@ -190,7 +190,7 @@ impl CallContext {
     pub fn requested_extension_uris(&self) -> Vec<String> {
         self.request_meta
             .get(EXTENSIONS_META_KEY)
-            .map(|v| v.to_vec())
+            .map(<[std::string::String]>::to_vec)
             .unwrap_or_default()
     }
 

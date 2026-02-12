@@ -111,11 +111,10 @@ impl ClientConfig {
         }
 
         // Apply default push notification config
-        if config.push_notification_config.is_none() {
-            if let Some(first) = self.push_notification_configs.first() {
+        if config.push_notification_config.is_none()
+            && let Some(first) = self.push_notification_configs.first() {
                 config.push_notification_config = Some(first.clone());
             }
-        }
 
         // Apply default accepted output modes
         if config.accepted_output_modes.is_none() && !self.accepted_output_modes.is_empty() {

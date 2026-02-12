@@ -25,7 +25,7 @@ pub enum Role {
 ///
 /// The `kind` field is injected as `"message"` during JSON serialization
 /// (aligned with Go's `Message.MarshalJSON`). It is not stored on the struct.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Message {
     /// A unique identifier for the message (typically a UUID).

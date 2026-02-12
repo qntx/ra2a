@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::OAuthFlows;
 
 /// Defines a security scheme that can be used to secure agent endpoints.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum SecurityScheme {
     /// API Key security scheme.

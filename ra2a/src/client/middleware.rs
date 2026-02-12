@@ -29,7 +29,7 @@ impl CallMeta {
     /// Case-insensitive lookup. Returns `None` if not present.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&[String]> {
-        self.inner.get(&key.to_lowercase()).map(|v| v.as_slice())
+        self.inner.get(&key.to_lowercase()).map(std::vec::Vec::as_slice)
     }
 
     /// Appends values, skipping duplicates. Key matching is case-insensitive.
@@ -230,7 +230,8 @@ pub struct StaticCallMetaInjector {
 
 impl StaticCallMetaInjector {
     /// Creates a new injector that appends the given meta to every request.
-    pub fn new(meta: CallMeta) -> Self {
+    #[must_use] 
+    pub const fn new(meta: CallMeta) -> Self {
         Self { meta }
     }
 }
