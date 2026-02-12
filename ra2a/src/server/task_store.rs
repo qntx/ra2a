@@ -63,128 +63,14 @@ impl TaskStore for InMemoryTaskStore {
     }
 }
 
-/// Push notification configuration store interface.
-///
-/// Mirrors Python's `PushNotificationConfigStore` from `server/tasks/push_notification_config_store.py`.
-#[async_trait]
-pub trait PushNotificationConfigStore: Send + Sync {
-    /// Saves a push notification configuration.
-    async fn save(
-        &self,
-        task_id: &str,
-        config: &crate::types::PushNotificationConfig,
-    ) -> Result<()>;
-
-    /// Gets a push notification configuration by task ID and config ID.
-    async fn get(
-        &self,
-        task_id: &str,
-        config_id: Option<&str>,
-    ) -> Result<Option<crate::types::PushNotificationConfig>>;
-
-    /// Lists all push notification configurations for a task.
-    async fn list(&self, task_id: &str) -> Result<Vec<crate::types::PushNotificationConfig>>;
-
-    /// Deletes a push notification configuration.
-    async fn delete(&self, task_id: &str, config_id: &str) -> Result<()>;
-
-    /// Deletes all push notification configurations for a task.
-    async fn delete_all(&self, task_id: &str) -> Result<()>;
-
-    /// Checks if a configuration exists for a task.
-    async fn exists(&self, task_id: &str, config_id: Option<&str>) -> Result<bool> {
-        Ok(self.get(task_id, config_id).await?.is_some())
-    }
-
-    /// Returns the count of configurations for a task.
-    async fn count(&self, task_id: &str) -> Result<usize> {
-        Ok(self.list(task_id).await?.len())
-    }
-}
-
-/// In-memory implementation of PushNotificationConfigStore.
-#[derive(Debug, Default)]
-pub struct InMemoryPushNotificationConfigStore {
-    configs: std::sync::Arc<
-        tokio::sync::RwLock<
-            std::collections::HashMap<String, Vec<crate::types::PushNotificationConfig>>,
-        >,
-    >,
-}
-
-impl InMemoryPushNotificationConfigStore {
-    /// Creates a new in-memory push notification config store.
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-#[async_trait]
-impl PushNotificationConfigStore for InMemoryPushNotificationConfigStore {
-    async fn save(
-        &self,
-        task_id: &str,
-        config: &crate::types::PushNotificationConfig,
-    ) -> Result<()> {
-        let mut configs = self.configs.write().await;
-        let task_configs = configs.entry(task_id.to_string()).or_default();
-
-        // Update if exists, otherwise add
-        if let Some(existing) = task_configs.iter_mut().find(|c| c.id == config.id) {
-            *existing = config.clone();
-        } else {
-            task_configs.push(config.clone());
-        }
-        Ok(())
-    }
-
-    async fn get(
-        &self,
-        task_id: &str,
-        config_id: Option<&str>,
-    ) -> Result<Option<crate::types::PushNotificationConfig>> {
-        let configs = self.configs.read().await;
-        if let Some(task_configs) = configs.get(task_id) {
-            if let Some(cid) = config_id {
-                return Ok(task_configs
-                    .iter()
-                    .find(|c| c.id.as_deref() == Some(cid))
-                    .cloned());
-            } else {
-                return Ok(task_configs.first().cloned());
-            }
-        }
-        Ok(None)
-    }
-
-    async fn list(&self, task_id: &str) -> Result<Vec<crate::types::PushNotificationConfig>> {
-        let configs = self.configs.read().await;
-        Ok(configs.get(task_id).cloned().unwrap_or_default())
-    }
-
-    async fn delete(&self, task_id: &str, config_id: &str) -> Result<()> {
-        let mut configs = self.configs.write().await;
-        if let Some(task_configs) = configs.get_mut(task_id) {
-            task_configs.retain(|c| c.id.as_deref() != Some(config_id));
-        }
-        Ok(())
-    }
-
-    async fn delete_all(&self, task_id: &str) -> Result<()> {
-        let mut configs = self.configs.write().await;
-        configs.remove(task_id);
-        Ok(())
-    }
-}
-
 /// SQL-based task store using SQLx (requires `sql` feature).
 ///
-/// This module provides database-backed implementations of `TaskStore` and
-/// `PushNotificationConfigStore` using SQLx for SQLite, PostgreSQL, and MySQL.
+/// This module provides database-backed implementations of `TaskStore`
+/// using SQLx for SQLite, PostgreSQL, and MySQL.
 #[cfg(any(feature = "sqlite", feature = "postgresql", feature = "mysql"))]
 pub mod sql {
     use super::*;
-    use crate::types::{PushNotificationConfig, TaskState, TaskStatus};
+    use crate::types::{TaskState, TaskStatus};
 
     /// SQL table schema for tasks (SQLite compatible).
     pub const TASK_TABLE_SCHEMA_SQLITE: &str = r#"
@@ -215,32 +101,6 @@ pub mod sql {
             metadata JSONB,
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-    "#;
-
-    /// SQL table schema for push notification configs (SQLite compatible).
-    pub const PUSH_CONFIG_TABLE_SCHEMA_SQLITE: &str = r#"
-        CREATE TABLE IF NOT EXISTS a2a_push_configs (
-            id TEXT NOT NULL,
-            task_id TEXT NOT NULL,
-            url TEXT NOT NULL,
-            token TEXT,
-            authentication TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (task_id, id)
-        )
-    "#;
-
-    /// SQL table schema for push notification configs (PostgreSQL compatible).
-    pub const PUSH_CONFIG_TABLE_SCHEMA_POSTGRES: &str = r#"
-        CREATE TABLE IF NOT EXISTS a2a_push_configs (
-            id TEXT NOT NULL,
-            task_id TEXT NOT NULL,
-            url TEXT NOT NULL,
-            token TEXT,
-            authentication JSONB,
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            PRIMARY KEY (task_id, id)
         )
     "#;
 
@@ -321,53 +181,6 @@ pub mod sql {
         }
     }
 
-    /// Row representation for push notification configs in SQL.
-    #[derive(Debug, Clone)]
-    pub struct PushConfigRow {
-        /// The config identifier.
-        pub id: String,
-        /// The task identifier.
-        pub task_id: String,
-        /// The callback URL.
-        pub url: String,
-        /// Optional token.
-        pub token: Option<String>,
-        /// Authentication info serialized as JSON.
-        pub authentication: Option<String>,
-    }
-
-    impl PushConfigRow {
-        /// Converts a PushNotificationConfig to a row.
-        pub fn from_config(task_id: &str, config: &PushNotificationConfig) -> Self {
-            Self {
-                id: config
-                    .id
-                    .clone()
-                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-                task_id: task_id.to_string(),
-                url: config.url.clone(),
-                token: config.token.clone(),
-                authentication: config
-                    .authentication
-                    .as_ref()
-                    .and_then(|a| serde_json::to_string(a).ok()),
-            }
-        }
-
-        /// Converts a row back to a PushNotificationConfig.
-        pub fn to_config(&self) -> PushNotificationConfig {
-            PushNotificationConfig {
-                id: Some(self.id.clone()),
-                url: self.url.clone(),
-                token: self.token.clone(),
-                authentication: self
-                    .authentication
-                    .as_ref()
-                    .and_then(|a| serde_json::from_str(a).ok()),
-            }
-        }
-    }
-
     /// Converts TaskState to a kebab-case string for storage.
     fn task_state_to_string(state: TaskState) -> String {
         match state {
@@ -399,31 +212,19 @@ pub mod sql {
         }
     }
 
-    /// Generates `TaskStore` and `PushNotificationConfigStore` implementations for a SQL backend.
-    ///
-    /// Each backend only differs in pool type, parameter placeholder style, timestamp
-    /// function, JSON cast syntax, and DDL schema — all supplied as macro arguments.
-    macro_rules! impl_sql_stores {
+    /// Generates `TaskStore` implementation for a SQL backend.
+    macro_rules! impl_sql_task_store {
         (
             mod_name: $mod:ident,
             feature: $feat:literal,
             pool_type: $Pool:ty,
             task_store_name: $TaskStore:ident,
-            push_store_name: $PushStore:ident,
             task_schema: $task_schema:expr,
-            push_schema: $push_schema:expr,
-            // SQL fragments that differ between dialects
             task_save_sql: $task_save:expr,
             task_get_sql: $task_get:expr,
             task_delete_sql: $task_del:expr,
-            push_save_sql: $push_save:expr,
-            push_get_by_id_sql: $push_get_id:expr,
-            push_get_first_sql: $push_get_first:expr,
-            push_list_sql: $push_list:expr,
-            push_delete_sql: $push_del:expr,
-            push_delete_all_sql: $push_del_all:expr,
         ) => {
-            #[doc = concat!("SQL-backed store implementations for the `", $feat, "` database backend.")]
+            #[doc = concat!("SQL-backed task store for the `", $feat, "` database backend.")]
             #[cfg(feature = $feat)]
             pub mod $mod {
                 use super::*;
@@ -433,24 +234,6 @@ pub mod sql {
 
                 fn db_err(e: sqlx::Error) -> crate::error::A2AError {
                     crate::error::A2AError::Database(e.to_string())
-                }
-
-                fn row_to_push_config<R: Row>(r: &R) -> PushNotificationConfig
-                where
-                    for<'a> &'a str: sqlx::ColumnIndex<R>,
-                    for<'a> String: sqlx::Decode<'a, <R as Row>::Database>,
-                    for<'a> Option<String>: sqlx::Decode<'a, <R as Row>::Database>,
-                    String: sqlx::Type<<R as Row>::Database>,
-                    Option<String>: sqlx::Type<<R as Row>::Database>,
-                {
-                    PushConfigRow {
-                        id: r.get("id"),
-                        task_id: r.get("task_id"),
-                        url: r.get("url"),
-                        token: r.get("token"),
-                        authentication: r.get("authentication"),
-                    }
-                    .to_config()
                 }
 
                 /// SQL-backed task store.
@@ -494,10 +277,7 @@ pub mod sql {
                         Ok(())
                     }
 
-                    async fn get(
-                        &self,
-                        task_id: &str,
-                    ) -> Result<Option<Task>> {
+                    async fn get(&self, task_id: &str) -> Result<Option<Task>> {
                         let row = sqlx::query($task_get)
                             .bind(task_id)
                             .fetch_optional(&self.pool)
@@ -539,114 +319,19 @@ pub mod sql {
                         Ok(rows.iter().map(|r| r.get("id")).collect())
                     }
                 }
-
-                /// SQL-backed push notification config store.
-                #[derive(Debug, Clone)]
-                pub struct $PushStore {
-                    pool: DbPool,
-                }
-
-                impl $PushStore {
-                    /// Creates a new store with the given connection pool.
-                    pub fn new(pool: DbPool) -> Self {
-                        Self { pool }
-                    }
-
-                    /// Creates the required tables if they don't exist.
-                    pub async fn initialize(&self) -> Result<()> {
-                        sqlx::query($push_schema)
-                            .execute(&self.pool)
-                            .await
-                            .map_err(db_err)?;
-                        Ok(())
-                    }
-                }
-
-                #[async_trait]
-                impl PushNotificationConfigStore for $PushStore {
-                    async fn save(&self, task_id: &str, config: &PushNotificationConfig) -> Result<()> {
-                        let row = PushConfigRow::from_config(task_id, config);
-                        sqlx::query($push_save)
-                            .bind(&row.id)
-                            .bind(&row.task_id)
-                            .bind(&row.url)
-                            .bind(&row.token)
-                            .bind(&row.authentication)
-                            .execute(&self.pool)
-                            .await
-                            .map_err(db_err)?;
-                        Ok(())
-                    }
-
-                    async fn get(
-                        &self,
-                        task_id: &str,
-                        config_id: Option<&str>,
-                    ) -> Result<Option<PushNotificationConfig>> {
-                        let row = match config_id {
-                            Some(cid) => {
-                                sqlx::query($push_get_id)
-                                    .bind(task_id)
-                                    .bind(cid)
-                                    .fetch_optional(&self.pool)
-                                    .await
-                            }
-                            None => {
-                                sqlx::query($push_get_first)
-                                    .bind(task_id)
-                                    .fetch_optional(&self.pool)
-                                    .await
-                            }
-                        }
-                        .map_err(db_err)?;
-
-                        Ok(row.as_ref().map(row_to_push_config))
-                    }
-
-                    async fn list(&self, task_id: &str) -> Result<Vec<PushNotificationConfig>> {
-                        let rows = sqlx::query($push_list)
-                            .bind(task_id)
-                            .fetch_all(&self.pool)
-                            .await
-                            .map_err(db_err)?;
-                        Ok(rows.iter().map(row_to_push_config).collect())
-                    }
-
-                    async fn delete(&self, task_id: &str, config_id: &str) -> Result<()> {
-                        sqlx::query($push_del)
-                            .bind(task_id)
-                            .bind(config_id)
-                            .execute(&self.pool)
-                            .await
-                            .map_err(db_err)?;
-                        Ok(())
-                    }
-
-                    async fn delete_all(&self, task_id: &str) -> Result<()> {
-                        sqlx::query($push_del_all)
-                            .bind(task_id)
-                            .execute(&self.pool)
-                            .await
-                            .map_err(db_err)?;
-                        Ok(())
-                    }
-                }
             }
 
             #[cfg(feature = $feat)]
-            pub use $mod::{$TaskStore, $PushStore};
+            pub use $mod::$TaskStore;
         };
     }
 
-    // --- SQLite implementation ---
-    impl_sql_stores! {
+    impl_sql_task_store! {
         mod_name: sqlite,
         feature: "sqlite",
         pool_type: sqlx::SqlitePool,
         task_store_name: SqliteTaskStore,
-        push_store_name: SqlitePushNotificationConfigStore,
         task_schema: TASK_TABLE_SCHEMA_SQLITE,
-        push_schema: PUSH_CONFIG_TABLE_SCHEMA_SQLITE,
         task_save_sql: r#"
             INSERT INTO a2a_tasks (id, context_id, status_state, status_message, status_timestamp, history, artifacts, metadata, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -658,28 +343,14 @@ pub mod sql {
         "#,
         task_get_sql: "SELECT id, context_id, status_state, status_message, status_timestamp, history, artifacts, metadata FROM a2a_tasks WHERE id = ?",
         task_delete_sql: "DELETE FROM a2a_tasks WHERE id = ?",
-        push_save_sql: r#"
-            INSERT INTO a2a_push_configs (id, task_id, url, token, authentication)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(task_id, id) DO UPDATE SET
-                url = excluded.url, token = excluded.token, authentication = excluded.authentication
-        "#,
-        push_get_by_id_sql: "SELECT id, task_id, url, token, authentication FROM a2a_push_configs WHERE task_id = ? AND id = ?",
-        push_get_first_sql: "SELECT id, task_id, url, token, authentication FROM a2a_push_configs WHERE task_id = ? LIMIT 1",
-        push_list_sql: "SELECT id, task_id, url, token, authentication FROM a2a_push_configs WHERE task_id = ?",
-        push_delete_sql: "DELETE FROM a2a_push_configs WHERE task_id = ? AND id = ?",
-        push_delete_all_sql: "DELETE FROM a2a_push_configs WHERE task_id = ?",
     }
 
-    // --- PostgreSQL implementation ---
-    impl_sql_stores! {
+    impl_sql_task_store! {
         mod_name: postgres,
         feature: "postgresql",
         pool_type: sqlx::PgPool,
         task_store_name: PostgresTaskStore,
-        push_store_name: PostgresPushNotificationConfigStore,
         task_schema: TASK_TABLE_SCHEMA_POSTGRES,
-        push_schema: PUSH_CONFIG_TABLE_SCHEMA_POSTGRES,
         task_save_sql: r#"
             INSERT INTO a2a_tasks (id, context_id, status_state, status_message, status_timestamp, history, artifacts, metadata, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
@@ -691,17 +362,6 @@ pub mod sql {
         "#,
         task_get_sql: "SELECT id, context_id, status_state, status_message, status_timestamp, history::TEXT, artifacts::TEXT, metadata::TEXT FROM a2a_tasks WHERE id = $1",
         task_delete_sql: "DELETE FROM a2a_tasks WHERE id = $1",
-        push_save_sql: r#"
-            INSERT INTO a2a_push_configs (id, task_id, url, token, authentication)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT(task_id, id) DO UPDATE SET
-                url = EXCLUDED.url, token = EXCLUDED.token, authentication = EXCLUDED.authentication
-        "#,
-        push_get_by_id_sql: "SELECT id, task_id, url, token, authentication::TEXT FROM a2a_push_configs WHERE task_id = $1 AND id = $2",
-        push_get_first_sql: "SELECT id, task_id, url, token, authentication::TEXT FROM a2a_push_configs WHERE task_id = $1 LIMIT 1",
-        push_list_sql: "SELECT id, task_id, url, token, authentication::TEXT FROM a2a_push_configs WHERE task_id = $1",
-        push_delete_sql: "DELETE FROM a2a_push_configs WHERE task_id = $1 AND id = $2",
-        push_delete_all_sql: "DELETE FROM a2a_push_configs WHERE task_id = $1",
     }
 }
 

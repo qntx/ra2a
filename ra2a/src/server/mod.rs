@@ -10,26 +10,19 @@
 //! - **Task Management**: Task lifecycle and state management
 
 mod app;
-mod context;
 mod default_handler;
 mod events;
 mod handler;
-mod push_notification;
-mod rest_handler;
-mod sse;
 mod task_store;
 
 pub use app::*;
-pub use context::*;
 pub use default_handler::*;
 pub use events::*;
 pub use handler::*;
-pub use push_notification::*;
-pub use rest_handler::*;
-pub use sse::*;
 pub use task_store::*;
 
 use async_trait::async_trait;
+use std::sync::Arc;
 
 use crate::error::Result;
 use crate::types::{AgentCard, Message, Task};
@@ -83,5 +76,46 @@ impl RequestContext {
             uuid::Uuid::new_v4().to_string(),
             uuid::Uuid::new_v4().to_string(),
         )
+    }
+}
+
+/// Server state shared across all request handlers.
+///
+/// Holds an [`AgentCard`] for the well-known endpoint and a boxed
+/// [`RequestHandler`] that all JSON-RPC methods are dispatched to.
+#[derive(Clone)]
+pub struct ServerState {
+    /// The request handler all methods are dispatched to.
+    pub handler: Arc<dyn RequestHandler>,
+    /// The agent card served on the well-known endpoint.
+    pub agent_card: Arc<AgentCard>,
+}
+
+impl ServerState {
+    /// Creates a server state from an existing handler and agent card.
+    pub fn new(handler: Arc<dyn RequestHandler>, agent_card: AgentCard) -> Self {
+        Self {
+            handler,
+            agent_card: Arc::new(agent_card),
+        }
+    }
+
+    /// Convenience constructor: wraps an [`AgentExecutor`] in a
+    /// [`DefaultRequestHandler`] automatically.
+    pub fn from_executor<E: AgentExecutor + 'static>(executor: E) -> Self {
+        let card = executor.agent_card().clone();
+        let handler = Arc::new(DefaultRequestHandler::new(executor));
+        Self {
+            handler,
+            agent_card: Arc::new(card),
+        }
+    }
+}
+
+impl std::fmt::Debug for ServerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServerState")
+            .field("agent_card", &self.agent_card)
+            .finish_non_exhaustive()
     }
 }

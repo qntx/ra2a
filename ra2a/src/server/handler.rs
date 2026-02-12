@@ -19,10 +19,6 @@ use crate::types::{
 use super::ServerState;
 use super::events::Event;
 
-// ---------------------------------------------------------------------------
-// RequestHandler trait
-// ---------------------------------------------------------------------------
-
 /// A boxed stream of events for streaming responses.
 pub type EventStream = Pin<Box<dyn Stream<Item = Result<Event>> + Send>>;
 
@@ -94,10 +90,6 @@ impl From<Message> for SendMessageResponse {
         Self::Message(message)
     }
 }
-
-// ---------------------------------------------------------------------------
-// JSON-RPC dispatcher
-// ---------------------------------------------------------------------------
 
 /// Dispatches a raw JSON-RPC request body to the appropriate
 /// [`RequestHandler`](super::RequestHandler) method and returns the serialized response.
