@@ -305,7 +305,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         let result = self
             .handler
-            .on_set_push_notification_config(params)
+            .on_set_task_push_config(params)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -341,7 +341,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         let result = self
             .handler
-            .on_get_push_notification_config(params)
+            .on_get_task_push_config(params)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -405,7 +405,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         };
 
         self.handler
-            .on_delete_push_notification_config(params)
+            .on_delete_task_push_config(params)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 

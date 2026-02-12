@@ -160,6 +160,7 @@ impl MessageSendParams {
 
 /// Configuration options for a message/send or message/stream request.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MessageSendConfig {
     /// A list of output MIME types the client accepts.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -177,6 +178,7 @@ pub struct MessageSendConfig {
 
 /// Parameters for the tasks/get request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TaskQueryParams {
     /// The unique identifier of the task.
     pub id: String,
@@ -259,6 +261,7 @@ pub struct PushAuthInfo {
 
 /// Associates a push notification config with a task.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TaskPushConfig {
     /// The unique identifier of the task.
     pub task_id: String,
@@ -268,6 +271,7 @@ pub struct TaskPushConfig {
 
 /// Parameters for getting a push notification config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetTaskPushConfigParams {
     /// The unique identifier of the task.
     pub id: String,
@@ -281,6 +285,7 @@ pub struct GetTaskPushConfigParams {
 
 /// Parameters for deleting a push notification config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeleteTaskPushConfigParams {
     /// The unique identifier of the task.
     pub id: String,
@@ -455,7 +460,7 @@ pub enum A2ARequest {
         params: TaskIdParams,
     },
     /// Set push notification configuration.
-    #[serde(rename = "tasks/PushConfig/set")]
+    #[serde(rename = "tasks/pushNotificationConfig/set")]
     SetPushConfig {
         /// JSON-RPC version.
         jsonrpc: String,
@@ -465,7 +470,7 @@ pub enum A2ARequest {
         params: TaskPushConfig,
     },
     /// Get push notification configuration.
-    #[serde(rename = "tasks/PushConfig/get")]
+    #[serde(rename = "tasks/pushNotificationConfig/get")]
     GetPushConfig {
         /// JSON-RPC version.
         jsonrpc: String,
@@ -475,7 +480,7 @@ pub enum A2ARequest {
         params: GetTaskPushConfigParams,
     },
     /// List push notification configurations.
-    #[serde(rename = "tasks/PushConfig/list")]
+    #[serde(rename = "tasks/pushNotificationConfig/list")]
     ListPushConfig {
         /// JSON-RPC version.
         jsonrpc: String,
@@ -485,7 +490,7 @@ pub enum A2ARequest {
         params: ListTaskPushConfigParams,
     },
     /// Delete push notification configuration.
-    #[serde(rename = "tasks/PushConfig/delete")]
+    #[serde(rename = "tasks/pushNotificationConfig/delete")]
     DeletePushConfig {
         /// JSON-RPC version.
         jsonrpc: String,
@@ -513,10 +518,10 @@ impl A2ARequest {
             Self::GetTask { .. } => "tasks/get",
             Self::CancelTask { .. } => "tasks/cancel",
             Self::Resubscribe { .. } => "tasks/resubscribe",
-            Self::SetPushConfig { .. } => "tasks/PushConfig/set",
-            Self::GetPushConfig { .. } => "tasks/PushConfig/get",
-            Self::ListPushConfig { .. } => "tasks/PushConfig/list",
-            Self::DeletePushConfig { .. } => "tasks/PushConfig/delete",
+            Self::SetPushConfig { .. } => "tasks/pushNotificationConfig/set",
+            Self::GetPushConfig { .. } => "tasks/pushNotificationConfig/get",
+            Self::ListPushConfig { .. } => "tasks/pushNotificationConfig/list",
+            Self::DeletePushConfig { .. } => "tasks/pushNotificationConfig/delete",
             Self::GetAuthenticatedExtendedCard { .. } => "agent/getAuthenticatedExtendedCard",
         }
     }

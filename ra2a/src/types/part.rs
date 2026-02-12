@@ -145,6 +145,7 @@ pub trait FileBase {
 
 /// Represents a file with its content provided as base64-encoded bytes.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct FileWithBytes {
     /// The base64-encoded content of the file.
     pub bytes: String,
@@ -191,6 +192,7 @@ impl FileWithBytes {
 
 /// Represents a file with its content located at a URI.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct FileWithUri {
     /// A URL pointing to the file's content.
     pub uri: String,

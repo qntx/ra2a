@@ -43,26 +43,26 @@ pub trait RequestHandler: Send + Sync {
     /// Handles the `tasks/resubscribe` request.
     async fn on_resubscribe(&self, params: TaskIdParams) -> Result<EventStream>;
 
-    /// Handles the `tasks/PushConfig/set` request.
-    async fn on_set_push_notification_config(
+    /// Handles the `tasks/pushNotificationConfig/set` request.
+    async fn on_set_task_push_config(
         &self,
         params: TaskPushConfig,
     ) -> Result<TaskPushConfig>;
 
-    /// Handles the `tasks/PushConfig/get` request.
-    async fn on_get_push_notification_config(
+    /// Handles the `tasks/pushNotificationConfig/get` request.
+    async fn on_get_task_push_config(
         &self,
         params: GetTaskPushConfigParams,
     ) -> Result<TaskPushConfig>;
 
-    /// Handles the `tasks/PushConfig/list` request.
-    async fn on_list_push_notification_config(
+    /// Handles the `tasks/pushNotificationConfig/list` request.
+    async fn on_list_task_push_config(
         &self,
         params: ListTaskPushConfigParams,
     ) -> Result<Vec<TaskPushConfig>>;
 
-    /// Handles the `tasks/PushConfig/delete` request.
-    async fn on_delete_push_notification_config(
+    /// Handles the `tasks/pushNotificationConfig/delete` request.
+    async fn on_delete_task_push_config(
         &self,
         params: DeleteTaskPushConfigParams,
     ) -> Result<()>;
@@ -136,24 +136,24 @@ pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<S
             "Streaming methods must be called via the SSE endpoint",
         )
         .into()),
-        "tasks/PushConfig/set" => {
+        "tasks/pushNotificationConfig/set" => {
             let params = parse_params::<TaskPushConfig>(&request)?;
-            let config = handler.on_set_push_notification_config(params).await?;
+            let config = handler.on_set_task_push_config(params).await?;
             serialize_success(&id, &config)
         }
-        "tasks/PushConfig/get" => {
+        "tasks/pushNotificationConfig/get" => {
             let params = parse_params::<GetTaskPushConfigParams>(&request)?;
-            let config = handler.on_get_push_notification_config(params).await?;
+            let config = handler.on_get_task_push_config(params).await?;
             serialize_success(&id, &config)
         }
-        "tasks/PushConfig/list" => {
+        "tasks/pushNotificationConfig/list" => {
             let params = parse_params::<ListTaskPushConfigParams>(&request)?;
-            let configs = handler.on_list_push_notification_config(params).await?;
+            let configs = handler.on_list_task_push_config(params).await?;
             serialize_success(&id, &configs)
         }
-        "tasks/PushConfig/delete" => {
+        "tasks/pushNotificationConfig/delete" => {
             let params = parse_params::<DeleteTaskPushConfigParams>(&request)?;
-            handler.on_delete_push_notification_config(params).await?;
+            handler.on_delete_task_push_config(params).await?;
             serialize_success(&id, &serde_json::Value::Null)
         }
         "agent/getAuthenticatedExtendedCard" => {

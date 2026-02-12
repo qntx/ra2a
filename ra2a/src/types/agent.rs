@@ -31,6 +31,7 @@ impl Default for TransportProtocol {
 
 /// The AgentCard is a self-describing manifest for an agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentCard {
     /// A human-readable name for the agent.
     pub name: String,
@@ -196,6 +197,7 @@ impl AgentCardBuilder {
 
 /// Defines optional capabilities supported by an agent.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentCapabilities {
     /// Indicates if the agent supports Server-Sent Events (SSE) for streaming.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -231,6 +233,7 @@ impl AgentCapabilities {
 
 /// Represents a distinct capability or function that an agent can perform.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentSkill {
     /// A unique identifier for the skill.
     pub id: String,

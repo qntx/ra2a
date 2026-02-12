@@ -26,6 +26,7 @@ impl Default for Role {
 
 /// Represents a single message in the conversation between a user and an agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Message {
     /// A unique identifier for the message (typically a UUID).
     pub message_id: String,

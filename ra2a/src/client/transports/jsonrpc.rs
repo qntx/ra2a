@@ -291,28 +291,28 @@ impl ClientTransport for JsonRpcTransport {
         &self,
         config: TaskPushConfig,
     ) -> Result<TaskPushConfig> {
-        self.send_request("tasks/PushConfig/set", config).await
+        self.send_request("tasks/pushNotificationConfig/set", config).await
     }
 
     async fn get_task_push_notification_config(
         &self,
         params: GetTaskPushConfigParams,
     ) -> Result<TaskPushConfig> {
-        self.send_request("tasks/PushConfig/get", params).await
+        self.send_request("tasks/pushNotificationConfig/get", params).await
     }
 
     async fn list_task_push_notification_configs(
         &self,
         params: ListTaskPushConfigParams,
     ) -> Result<Vec<TaskPushConfig>> {
-        self.send_request("tasks/PushConfig/list", params).await
+        self.send_request("tasks/pushNotificationConfig/list", params).await
     }
 
     async fn delete_task_push_notification_config(
         &self,
         params: DeleteTaskPushConfigParams,
     ) -> Result<()> {
-        self.send_request("tasks/PushConfig/delete", params).await
+        self.send_request("tasks/pushNotificationConfig/delete", params).await
     }
 
     async fn resubscribe(

@@ -245,14 +245,14 @@ impl Client for StreamingClient {
     #[instrument(skip(self))]
     async fn set_task_callback(&self, config: TaskPushConfig) -> Result<TaskPushConfig> {
         let request: JsonRpcRequest<TaskPushConfig> =
-            JsonRpcRequest::new("tasks/PushConfig/set", config);
+            JsonRpcRequest::new("tasks/pushNotificationConfig/set", config);
         self.send_request(request).await
     }
 
     #[instrument(skip(self))]
     async fn get_task_callback(&self, params: GetTaskPushConfigParams) -> Result<TaskPushConfig> {
         let request: JsonRpcRequest<GetTaskPushConfigParams> =
-            JsonRpcRequest::new("tasks/PushConfig/get", params);
+            JsonRpcRequest::new("tasks/pushNotificationConfig/get", params);
         self.send_request(request).await
     }
 
@@ -299,7 +299,7 @@ impl Client for StreamingClient {
         params: ListTaskPushConfigParams,
     ) -> Result<Vec<TaskPushConfig>> {
         let request: JsonRpcRequest<ListTaskPushConfigParams> =
-            JsonRpcRequest::new("tasks/PushConfig/list", params);
+            JsonRpcRequest::new("tasks/pushNotificationConfig/list", params);
         self.send_request(request).await
     }
 
@@ -309,7 +309,7 @@ impl Client for StreamingClient {
         params: DeleteTaskPushConfigParams,
     ) -> Result<()> {
         let request: JsonRpcRequest<DeleteTaskPushConfigParams> =
-            JsonRpcRequest::new("tasks/PushConfig/delete", params);
+            JsonRpcRequest::new("tasks/pushNotificationConfig/delete", params);
         self.send_request(request).await
     }
 

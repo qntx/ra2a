@@ -394,7 +394,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         Ok(Box::pin(stream))
     }
 
-    async fn on_set_push_notification_config(
+    async fn on_set_task_push_config(
         &self,
         params: TaskPushConfig,
     ) -> Result<TaskPushConfig> {
@@ -410,7 +410,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         Ok(params)
     }
 
-    async fn on_get_push_notification_config(
+    async fn on_get_task_push_config(
         &self,
         params: GetTaskPushConfigParams,
     ) -> Result<TaskPushConfig> {
@@ -440,7 +440,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         })
     }
 
-    async fn on_list_push_notification_config(
+    async fn on_list_task_push_config(
         &self,
         params: ListTaskPushConfigParams,
     ) -> Result<Vec<TaskPushConfig>> {
@@ -456,7 +456,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         Ok(configs.get(&params.id).cloned().unwrap_or_default())
     }
 
-    async fn on_delete_push_notification_config(
+    async fn on_delete_task_push_config(
         &self,
         params: DeleteTaskPushConfigParams,
     ) -> Result<()> {
