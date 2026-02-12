@@ -112,23 +112,20 @@ impl ClientFactory {
 
         // 2. Check agent's preferred transport
         if let Some(ref preferred) = card.preferred_transport {
-            if let Ok(transport) = preferred.parse::<TransportType>() {
-                return transport;
-            }
+            return TransportType::from(preferred.clone());
         }
 
         // 3. Check additional interfaces for supported transports
         if let Some(ref interfaces) = card.additional_interfaces {
             for interface in interfaces {
-                if let Ok(transport) = interface.transport.parse::<TransportType>() {
-                    // Prefer gRPC if available, then REST, then JSON-RPC
-                    match transport {
-                        TransportType::Grpc => {
-                            // gRPC not yet implemented, skip
-                        }
-                        TransportType::Rest => return TransportType::Rest,
-                        TransportType::JsonRpc => {}
+                let transport = TransportType::from(interface.transport.clone());
+                // Prefer gRPC if available, then REST, then JSON-RPC
+                match transport {
+                    TransportType::Grpc => {
+                        // gRPC not yet implemented, skip
                     }
+                    TransportType::Rest => return TransportType::Rest,
+                    TransportType::JsonRpc => {}
                 }
             }
         }

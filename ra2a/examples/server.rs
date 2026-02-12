@@ -28,10 +28,10 @@ impl HelloWorldExecutor {
             .description("A simple agent that greets users and answers basic questions.")
             .version("1.0.0")
             .capabilities(AgentCapabilities {
-                streaming: Some(false),
-                push_notifications: Some(false),
-                state_transition_history: Some(false),
-                extensions: None,
+                streaming: false,
+                push_notifications: false,
+                state_transition_history: false,
+                extensions: vec![],
             })
             .skill(AgentSkill::new(
                 "greeting",

@@ -251,7 +251,6 @@ impl From<proto::Message> for NativeMessage {
             } else {
                 Some(msg.reference_task_ids)
             },
-            referencing_message_id: None,
         }
     }
 }

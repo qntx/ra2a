@@ -46,9 +46,6 @@ pub struct Message {
     /// A list of other task IDs that this message references.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_task_ids: Option<Vec<String>>,
-    /// Reference to a previous message this message is replying to.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub referencing_message_id: Option<String>,
     /// The URIs of extensions relevant to this message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extensions: Option<Vec<String>>,
@@ -72,16 +69,9 @@ impl Message {
             task_id: None,
             context_id: None,
             reference_task_ids: None,
-            referencing_message_id: None,
             extensions: None,
             metadata: None,
         }
-    }
-
-    /// Sets the referencing message ID.
-    pub fn with_referencing_message(mut self, message_id: impl Into<String>) -> Self {
-        self.referencing_message_id = Some(message_id.into());
-        self
     }
 
     /// Creates a new user message with auto-generated ID.

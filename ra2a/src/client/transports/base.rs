@@ -10,7 +10,7 @@ use futures::Stream;
 use crate::error::Result;
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
-    Message, Task, TaskIdParams, TaskPushConfig, TaskQueryParams, TaskResubscriptionParams,
+    Message, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
 };
 
 /// A boxed stream of streaming events.
@@ -39,6 +39,16 @@ impl std::fmt::Display for TransportType {
             Self::JsonRpc => write!(f, "JSONRPC"),
             Self::Rest => write!(f, "HTTP+JSON"),
             Self::Grpc => write!(f, "GRPC"),
+        }
+    }
+}
+
+impl From<crate::types::TransportProtocol> for TransportType {
+    fn from(tp: crate::types::TransportProtocol) -> Self {
+        match tp {
+            crate::types::TransportProtocol::JsonRpc => Self::JsonRpc,
+            crate::types::TransportProtocol::HttpJson => Self::Rest,
+            crate::types::TransportProtocol::Grpc => Self::Grpc,
         }
     }
 }
@@ -128,7 +138,7 @@ pub trait ClientTransport: Send + Sync {
     /// Resubscribes to a task's event stream.
     async fn resubscribe(
         &self,
-        params: TaskResubscriptionParams,
+        params: TaskIdParams,
     ) -> Result<EventStream<StreamEvent>>;
 
     /// Gets the agent card.

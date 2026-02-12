@@ -82,6 +82,8 @@ pub struct RequestContext {
     pub message: Option<Message>,
     /// The existing task if the message references one.
     pub stored_task: Option<Task>,
+    /// Tasks referenced by `Message.reference_task_ids`, loaded by interceptors.
+    pub related_tasks: Vec<Task>,
     /// Additional metadata from the request.
     pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
 }
@@ -94,6 +96,7 @@ impl RequestContext {
             context_id: context_id.into(),
             message: None,
             stored_task: None,
+            related_tasks: Vec::new(),
             metadata: None,
         }
     }

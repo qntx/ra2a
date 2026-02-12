@@ -45,6 +45,10 @@ pub enum A2AError {
     #[error("internal error: {0}")]
     InternalError(String),
 
+    /// Reserved for implementation-defined server errors.
+    #[error("server error: {0}")]
+    ServerError(String),
+
     /// A task with the provided ID was not found.
     #[error("task not found: {0}")]
     TaskNotFound(String),
@@ -148,6 +152,8 @@ impl A2AError {
             Self::InvalidRequest(_) => (JsonRpcErrorCode::InvalidRequest, "Invalid request"),
             Self::MethodNotFound(_) => (JsonRpcErrorCode::MethodNotFound, "Method not found"),
             Self::InvalidParams(_) => (JsonRpcErrorCode::InvalidParams, "Invalid params"),
+            Self::InternalError(_) => (JsonRpcErrorCode::InternalError, "Internal error"),
+            Self::ServerError(_) => (JsonRpcErrorCode::ServerError, "Server error"),
             Self::TaskNotFound(_) => (JsonRpcErrorCode::TaskNotFound, "Task not found"),
             Self::TaskNotCancelable(_) => {
                 (JsonRpcErrorCode::TaskNotCancelable, "Task not cancelable")

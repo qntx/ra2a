@@ -15,7 +15,7 @@ use crate::error::{A2AError, Result};
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
     Message, Task, TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig, TaskQueryParams,
-    TaskResubscriptionParams, TaskStatusUpdateEvent,
+    TaskStatusUpdateEvent,
 };
 
 /// REST transport for A2A protocol.
@@ -343,7 +343,7 @@ impl ClientTransport for RestTransport {
 
     async fn resubscribe(
         &self,
-        params: TaskResubscriptionParams,
+        params: TaskIdParams,
     ) -> Result<EventStream<StreamEvent>> {
         let response = self
             .client

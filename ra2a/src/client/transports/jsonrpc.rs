@@ -16,7 +16,7 @@ use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcRequest,
     JsonRpcResponse, ListTaskPushConfigParams, Message, MessageSendParams, SendMessageResult, Task,
     TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig, TaskQueryParams,
-    TaskResubscriptionParams, TaskStatusUpdateEvent,
+    TaskStatusUpdateEvent,
 };
 
 /// JSON-RPC transport for A2A protocol.
@@ -317,7 +317,7 @@ impl ClientTransport for JsonRpcTransport {
 
     async fn resubscribe(
         &self,
-        params: TaskResubscriptionParams,
+        params: TaskIdParams,
     ) -> Result<EventStream<StreamEvent>> {
         self.send_streaming_request("tasks/resubscribe", params)
             .await

@@ -344,26 +344,6 @@ impl GetTaskPushConfigParams {
     }
 }
 
-/// Parameters for resubscribing to a task's event stream.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskResubscriptionParams {
-    /// The unique identifier of the task.
-    pub id: String,
-    /// Optional metadata associated with the request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
-}
-
-impl TaskResubscriptionParams {
-    /// Creates new resubscription parameters.
-    pub fn new(id: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            metadata: None,
-        }
-    }
-}
-
 /// Parameters for getting authenticated extended card.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GetAuthenticatedExtendedCardParams {

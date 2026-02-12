@@ -186,10 +186,24 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
 
     /// Collects events from the queue until a terminal event is received.
     /// Used for non-streaming `message/send`. Stores task snapshots along the way.
+    ///
+    /// Implements Go's `shouldInterruptNonStreaming` logic:
+    /// - If `blocking == false`, return on the first non-Message event (load task from store).
+    /// - If a task enters `AuthRequired` state, interrupt and return.
     async fn collect_result(
         &self,
         mut rx: tokio::sync::broadcast::Receiver<Event>,
+        params: &MessageSendParams,
     ) -> Result<SendMessageResponse> {
+        let is_non_blocking = params
+            .configuration
+            .as_ref()
+            .and_then(|c| c.blocking)
+            .map(|b| !b)
+            .unwrap_or(false);
+
+        let mut last_event: Option<Event> = None;
+
         loop {
             match rx.recv().await {
                 Ok(event) => {
@@ -206,12 +220,25 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
                         }
                         _ => {}
                     }
+
+                    // Check shouldInterruptNonStreaming conditions
+                    if let Some((task_id, should_interrupt)) =
+                        Self::should_interrupt_non_streaming(is_non_blocking, &event)
+                    {
+                        if should_interrupt {
+                            let t = self
+                                .get_task_internal(&task_id)
+                                .await
+                                .unwrap_or_else(|| Task::new(&task_id, ""));
+                            return Ok(SendMessageResponse::Task(t));
+                        }
+                    }
+
                     if event.is_terminal() {
                         return match event {
                             Event::Task(t) => Ok(SendMessageResponse::Task(t)),
                             Event::Message(m) => Ok(SendMessageResponse::Message(m)),
                             Event::StatusUpdate(e) => {
-                                // Build final task from store
                                 let t = self
                                     .get_task_internal(&e.task_id)
                                     .await
@@ -221,14 +248,71 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
                             _ => Err(A2AError::Other("Unexpected terminal event".into()).into()),
                         };
                     }
+
+                    last_event = Some(event);
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    // If we have a last event that is a SendMessageResult, use it
+                    if let Some(event) = last_event {
+                        return match event {
+                            Event::Task(t) => Ok(SendMessageResponse::Task(t)),
+                            Event::Message(m) => Ok(SendMessageResponse::Message(m)),
+                            _ => {
+                                if let Some(tid) = event.task_id() {
+                                    let t = self
+                                        .get_task_internal(tid)
+                                        .await
+                                        .unwrap_or_else(|| Task::new(tid, ""));
+                                    Ok(SendMessageResponse::Task(t))
+                                } else {
+                                    Err(A2AError::Other(
+                                        "Event queue closed unexpectedly".into(),
+                                    )
+                                    .into())
+                                }
+                            }
+                        };
+                    }
                     return Err(A2AError::Other("Event queue closed unexpectedly".into()).into());
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     warn!("Event stream lagged by {} messages", n);
                 }
             }
+        }
+    }
+
+    /// Determines if a non-streaming message/send should be interrupted.
+    ///
+    /// Aligned with Go's `shouldInterruptNonStreaming`:
+    /// - Non-blocking clients receive a result on the first non-Message task event.
+    /// - Blocking clients are interrupted when auth is required.
+    fn should_interrupt_non_streaming(
+        is_non_blocking: bool,
+        event: &Event,
+    ) -> Option<(String, bool)> {
+        // Non-blocking: interrupt on first non-Message event
+        if is_non_blocking {
+            if matches!(event, Event::Message(_)) {
+                return None;
+            }
+            if let Some(tid) = event.task_id() {
+                return Some((tid.to_string(), true));
+            }
+            return None;
+        }
+
+        // Blocking: interrupt only when auth is required
+        match event {
+            Event::Task(t) if t.status.state == crate::types::TaskState::AuthRequired => {
+                Some((t.id.clone(), true))
+            }
+            Event::StatusUpdate(e)
+                if e.status.state == crate::types::TaskState::AuthRequired =>
+            {
+                Some((e.task_id.clone(), true))
+            }
+            _ => None,
         }
     }
 
@@ -262,7 +346,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         self.spawn_execution(ctx, Arc::clone(&queue));
 
         // Collect events until terminal
-        let mut result = self.collect_result(rx).await?;
+        let mut result = self.collect_result(rx, &params).await?;
 
         // Apply history length
         if let SendMessageResponse::Task(ref mut t) = result {
@@ -349,7 +433,9 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
             }
         });
 
-        let result = self.collect_result(rx).await?;
+        // Cancel always blocks until completion (no non-blocking interrupt)
+        let blocking_params = MessageSendParams::new(crate::types::Message::user(vec![]));
+        let result = self.collect_result(rx, &blocking_params).await?;
         self.queue_manager.remove_queue(&params.id).await;
 
         match result {
@@ -399,7 +485,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         params: TaskPushConfig,
     ) -> Result<TaskPushConfig> {
         let card = self.executor.agent_card();
-        if !card.capabilities.push_notifications.unwrap_or(false) {
+        if !card.capabilities.push_notifications {
             return Err(JsonRpcError::push_notification_not_supported().into());
         }
         self.get_task_internal(&params.task_id)
@@ -415,7 +501,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         params: GetTaskPushConfigParams,
     ) -> Result<TaskPushConfig> {
         let card = self.executor.agent_card();
-        if !card.capabilities.push_notifications.unwrap_or(false) {
+        if !card.capabilities.push_notifications {
             return Err(JsonRpcError::push_notification_not_supported().into());
         }
         self.get_task_internal(&params.id)
@@ -445,7 +531,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         params: ListTaskPushConfigParams,
     ) -> Result<Vec<TaskPushConfig>> {
         let card = self.executor.agent_card();
-        if !card.capabilities.push_notifications.unwrap_or(false) {
+        if !card.capabilities.push_notifications {
             return Err(JsonRpcError::push_notification_not_supported().into());
         }
         self.get_task_internal(&params.id)
@@ -461,7 +547,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         params: DeleteTaskPushConfigParams,
     ) -> Result<()> {
         let card = self.executor.agent_card();
-        if !card.capabilities.push_notifications.unwrap_or(false) {
+        if !card.capabilities.push_notifications {
             return Err(JsonRpcError::push_notification_not_supported().into());
         }
         self.get_task_internal(&params.id)
@@ -533,8 +619,8 @@ mod tests {
         TestAgent {
             card: AgentCard::builder("Test Agent", "http://localhost:8080")
                 .capabilities(AgentCapabilities {
-                    streaming: Some(true),
-                    push_notifications: Some(true),
+                    streaming: true,
+                    push_notifications: true,
                     ..Default::default()
                 })
                 .build(),

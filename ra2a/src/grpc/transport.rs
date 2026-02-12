@@ -16,7 +16,7 @@ use super::proto::{
 use crate::error::{A2AError, Result};
 use crate::types::{
     Message as NativeMessage, MessageSendParams, StreamingEvent, Task as NativeTask, TaskIdParams,
-    TaskQueryParams, TaskResubscriptionParams,
+    TaskQueryParams,
 };
 
 /// gRPC transport for A2A client operations.
@@ -125,7 +125,7 @@ impl GrpcTransport {
     /// Subscribes to task updates.
     pub async fn subscribe_to_task(
         &mut self,
-        params: TaskResubscriptionParams,
+        params: TaskIdParams,
     ) -> Result<GrpcEventStream> {
         let request = SubscribeToTaskRequest {
             tenant: String::new(),

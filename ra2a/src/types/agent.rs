@@ -54,7 +54,7 @@ pub struct AgentCard {
     pub protocol_version: Option<String>,
     /// The transport protocol for the preferred endpoint.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub preferred_transport: Option<String>,
+    pub preferred_transport: Option<TransportProtocol>,
     /// A list of additional supported interfaces.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_interfaces: Option<Vec<AgentInterface>>,
@@ -89,12 +89,12 @@ impl AgentCard {
 
     /// Returns true if the agent supports streaming.
     pub fn supports_streaming(&self) -> bool {
-        self.capabilities.streaming.unwrap_or(false)
+        self.capabilities.streaming
     }
 
     /// Returns true if the agent supports push notifications.
     pub fn supports_push_notifications(&self) -> bool {
-        self.capabilities.push_notifications.unwrap_or(false)
+        self.capabilities.push_notifications
     }
 
     /// Finds a skill by its ID.
@@ -128,7 +128,7 @@ impl AgentCardBuilder {
                 capabilities: AgentCapabilities::default(),
                 skills: vec![],
                 protocol_version: Some(crate::PROTOCOL_VERSION.to_string()),
-                preferred_transport: Some("JSONRPC".to_string()),
+                preferred_transport: Some(TransportProtocol::JsonRpc),
                 additional_interfaces: None,
                 provider: None,
                 documentation_url: None,
@@ -195,29 +195,37 @@ impl AgentCardBuilder {
     }
 }
 
+/// Helper to check if a bool is false, used for serde skip_serializing_if.
+fn is_false(v: &bool) -> bool {
+    !v
+}
+
 /// Defines optional capabilities supported by an agent.
+///
+/// Aligned with Go's `AgentCapabilities`: plain `bool` fields with
+/// `omitempty` (omitted when `false`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentCapabilities {
     /// Indicates if the agent supports Server-Sent Events (SSE) for streaming.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub streaming: Option<bool>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub streaming: bool,
     /// Indicates if the agent supports push notifications.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub push_notifications: Option<bool>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub push_notifications: bool,
     /// Indicates if the agent provides state transition history.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state_transition_history: Option<bool>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub state_transition_history: bool,
     /// A list of protocol extensions supported by the agent.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extensions: Option<Vec<AgentExtension>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<AgentExtension>,
 }
 
 impl AgentCapabilities {
     /// Creates new capabilities with streaming enabled.
     pub fn with_streaming() -> Self {
         Self {
-            streaming: Some(true),
+            streaming: true,
             ..Default::default()
         }
     }
@@ -225,7 +233,7 @@ impl AgentCapabilities {
     /// Creates new capabilities with push notifications enabled.
     pub fn with_push_notifications() -> Self {
         Self {
-            push_notifications: Some(true),
+            push_notifications: true,
             ..Default::default()
         }
     }
@@ -306,15 +314,15 @@ pub struct AgentInterface {
     /// The URL where this interface is available.
     pub url: String,
     /// The transport protocol supported at this URL.
-    pub transport: String,
+    pub transport: TransportProtocol,
 }
 
 impl AgentInterface {
     /// Creates a new interface.
-    pub fn new(url: impl Into<String>, transport: impl Into<String>) -> Self {
+    pub fn new(url: impl Into<String>, transport: TransportProtocol) -> Self {
         Self {
             url: url.into(),
-            transport: transport.into(),
+            transport,
         }
     }
 }
@@ -375,8 +383,8 @@ mod tests {
     #[test]
     fn test_agent_capabilities() {
         let caps = AgentCapabilities::with_streaming();
-        assert_eq!(caps.streaming, Some(true));
-        assert_eq!(caps.push_notifications, None);
+        assert_eq!(caps.streaming, true);
+        assert_eq!(caps.push_notifications, false);
     }
 
     #[test]
