@@ -37,6 +37,7 @@ impl Default for ServerConfig {
 
 impl ServerConfig {
     /// Creates a new server configuration.
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -48,18 +49,21 @@ impl ServerConfig {
     }
 
     /// Sets the port.
-    pub fn port(mut self, port: u16) -> Self {
+    #[must_use] 
+    pub const fn port(mut self, port: u16) -> Self {
         self.port = port;
         self
     }
 
     /// Enables or disables CORS.
-    pub fn cors(mut self, enabled: bool) -> Self {
+    #[must_use] 
+    pub const fn cors(mut self, enabled: bool) -> Self {
         self.enable_cors = enabled;
         self
     }
 
     /// Returns the bind address.
+    #[must_use] 
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
@@ -93,6 +97,7 @@ impl A2AServer {
     }
 
     /// Creates a server from a pre-built [`ServerState`].
+    #[must_use] 
     pub fn from_state(state: ServerState, config: ServerConfig) -> Self {
         let router = Self::build_router(state, &config);
         Self { router, config }
@@ -101,7 +106,7 @@ impl A2AServer {
     /// Builds the Axum router with all A2A endpoints.
     fn build_router(state: ServerState, config: &ServerConfig) -> Router {
         let mut router = Router::new()
-            .route("/.well-known/agent.json", get(handle_agent_card))
+            .route("/.well-known/agent-card.json", get(handle_agent_card))
             .route("/", post(handle_jsonrpc))
             .route("/stream", post(handle_sse_stream))
             .route("/health", get(handle_health))
@@ -124,7 +129,8 @@ impl A2AServer {
     }
 
     /// Returns the server configuration.
-    pub fn config(&self) -> &ServerConfig {
+    #[must_use] 
+    pub const fn config(&self) -> &ServerConfig {
         &self.config
     }
 
@@ -153,8 +159,16 @@ impl A2AServer {
 }
 
 /// Handler for the agent card endpoint.
-async fn handle_agent_card(State(state): State<ServerState>) -> Json<AgentCard> {
-    Json((*state.agent_card).clone())
+///
+/// Aligned with Go's `NewAgentCardHandler` — calls the [`AgentCardProducer`]
+/// to dynamically generate the public agent card.
+async fn handle_agent_card(
+    State(state): State<ServerState>,
+) -> Result<Json<AgentCard>, StatusCode> {
+    match state.card_producer.card().await {
+        Ok(card) => Ok(Json(card)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
 }
 
 /// Handler for the main JSON-RPC endpoint.
@@ -311,6 +325,7 @@ pub struct A2AServerBuilder {
 
 impl A2AServerBuilder {
     /// Creates a new server builder.
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             state: None,
@@ -324,7 +339,8 @@ impl A2AServerBuilder {
         self
     }
 
-    /// Sets a pre-built server state (for custom RequestHandler).
+    /// Sets a pre-built server state (for custom `RequestHandler`).
+    #[must_use] 
     pub fn state(mut self, state: ServerState) -> Self {
         self.state = Some(state);
         self
@@ -337,13 +353,15 @@ impl A2AServerBuilder {
     }
 
     /// Sets the port.
-    pub fn port(mut self, port: u16) -> Self {
+    #[must_use] 
+    pub const fn port(mut self, port: u16) -> Self {
         self.config.port = port;
         self
     }
 
     /// Enables or disables CORS.
-    pub fn cors(mut self, enabled: bool) -> Self {
+    #[must_use] 
+    pub const fn cors(mut self, enabled: bool) -> Self {
         self.config.enable_cors = enabled;
         self
     }
@@ -353,6 +371,7 @@ impl A2AServerBuilder {
     /// # Panics
     ///
     /// Panics if neither executor nor state has been set.
+    #[must_use] 
     pub fn build(self) -> A2AServer {
         let state = self.state.expect("Executor or state must be set");
         A2AServer::from_state(state, self.config)

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 /// Represents an extension declaration in requests or responses.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExtensionDeclaration {
     /// The unique URI identifying the extension.
     pub uri: String,
@@ -31,12 +31,14 @@ impl ExtensionDeclaration {
     }
 
     /// Marks this extension as required.
-    pub fn required(mut self) -> Self {
+    #[must_use] 
+    pub const fn required(mut self) -> Self {
         self.required = true;
         self
     }
 
     /// Sets extension parameters.
+    #[must_use] 
     pub fn with_params(mut self, params: HashMap<String, serde_json::Value>) -> Self {
         self.params = Some(params);
         self
@@ -44,7 +46,7 @@ impl ExtensionDeclaration {
 }
 
 /// Context for extension processing in requests and responses.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExtensionContext {
     /// List of extensions being used.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,6 +58,7 @@ pub struct ExtensionContext {
 
 impl ExtensionContext {
     /// Creates a new empty extension context.
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -68,11 +71,11 @@ impl ExtensionContext {
     }
 
     /// Checks if a specific extension is present.
+    #[must_use] 
     pub fn has_extension(&self, uri: &str) -> bool {
         self.extensions
             .as_ref()
-            .map(|exts| exts.iter().any(|e| e == uri))
-            .unwrap_or(false)
+            .is_some_and(|exts| exts.iter().any(|e| e == uri))
     }
 
     /// Sets metadata for a specific key.
@@ -83,6 +86,7 @@ impl ExtensionContext {
     }
 
     /// Gets metadata for a specific key.
+    #[must_use] 
     pub fn get_metadata(&self, key: &str) -> Option<&serde_json::Value> {
         self.metadata.as_ref().and_then(|m| m.get(key))
     }

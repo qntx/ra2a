@@ -56,7 +56,7 @@ impl RestTransport {
             .map_err(|e| A2AError::Other(e.to_string()))?;
 
         let base_url = options.base_url.trim_end_matches('/').to_string();
-        let card_url = format!("{}/.well-known/agent.json", base_url);
+        let card_url = format!("{base_url}/.well-known/agent-card.json");
 
         Ok(Self {
             client,
@@ -76,7 +76,7 @@ impl RestTransport {
     }
 }
 
-/// Parses an SSE byte stream into StreamEvents for REST transport.
+/// Parses an SSE byte stream into `StreamEvents` for REST transport.
 fn parse_rest_sse_byte_stream(response: reqwest::Response) -> EventStream<StreamEvent> {
     let bytes_stream = response.bytes_stream();
 
@@ -115,7 +115,7 @@ fn parse_rest_sse_byte_stream(response: reqwest::Response) -> EventStream<Stream
     Box::pin(stream)
 }
 
-/// Parses a single SSE message from REST API into a StreamEvent.
+/// Parses a single SSE message from REST API into a `StreamEvent`.
 fn parse_rest_sse_message(message: &str) -> Option<Result<StreamEvent>> {
     let mut event_type = None;
     let mut data = String::new();
@@ -136,22 +136,22 @@ fn parse_rest_sse_message(message: &str) -> Option<Result<StreamEvent>> {
     }
 
     let result = match event_type.as_deref() {
-        Some("status-update") | Some("TaskStatusUpdateEvent") => {
+        Some("status-update" | "TaskStatusUpdateEvent") => {
             serde_json::from_str::<TaskStatusUpdateEvent>(&data)
                 .map(StreamEvent::StatusUpdate)
-                .map_err(|e| A2AError::Json(e))
+                .map_err(A2AError::Json)
         }
-        Some("artifact-update") | Some("TaskArtifactUpdateEvent") => {
+        Some("artifact-update" | "TaskArtifactUpdateEvent") => {
             serde_json::from_str::<TaskArtifactUpdateEvent>(&data)
                 .map(StreamEvent::ArtifactUpdate)
-                .map_err(|e| A2AError::Json(e))
+                .map_err(A2AError::Json)
         }
         Some("task") => serde_json::from_str::<Task>(&data)
             .map(StreamEvent::Task)
-            .map_err(|e| A2AError::Json(e)),
+            .map_err(A2AError::Json),
         Some("message") => serde_json::from_str::<Message>(&data)
             .map(StreamEvent::Message)
-            .map_err(|e| A2AError::Json(e)),
+            .map_err(A2AError::Json),
         _ => {
             // Try to auto-detect type
             if let Ok(task) = serde_json::from_str::<Task>(&data) {
@@ -242,7 +242,7 @@ impl ClientTransport for RestTransport {
     async fn get_task(&self, params: TaskQueryParams) -> Result<Task> {
         let mut url = self.url(&format!("/tasks/{}", params.id));
         if let Some(len) = params.history_length {
-            url = format!("{}?historyLength={}", url, len);
+            url = format!("{url}?historyLength={len}");
         }
 
         let response = self.client.get(&url).send().await?;
@@ -292,7 +292,7 @@ impl ClientTransport for RestTransport {
     ) -> Result<TaskPushConfig> {
         let mut url = self.url(&format!("/tasks/{}/PushConfig", params.id));
         if let Some(ref config_id) = params.push_notification_config_id {
-            url = format!("{}/{}", url, config_id);
+            url = format!("{url}/{config_id}");
         }
 
         let response = self.client.get(&url).send().await?;
@@ -341,10 +341,7 @@ impl ClientTransport for RestTransport {
         Ok(())
     }
 
-    async fn resubscribe(
-        &self,
-        params: TaskIdParams,
-    ) -> Result<EventStream<StreamEvent>> {
+    async fn resubscribe(&self, params: TaskIdParams) -> Result<EventStream<StreamEvent>> {
         let response = self
             .client
             .get(self.url(&format!("/tasks/{}/stream", params.id)))

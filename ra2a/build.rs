@@ -23,7 +23,7 @@ fn compile_protos() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check if proto file exists
     if !std::path::Path::new(proto_file).exists() {
-        println!("cargo:warning=Proto file not found: {}", proto_file);
+        println!("cargo:warning=Proto file not found: {proto_file}");
         return Ok(());
     }
 
@@ -47,8 +47,8 @@ fn compile_protos() -> Result<(), Box<dyn std::error::Error>> {
         )?;
 
     // Tell cargo to rerun if the proto file changes
-    println!("cargo:rerun-if-changed={}", proto_file);
-    println!("cargo:rerun-if-changed={}", proto_dir);
+    println!("cargo:rerun-if-changed={proto_file}");
+    println!("cargo:rerun-if-changed={proto_dir}");
 
     Ok(())
 }

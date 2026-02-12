@@ -21,50 +21,55 @@ pub enum Part {
 impl Part {
     /// Creates a new text part.
     pub fn text(text: impl Into<String>) -> Self {
-        Part::Text(TextPart::new(text))
+        Self::Text(TextPart::new(text))
     }
 
     /// Creates a new file part with bytes.
     pub fn file_bytes(bytes: impl Into<String>, mime_type: Option<String>) -> Self {
-        Part::File(FilePart::with_bytes(bytes, mime_type))
+        Self::File(FilePart::with_bytes(bytes, mime_type))
     }
 
     /// Creates a new file part with URI.
     pub fn file_uri(uri: impl Into<String>, mime_type: Option<String>) -> Self {
-        Part::File(FilePart::with_uri(uri, mime_type))
+        Self::File(FilePart::with_uri(uri, mime_type))
     }
 
     /// Creates a new data part.
-    pub fn data(data: HashMap<String, serde_json::Value>) -> Self {
-        Part::Data(DataPart::new(data))
+    #[must_use] 
+    pub const fn data(data: HashMap<String, serde_json::Value>) -> Self {
+        Self::Data(DataPart::new(data))
     }
 
     /// Returns true if this is a text part.
-    pub fn is_text(&self) -> bool {
-        matches!(self, Part::Text(_))
+    #[must_use] 
+    pub const fn is_text(&self) -> bool {
+        matches!(self, Self::Text(_))
     }
 
     /// Returns true if this is a file part.
-    pub fn is_file(&self) -> bool {
-        matches!(self, Part::File(_))
+    #[must_use] 
+    pub const fn is_file(&self) -> bool {
+        matches!(self, Self::File(_))
     }
 
     /// Returns true if this is a data part.
-    pub fn is_data(&self) -> bool {
-        matches!(self, Part::Data(_))
+    #[must_use] 
+    pub const fn is_data(&self) -> bool {
+        matches!(self, Self::Data(_))
     }
 
     /// Returns the text content if this is a text part.
+    #[must_use] 
     pub fn as_text(&self) -> Option<&str> {
         match self {
-            Part::Text(p) => Some(&p.text),
+            Self::Text(p) => Some(&p.text),
             _ => None,
         }
     }
 }
 
 /// Represents a text segment within a message or artifact.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TextPart {
     /// The string content of the text part.
     pub text: String,
@@ -83,6 +88,7 @@ impl TextPart {
     }
 
     /// Sets the metadata for this part.
+    #[must_use] 
     pub fn with_metadata(mut self, metadata: HashMap<String, serde_json::Value>) -> Self {
         self.metadata = Some(metadata);
         self
@@ -90,7 +96,7 @@ impl TextPart {
 }
 
 /// Represents a file segment within a message or artifact.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FilePart {
     /// The file content.
     pub file: FileContent,
@@ -126,7 +132,7 @@ impl FilePart {
 }
 
 /// File content can be provided as bytes or URI.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum FileContent {
     /// File content provided as base64-encoded bytes.
@@ -144,7 +150,7 @@ pub trait FileBase {
 }
 
 /// Represents a file with its content provided as base64-encoded bytes.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct FileWithBytes {
     /// The base64-encoded content of the file.
@@ -191,7 +197,7 @@ impl FileWithBytes {
 }
 
 /// Represents a file with its content located at a URI.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct FileWithUri {
     /// A URL pointing to the file's content.
@@ -238,7 +244,7 @@ impl FileWithUri {
 }
 
 /// Represents a structured data segment within a message or artifact.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DataPart {
     /// The structured data content.
     pub data: HashMap<String, serde_json::Value>,
@@ -249,7 +255,8 @@ pub struct DataPart {
 
 impl DataPart {
     /// Creates a new data part.
-    pub fn new(data: HashMap<String, serde_json::Value>) -> Self {
+    #[must_use] 
+    pub const fn new(data: HashMap<String, serde_json::Value>) -> Self {
         Self {
             data,
             metadata: None,
@@ -257,6 +264,7 @@ impl DataPart {
     }
 
     /// Sets the metadata for this part.
+    #[must_use] 
     pub fn with_metadata(mut self, metadata: HashMap<String, serde_json::Value>) -> Self {
         self.metadata = Some(metadata);
         self

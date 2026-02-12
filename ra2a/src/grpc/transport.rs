@@ -15,8 +15,8 @@ use super::proto::{
 };
 use crate::error::{A2AError, Result};
 use crate::types::{
-    Message as NativeMessage, MessageSendParams, StreamingEvent, Task as NativeTask, TaskIdParams,
-    TaskQueryParams,
+    Message as NativeMessage, MessageSendParams, Task as NativeTask,
+    TaskArtifactUpdateEvent, TaskIdParams, TaskQueryParams, TaskStatusUpdateEvent,
 };
 
 /// gRPC transport for A2A client operations.
@@ -44,6 +44,7 @@ impl GrpcTransport {
     }
 
     /// Creates a new gRPC transport from an existing channel.
+    #[must_use] 
     pub fn from_channel(channel: Channel) -> Self {
         Self {
             client: A2aServiceClient::new(channel),
@@ -123,10 +124,7 @@ impl GrpcTransport {
     }
 
     /// Subscribes to task updates.
-    pub async fn subscribe_to_task(
-        &mut self,
-        params: TaskIdParams,
-    ) -> Result<GrpcEventStream> {
+    pub async fn subscribe_to_task(&mut self, params: TaskIdParams) -> Result<GrpcEventStream> {
         let request = SubscribeToTaskRequest {
             tenant: String::new(),
             id: params.id,
@@ -141,7 +139,7 @@ impl GrpcTransport {
         Ok(GrpcEventStream::new(response.into_inner()))
     }
 
-    /// Builds a SendMessageRequest from params.
+    /// Builds a `SendMessageRequest` from params.
     fn build_send_request(&self, params: MessageSendParams) -> SendMessageRequest {
         let message = proto::Message::from(params.message);
 
@@ -151,8 +149,8 @@ impl GrpcTransport {
                 accepted_output_modes: config.accepted_output_modes.unwrap_or_default(),
                 push_notification_config: config
                     .push_notification_config
-                    .map(|c| proto::PushNotificationConfig::from(c)),
-                history_length: config.history_length.map(|h| h as i32),
+                    .map(proto::PushNotificationConfig::from),
+                history_length: config.history_length.map(|h| h),
                 blocking: config.blocking.unwrap_or(false),
             });
         let metadata = params.metadata.and_then(hashmap_to_struct);
@@ -182,13 +180,22 @@ pub struct GrpcEventStream {
 
 impl GrpcEventStream {
     /// Creates a new event stream.
-    fn new(inner: tonic::Streaming<proto::StreamResponse>) -> Self {
+    const fn new(inner: tonic::Streaming<proto::StreamResponse>) -> Self {
         Self { inner }
     }
 }
 
+/// A streaming event from a gRPC response.
+#[derive(Debug, Clone)]
+pub enum GrpcStreamEvent {
+    /// A status update event.
+    StatusUpdate(TaskStatusUpdateEvent),
+    /// An artifact update event.
+    ArtifactUpdate(TaskArtifactUpdateEvent),
+}
+
 impl Stream for GrpcEventStream {
-    type Item = StreamingEvent;
+    type Item = GrpcStreamEvent;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match Pin::new(&mut self.inner).poll_next(cx) {
@@ -203,38 +210,38 @@ impl Stream for GrpcEventStream {
     }
 }
 
-/// Converts a proto StreamResponse to a native StreamingEvent.
-fn convert_stream_response(response: proto::StreamResponse) -> Option<StreamingEvent> {
+/// Converts a proto `StreamResponse` to a native `GrpcStreamEvent`.
+fn convert_stream_response(response: proto::StreamResponse) -> Option<GrpcStreamEvent> {
     match response.payload {
-        Some(proto::stream_response::Payload::StatusUpdate(update)) => Some(
-            StreamingEvent::StatusUpdate(crate::types::TaskStatusUpdateEvent {
-                task_id: update.task_id,
-                context_id: update.context_id,
-                kind: "status-update".to_string(),
-                status: update
-                    .status
-                    .map(crate::types::TaskStatus::from)
-                    .unwrap_or_else(|| {
-                        crate::types::TaskStatus::new(crate::types::TaskState::Unknown)
-                    }),
-                r#final: false,
-                metadata: update.metadata.and_then(struct_to_hashmap),
-            }),
-        ),
-        Some(proto::stream_response::Payload::ArtifactUpdate(update)) => Some(
-            StreamingEvent::ArtifactUpdate(crate::types::TaskArtifactUpdateEvent {
-                task_id: update.task_id,
-                context_id: update.context_id,
-                kind: "artifact-update".to_string(),
-                artifact: update
-                    .artifact
-                    .map(crate::types::Artifact::from)
-                    .unwrap_or_else(|| crate::types::Artifact::new("", vec![])),
-                append: Some(update.append),
-                last_chunk: Some(update.last_chunk),
-                metadata: update.metadata.and_then(struct_to_hashmap),
-            }),
-        ),
+        Some(proto::stream_response::Payload::StatusUpdate(update)) => {
+            let status = update.status.map_or_else(
+                || crate::types::TaskStatus::new(crate::types::TaskState::Unknown),
+                crate::types::TaskStatus::from,
+            );
+            let mut event = TaskStatusUpdateEvent::new(
+                update.task_id,
+                update.context_id,
+                status,
+                false,
+            );
+            event.metadata = update.metadata.and_then(struct_to_hashmap);
+            Some(GrpcStreamEvent::StatusUpdate(event))
+        }
+        Some(proto::stream_response::Payload::ArtifactUpdate(update)) => {
+            let artifact = update.artifact.map_or_else(
+                || crate::types::Artifact::new("", vec![]),
+                crate::types::Artifact::from,
+            );
+            let mut event = crate::types::TaskArtifactUpdateEvent::new(
+                update.task_id,
+                update.context_id,
+                artifact,
+            );
+            event.append = update.append;
+            event.last_chunk = update.last_chunk;
+            event.metadata = update.metadata.and_then(struct_to_hashmap);
+            Some(GrpcStreamEvent::ArtifactUpdate(event))
+        }
         _ => None,
     }
 }

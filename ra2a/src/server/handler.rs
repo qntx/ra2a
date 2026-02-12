@@ -14,8 +14,9 @@ use super::events::Event;
 use crate::error::{JsonRpcError, Result};
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcErrorResponse,
-    JsonRpcRequest, JsonRpcSuccessResponse, ListTaskPushConfigParams, Message, MessageSendParams,
-    Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
+    JsonRpcRequest, JsonRpcSuccessResponse, ListTaskPushConfigParams, ListTasksRequest,
+    ListTasksResponse, Message, MessageSendParams, Task, TaskIdParams, TaskPushConfig,
+    TaskQueryParams,
 };
 
 /// A boxed stream of events for streaming responses.
@@ -44,10 +45,7 @@ pub trait RequestHandler: Send + Sync {
     async fn on_resubscribe(&self, params: TaskIdParams) -> Result<EventStream>;
 
     /// Handles the `tasks/pushNotificationConfig/set` request.
-    async fn on_set_task_push_config(
-        &self,
-        params: TaskPushConfig,
-    ) -> Result<TaskPushConfig>;
+    async fn on_set_task_push_config(&self, params: TaskPushConfig) -> Result<TaskPushConfig>;
 
     /// Handles the `tasks/pushNotificationConfig/get` request.
     async fn on_get_task_push_config(
@@ -62,22 +60,27 @@ pub trait RequestHandler: Send + Sync {
     ) -> Result<Vec<TaskPushConfig>>;
 
     /// Handles the `tasks/pushNotificationConfig/delete` request.
-    async fn on_delete_task_push_config(
-        &self,
-        params: DeleteTaskPushConfigParams,
-    ) -> Result<()>;
+    async fn on_delete_task_push_config(&self, params: DeleteTaskPushConfigParams) -> Result<()>;
+
+    /// Handles the `tasks/list` request.
+    ///
+    /// Default implementation returns an empty list. Override to provide
+    /// filtering/pagination backed by your [`TaskStore`](super::TaskStore).
+    async fn on_list_tasks(&self, _params: ListTasksRequest) -> Result<ListTasksResponse> {
+        Ok(ListTasksResponse::default())
+    }
 
     /// Returns the authenticated extended agent card.
     ///
     /// Aligned with Go's `OnGetExtendedAgentCard`. The default implementation
     /// returns [`A2AError::ExtendedCardNotConfigured`](crate::error::A2AError::ExtendedCardNotConfigured).
     async fn on_get_extended_agent_card(&self) -> Result<AgentCard> {
-        Err(crate::error::A2AError::ExtendedCardNotConfigured.into())
+        Err(crate::error::A2AError::ExtendedCardNotConfigured)
     }
 }
 
 /// Response type for `message/send` operations.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum SendMessageResponse {
     /// A task was created or updated.
@@ -102,12 +105,9 @@ impl From<Message> for SendMessageResponse {
 /// [`RequestHandler`](super::RequestHandler) method and returns the serialized response.
 pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<String> {
     // Parse the request envelope
-    let request: JsonRpcRequest<serde_json::Value> = match serde_json::from_str(request_body) {
-        Ok(req) => req,
-        Err(_) => {
-            let error_response = JsonRpcErrorResponse::new(None, JsonRpcError::parse_error());
-            return Ok(serde_json::to_string(&error_response)?);
-        }
+    let request: JsonRpcRequest<serde_json::Value> = if let Ok(req) = serde_json::from_str(request_body) { req } else {
+        let error_response = JsonRpcErrorResponse::new(None, JsonRpcError::parse_error());
+        return Ok(serde_json::to_string(&error_response)?);
     };
 
     let id = request.id.clone();
@@ -136,6 +136,11 @@ pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<S
             "Streaming methods must be called via the SSE endpoint",
         )
         .into()),
+        "tasks/list" => {
+            let params = parse_params::<ListTasksRequest>(&request)?;
+            let resp = handler.on_list_tasks(params).await?;
+            serialize_success(&id, &resp)
+        }
         "tasks/pushNotificationConfig/set" => {
             let params = parse_params::<TaskPushConfig>(&request)?;
             let config = handler.on_set_task_push_config(params).await?;

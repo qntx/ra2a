@@ -18,8 +18,10 @@ pub type EventStream<T> = Pin<Box<dyn Stream<Item = Result<T>> + Send>>;
 
 /// Supported transport protocols.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum TransportType {
     /// JSON-RPC over HTTP/HTTPS.
+    #[default]
     JsonRpc,
     /// REST API (HTTP+JSON).
     Rest,
@@ -27,11 +29,6 @@ pub enum TransportType {
     Grpc,
 }
 
-impl Default for TransportType {
-    fn default() -> Self {
-        Self::JsonRpc
-    }
-}
 
 impl std::fmt::Display for TransportType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -62,8 +59,7 @@ impl std::str::FromStr for TransportType {
             "HTTP+JSON" | "REST" => Ok(Self::Rest),
             "GRPC" => Ok(Self::Grpc),
             _ => Err(crate::error::A2AError::InvalidParams(format!(
-                "Unknown transport type: {}",
-                s
+                "Unknown transport type: {s}"
             ))),
         }
     }
@@ -136,10 +132,7 @@ pub trait ClientTransport: Send + Sync {
     ) -> Result<()>;
 
     /// Resubscribes to a task's event stream.
-    async fn resubscribe(
-        &self,
-        params: TaskIdParams,
-    ) -> Result<EventStream<StreamEvent>>;
+    async fn resubscribe(&self, params: TaskIdParams) -> Result<EventStream<StreamEvent>>;
 
     /// Gets the agent card.
     async fn get_agent_card(&self) -> Result<AgentCard>;
@@ -170,7 +163,8 @@ impl TransportOptions {
     }
 
     /// Sets the request timeout.
-    pub fn timeout(mut self, secs: u64) -> Self {
+    #[must_use] 
+    pub const fn timeout(mut self, secs: u64) -> Self {
         self.timeout_secs = secs;
         self
     }
@@ -192,7 +186,8 @@ impl TransportOptions {
     }
 
     /// Disables TLS verification (not recommended for production).
-    pub fn danger_accept_invalid_certs(mut self) -> Self {
+    #[must_use] 
+    pub const fn danger_accept_invalid_certs(mut self) -> Self {
         self.verify_tls = false;
         self
     }

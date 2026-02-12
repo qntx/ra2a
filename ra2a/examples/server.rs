@@ -58,7 +58,7 @@ impl AgentExecutor for HelloWorldExecutor {
         let user_text = ctx
             .message
             .as_ref()
-            .and_then(|m| m.text_content())
+            .and_then(ra2a::Message::text_content)
             .unwrap_or_default();
 
         // Generate a response based on the input

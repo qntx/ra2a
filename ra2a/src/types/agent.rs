@@ -1,6 +1,6 @@
 //! Agent card and capability types for the A2A protocol.
 //!
-//! The AgentCard is a self-describing manifest that provides essential metadata
+//! The `AgentCard` is a self-describing manifest that provides essential metadata
 //! about an agent including identity, capabilities, skills, and security requirements.
 
 use std::collections::HashMap;
@@ -11,9 +11,11 @@ use super::SecurityScheme;
 
 /// Supported A2A transport protocols.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum TransportProtocol {
     /// JSON-RPC over HTTP.
     #[serde(rename = "JSONRPC")]
+    #[default]
     JsonRpc,
     /// gRPC transport.
     #[serde(rename = "GRPC")]
@@ -23,13 +25,8 @@ pub enum TransportProtocol {
     HttpJson,
 }
 
-impl Default for TransportProtocol {
-    fn default() -> Self {
-        Self::JsonRpc
-    }
-}
 
-/// The AgentCard is a self-describing manifest for an agent.
+/// The `AgentCard` is a self-describing manifest for an agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentCard {
@@ -49,9 +46,8 @@ pub struct AgentCard {
     pub capabilities: AgentCapabilities,
     /// The set of skills the agent can perform.
     pub skills: Vec<AgentSkill>,
-    /// The version of the A2A protocol this agent supports.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub protocol_version: Option<String>,
+    /// The version of the A2A protocol this agent supports (required by spec).
+    pub protocol_version: String,
     /// The transport protocol for the preferred endpoint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preferred_transport: Option<TransportProtocol>,
@@ -74,41 +70,45 @@ pub struct AgentCard {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub security: Option<Vec<HashMap<String, Vec<String>>>>,
     /// If true, the agent can provide an extended card to authenticated users.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_authenticated_extended_card: Option<bool>,
-    /// JSON Web Signatures computed for this AgentCard.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub supports_authenticated_extended_card: bool,
+    /// JSON Web Signatures computed for this `AgentCard`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signatures: Option<Vec<AgentCardSignature>>,
 }
 
 impl AgentCard {
-    /// Creates a new AgentCard builder.
+    /// Creates a new `AgentCard` builder.
     pub fn builder(name: impl Into<String>, url: impl Into<String>) -> AgentCardBuilder {
         AgentCardBuilder::new(name, url)
     }
 
     /// Returns true if the agent supports streaming.
-    pub fn supports_streaming(&self) -> bool {
+    #[must_use] 
+    pub const fn supports_streaming(&self) -> bool {
         self.capabilities.streaming
     }
 
     /// Returns true if the agent supports push notifications.
-    pub fn supports_push_notifications(&self) -> bool {
+    #[must_use] 
+    pub const fn supports_push_notifications(&self) -> bool {
         self.capabilities.push_notifications
     }
 
     /// Finds a skill by its ID.
+    #[must_use] 
     pub fn find_skill(&self, skill_id: &str) -> Option<&AgentSkill> {
         self.skills.iter().find(|s| s.id == skill_id)
     }
 
     /// Returns all skill IDs.
+    #[must_use] 
     pub fn skill_ids(&self) -> Vec<&str> {
         self.skills.iter().map(|s| s.id.as_str()).collect()
     }
 }
 
-/// Builder for creating an AgentCard.
+/// Builder for creating an `AgentCard`.
 #[derive(Debug)]
 pub struct AgentCardBuilder {
     card: AgentCard,
@@ -127,7 +127,7 @@ impl AgentCardBuilder {
                 default_output_modes: vec!["text/plain".to_string()],
                 capabilities: AgentCapabilities::default(),
                 skills: vec![],
-                protocol_version: Some(crate::PROTOCOL_VERSION.to_string()),
+                protocol_version: crate::PROTOCOL_VERSION.to_string(),
                 preferred_transport: Some(TransportProtocol::JsonRpc),
                 additional_interfaces: None,
                 provider: None,
@@ -135,7 +135,7 @@ impl AgentCardBuilder {
                 icon_url: None,
                 security_schemes: None,
                 security: None,
-                supports_authenticated_extended_card: None,
+                supports_authenticated_extended_card: false,
                 signatures: None,
             },
         }
@@ -154,48 +154,55 @@ impl AgentCardBuilder {
     }
 
     /// Sets the capabilities.
+    #[must_use] 
     pub fn capabilities(mut self, capabilities: AgentCapabilities) -> Self {
         self.card.capabilities = capabilities;
         self
     }
 
     /// Adds a skill.
+    #[must_use] 
     pub fn skill(mut self, skill: AgentSkill) -> Self {
         self.card.skills.push(skill);
         self
     }
 
     /// Sets multiple skills.
+    #[must_use] 
     pub fn skills(mut self, skills: Vec<AgentSkill>) -> Self {
         self.card.skills = skills;
         self
     }
 
     /// Sets the input modes.
+    #[must_use] 
     pub fn input_modes(mut self, modes: Vec<String>) -> Self {
         self.card.default_input_modes = modes;
         self
     }
 
     /// Sets the output modes.
+    #[must_use] 
     pub fn output_modes(mut self, modes: Vec<String>) -> Self {
         self.card.default_output_modes = modes;
         self
     }
 
     /// Sets the provider.
+    #[must_use] 
     pub fn provider(mut self, provider: AgentProvider) -> Self {
         self.card.provider = Some(provider);
         self
     }
 
-    /// Builds the AgentCard.
+    /// Builds the `AgentCard`.
+    #[must_use] 
     pub fn build(self) -> AgentCard {
         self.card
     }
 }
 
-/// Helper to check if a bool is false, used for serde skip_serializing_if.
+/// Helper to check if a bool is false, used for serde `skip_serializing_if`.
 fn is_false(v: &bool) -> bool {
     !v
 }
@@ -204,7 +211,7 @@ fn is_false(v: &bool) -> bool {
 ///
 /// Aligned with Go's `AgentCapabilities`: plain `bool` fields with
 /// `omitempty` (omitted when `false`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentCapabilities {
     /// Indicates if the agent supports Server-Sent Events (SSE) for streaming.
@@ -223,6 +230,7 @@ pub struct AgentCapabilities {
 
 impl AgentCapabilities {
     /// Creates new capabilities with streaming enabled.
+    #[must_use] 
     pub fn with_streaming() -> Self {
         Self {
             streaming: true,
@@ -231,6 +239,7 @@ impl AgentCapabilities {
     }
 
     /// Creates new capabilities with push notifications enabled.
+    #[must_use] 
     pub fn with_push_notifications() -> Self {
         Self {
             push_notifications: true,
@@ -240,7 +249,7 @@ impl AgentCapabilities {
 }
 
 /// Represents a distinct capability or function that an agent can perform.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSkill {
     /// A unique identifier for the skill.
@@ -286,6 +295,7 @@ impl AgentSkill {
     }
 
     /// Sets the examples for this skill.
+    #[must_use] 
     pub fn with_examples(mut self, examples: Vec<String>) -> Self {
         self.examples = Some(examples);
         self
@@ -293,7 +303,7 @@ impl AgentSkill {
 }
 
 /// A declaration of a protocol extension supported by an Agent.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentExtension {
     /// The unique URI identifying the extension.
     pub uri: String,
@@ -301,15 +311,15 @@ pub struct AgentExtension {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// If true, the client must understand the extension.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub required: Option<bool>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub required: bool,
     /// Optional extension-specific configuration parameters.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub params: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// Declares a combination of a target URL and transport protocol.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentInterface {
     /// The URL where this interface is available.
     pub url: String,
@@ -328,7 +338,7 @@ impl AgentInterface {
 }
 
 /// Represents the service provider of an agent.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentProvider {
     /// The name of the agent provider's organization.
     pub organization: String,
@@ -346,8 +356,8 @@ impl AgentProvider {
     }
 }
 
-/// Represents a JWS signature of an AgentCard.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Represents a JWS signature of an `AgentCard`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentCardSignature {
     /// The protected JWS header (Base64url-encoded JSON object).
     pub protected: String,
@@ -383,8 +393,8 @@ mod tests {
     #[test]
     fn test_agent_capabilities() {
         let caps = AgentCapabilities::with_streaming();
-        assert_eq!(caps.streaming, true);
-        assert_eq!(caps.push_notifications, false);
+        assert!(caps.streaming);
+        assert!(!caps.push_notifications);
     }
 
     #[test]

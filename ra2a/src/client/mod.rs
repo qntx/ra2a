@@ -13,6 +13,7 @@ mod card_resolver;
 mod config;
 mod factory;
 mod http;
+mod intercepted_client;
 mod middleware;
 mod sse;
 mod streaming;
@@ -27,6 +28,7 @@ pub use config::*;
 pub use factory::*;
 use futures::Stream;
 pub use http::*;
+pub use intercepted_client::*;
 pub use middleware::*;
 pub use sse::*;
 pub use streaming::*;
@@ -139,6 +141,7 @@ pub struct CollectingConsumer {
 
 impl CollectingConsumer {
     /// Creates a new collecting consumer.
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -179,7 +182,7 @@ where
     F: Fn(&ClientEvent) -> Result<()> + Send + Sync,
 {
     /// Creates a new callback consumer.
-    pub fn new(callback: F) -> Self {
+    pub const fn new(callback: F) -> Self {
         Self { callback }
     }
 }

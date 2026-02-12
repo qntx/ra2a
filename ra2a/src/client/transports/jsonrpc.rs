@@ -15,8 +15,7 @@ use crate::error::{A2AError, Result};
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcRequest,
     JsonRpcResponse, ListTaskPushConfigParams, Message, MessageSendParams, SendMessageResult, Task,
-    TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig, TaskQueryParams,
-    TaskStatusUpdateEvent,
+    TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig, TaskQueryParams, TaskStatusUpdateEvent,
 };
 
 /// JSON-RPC transport for A2A protocol.
@@ -67,7 +66,7 @@ impl JsonRpcTransport {
             .map_err(|e| A2AError::Other(e.to_string()))?;
 
         let base_url = options.base_url.trim_end_matches('/').to_string();
-        let card_url = format!("{}/.well-known/agent.json", base_url);
+        let card_url = format!("{base_url}/.well-known/agent-card.json");
 
         Ok(Self {
             client,
@@ -159,7 +158,7 @@ impl JsonRpcTransport {
     }
 }
 
-/// Parses an SSE byte stream into StreamEvents.
+/// Parses an SSE byte stream into `StreamEvents`.
 fn parse_sse_byte_stream(response: reqwest::Response) -> EventStream<StreamEvent> {
     let bytes_stream = response.bytes_stream();
 
@@ -198,7 +197,7 @@ fn parse_sse_byte_stream(response: reqwest::Response) -> EventStream<StreamEvent
     Box::pin(stream)
 }
 
-/// Parses a single SSE message into a StreamEvent.
+/// Parses a single SSE message into a `StreamEvent`.
 fn parse_sse_message(message: &str) -> Option<Result<StreamEvent>> {
     let mut event_type = None;
     let mut data = String::new();
@@ -235,8 +234,8 @@ fn parse_sse_message(message: &str) -> Option<Result<StreamEvent>> {
     };
 
     let result: Result<StreamEvent> = match event_type.as_deref() {
-        Some("status-update") | Some("TaskStatusUpdateEvent") => parse_jsonrpc_status(),
-        Some("artifact-update") | Some("TaskArtifactUpdateEvent") => parse_jsonrpc_artifact(),
+        Some("status-update" | "TaskStatusUpdateEvent") => parse_jsonrpc_status(),
+        Some("artifact-update" | "TaskArtifactUpdateEvent") => parse_jsonrpc_artifact(),
         _ => {
             // Try to parse as task or message
             if let Ok(resp) = serde_json::from_str::<JsonRpcResponse<Task>>(&data) {
@@ -291,34 +290,35 @@ impl ClientTransport for JsonRpcTransport {
         &self,
         config: TaskPushConfig,
     ) -> Result<TaskPushConfig> {
-        self.send_request("tasks/pushNotificationConfig/set", config).await
+        self.send_request("tasks/pushNotificationConfig/set", config)
+            .await
     }
 
     async fn get_task_push_notification_config(
         &self,
         params: GetTaskPushConfigParams,
     ) -> Result<TaskPushConfig> {
-        self.send_request("tasks/pushNotificationConfig/get", params).await
+        self.send_request("tasks/pushNotificationConfig/get", params)
+            .await
     }
 
     async fn list_task_push_notification_configs(
         &self,
         params: ListTaskPushConfigParams,
     ) -> Result<Vec<TaskPushConfig>> {
-        self.send_request("tasks/pushNotificationConfig/list", params).await
+        self.send_request("tasks/pushNotificationConfig/list", params)
+            .await
     }
 
     async fn delete_task_push_notification_config(
         &self,
         params: DeleteTaskPushConfigParams,
     ) -> Result<()> {
-        self.send_request("tasks/pushNotificationConfig/delete", params).await
+        self.send_request("tasks/pushNotificationConfig/delete", params)
+            .await
     }
 
-    async fn resubscribe(
-        &self,
-        params: TaskIdParams,
-    ) -> Result<EventStream<StreamEvent>> {
+    async fn resubscribe(&self, params: TaskIdParams) -> Result<EventStream<StreamEvent>> {
         self.send_streaming_request("tasks/resubscribe", params)
             .await
     }
@@ -345,7 +345,7 @@ mod tests {
         assert_eq!(transport.base_url, "https://example.com");
         assert_eq!(
             transport.card_url,
-            "https://example.com/.well-known/agent.json"
+            "https://example.com/.well-known/agent-card.json"
         );
     }
 

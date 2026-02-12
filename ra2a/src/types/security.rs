@@ -1,7 +1,7 @@
 //! Security scheme types for the A2A protocol.
 //!
 //! Defines security schemes that can be used to secure agent endpoints,
-//! following the OpenAPI 3.0 Security Scheme Object specification.
+//! following the `OpenAPI` 3.0 Security Scheme Object specification.
 
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +18,7 @@ pub enum SecurityScheme {
     /// OAuth 2.0 security scheme.
     #[serde(rename = "oauth2")]
     OAuth2(OAuth2SecurityScheme),
-    /// OpenID Connect security scheme.
+    /// `OpenID` Connect security scheme.
     OpenIdConnect(OpenIdConnectSecurityScheme),
     /// Mutual TLS security scheme.
     MutualTLS(MutualTLSSecurityScheme),
@@ -37,7 +37,7 @@ pub enum ApiKeyLocation {
 }
 
 /// Defines a security scheme using an API key.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct APIKeySecurityScheme {
     /// The name of the header, query, or cookie parameter.
     pub name: String,
@@ -71,7 +71,7 @@ impl APIKeySecurityScheme {
 }
 
 /// Defines a security scheme using HTTP authentication.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HTTPAuthSecurityScheme {
     /// The name of the HTTP Authentication scheme (e.g., "Bearer").
     pub scheme: String,
@@ -94,11 +94,13 @@ impl HTTPAuthSecurityScheme {
     }
 
     /// Creates a Bearer token authentication scheme.
+    #[must_use] 
     pub fn bearer() -> Self {
         Self::new("Bearer")
     }
 
     /// Creates a Bearer JWT authentication scheme.
+    #[must_use] 
     pub fn bearer_jwt() -> Self {
         Self {
             scheme: "Bearer".to_string(),
@@ -108,28 +110,29 @@ impl HTTPAuthSecurityScheme {
     }
 
     /// Creates a Basic authentication scheme.
+    #[must_use] 
     pub fn basic() -> Self {
         Self::new("Basic")
     }
 }
 
 /// Defines a security scheme using OAuth 2.0.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OAuth2SecurityScheme {
     /// Configuration for the supported OAuth 2.0 flows.
     pub flows: OAuthFlows,
     /// An optional description for the security scheme.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// URL to the OAuth2 authorization server metadata.
+    /// URL to the `OAuth2` authorization server metadata.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth2_metadata_url: Option<String>,
 }
 
-/// Defines a security scheme using OpenID Connect.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Defines a security scheme using `OpenID` Connect.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OpenIdConnectSecurityScheme {
-    /// The OpenID Connect Discovery URL.
+    /// The `OpenID` Connect Discovery URL.
     pub open_id_connect_url: String,
     /// An optional description for the security scheme.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -137,7 +140,7 @@ pub struct OpenIdConnectSecurityScheme {
 }
 
 impl OpenIdConnectSecurityScheme {
-    /// Creates a new OpenID Connect security scheme.
+    /// Creates a new `OpenID` Connect security scheme.
     pub fn new(url: impl Into<String>) -> Self {
         Self {
             open_id_connect_url: url.into(),
@@ -147,18 +150,14 @@ impl OpenIdConnectSecurityScheme {
 }
 
 /// Defines a security scheme using mTLS authentication.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Default)]
 pub struct MutualTLSSecurityScheme {
     /// An optional description for the security scheme.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
 
-impl Default for MutualTLSSecurityScheme {
-    fn default() -> Self {
-        Self { description: None }
-    }
-}
 
 #[cfg(test)]
 mod tests {

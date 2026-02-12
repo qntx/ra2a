@@ -115,10 +115,10 @@ impl A2ASseEvent {
                                 update: Some(UpdateEvent::Artifact(event)),
                             })
                         }
-                        _ => Err(A2AError::Other(format!("Unknown event type: {}", t))),
+                        _ => Err(A2AError::Other(format!("Unknown event type: {t}"))),
                     }
                 } else {
-                    Err(A2AError::Other(format!("Unknown event type: {}", t)))
+                    Err(A2AError::Other(format!("Unknown event type: {t}")))
                 }
             }
         }
@@ -183,7 +183,7 @@ pin_project! {
 
 impl<S> SseLineStream<S> {
     /// Creates a new SSE line stream.
-    pub fn new(inner: S) -> Self {
+    pub const fn new(inner: S) -> Self {
         Self {
             inner,
             current_event: None,

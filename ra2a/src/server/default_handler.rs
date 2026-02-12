@@ -1,4 +1,4 @@
-//! Default implementation of the RequestHandler trait.
+//! Default implementation of the `RequestHandler` trait.
 //!
 //! This module provides `DefaultRequestHandler`, a complete implementation that
 //! coordinates between the `AgentExecutor`, `TaskStore`, `QueueManager`, and
@@ -13,7 +13,9 @@ use tracing::{debug, error, info, warn};
 
 use super::events::{Event, EventQueue, QueueManager};
 use super::handler::{EventStream, RequestHandler, SendMessageResponse};
-use super::{AgentExecutor, RequestContext};
+use super::push::{InMemoryPushConfigStore, PushConfigStore, PushSender};
+use super::task_store::{InMemoryTaskStore, TaskStore};
+use super::{AgentExecutor, RequestContext, RequestContextInterceptor};
 use crate::error::{A2AError, JsonRpcError, Result};
 use crate::types::{
     DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
@@ -26,9 +28,11 @@ use crate::types::{
 /// and optional push notification components — event-driven, aligned with Go.
 pub struct DefaultRequestHandler<E: AgentExecutor> {
     executor: Arc<E>,
-    tasks: Arc<RwLock<HashMap<String, Task>>>,
+    task_store: Arc<dyn TaskStore>,
     queue_manager: Arc<QueueManager>,
-    push_configs: Arc<RwLock<HashMap<String, Vec<TaskPushConfig>>>>,
+    push_config_store: Arc<dyn PushConfigStore>,
+    push_sender: Option<Arc<dyn PushSender>>,
+    req_context_interceptors: Vec<Arc<dyn RequestContextInterceptor>>,
     running_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
 
@@ -37,9 +41,11 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
     pub fn new(executor: E) -> Self {
         Self {
             executor: Arc::new(executor),
-            tasks: Arc::new(RwLock::new(HashMap::new())),
+            task_store: Arc::new(InMemoryTaskStore::new()),
             queue_manager: Arc::new(QueueManager::new()),
-            push_configs: Arc::new(RwLock::new(HashMap::new())),
+            push_config_store: Arc::new(InMemoryPushConfigStore::new()),
+            push_sender: None,
+            req_context_interceptors: Vec::new(),
             running_tasks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -48,29 +54,72 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
     pub fn with_queue_manager(executor: E, queue_manager: Arc<QueueManager>) -> Self {
         Self {
             executor: Arc::new(executor),
-            tasks: Arc::new(RwLock::new(HashMap::new())),
+            task_store: Arc::new(InMemoryTaskStore::new()),
             queue_manager,
-            push_configs: Arc::new(RwLock::new(HashMap::new())),
+            push_config_store: Arc::new(InMemoryPushConfigStore::new()),
+            push_sender: None,
+            req_context_interceptors: Vec::new(),
             running_tasks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
+    /// Sets a custom task store (default: in-memory).
+    ///
+    /// Aligned with Go's `WithClusterMode` which injects a custom `TaskStore`.
+    pub fn with_task_store(mut self, store: Arc<dyn TaskStore>) -> Self {
+        self.task_store = store;
+        self
+    }
+
+    /// Sets a custom push config store (default: in-memory).
+    pub fn with_push_config_store(mut self, store: Arc<dyn PushConfigStore>) -> Self {
+        self.push_config_store = store;
+        self
+    }
+
+    /// Sets a push sender for delivering notifications to client endpoints.
+    pub fn with_push_sender(mut self, sender: Arc<dyn PushSender>) -> Self {
+        self.push_sender = Some(sender);
+        self
+    }
+
+    /// Adds a request context interceptor.
+    ///
+    /// Aligned with Go's `WithRequestContextInterceptor`. Interceptors run
+    /// in registration order before [`RequestContext`] is passed to [`AgentExecutor`].
+    pub fn with_request_context_interceptor(
+        mut self,
+        interceptor: Arc<dyn RequestContextInterceptor>,
+    ) -> Self {
+        self.req_context_interceptors.push(interceptor);
+        self
+    }
+
     /// Returns the agent card.
+    #[must_use] 
     pub fn agent_card(&self) -> &crate::types::AgentCard {
         self.executor.agent_card()
     }
 
-    /// Gets a task by ID from in-memory storage.
+    /// Gets a task by ID from the task store.
     async fn get_task_internal(&self, task_id: &str) -> Option<Task> {
-        self.tasks.read().await.get(task_id).cloned()
+        self.task_store
+            .get(task_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|(task, _version)| task)
     }
 
-    /// Stores a task snapshot.
+    /// Persists a task snapshot to the task store.
     async fn store_task(&self, task: &Task) {
-        self.tasks
-            .write()
+        if let Err(e) = self
+            .task_store
+            .save(task, None, crate::types::TaskVersion::MISSING)
             .await
-            .insert(task.id.clone(), task.clone());
+        {
+            error!(error = %e, task_id = %task.id, "Failed to persist task");
+        }
     }
 
     /// Applies history length limit to a task.
@@ -127,32 +176,32 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
         };
 
         // Reject if task is in terminal state
-        if let Some(ref t) = stored_task {
-            if t.status.state.is_terminal() {
+        if let Some(ref t) = stored_task
+            && t.status.state.is_terminal() {
                 return Err(JsonRpcError::invalid_params(format!(
                     "Task {} is in terminal state: {:?}",
                     task_id, t.status.state
                 ))
                 .into());
             }
-        }
 
         // Store push notification config if provided
-        if let Some(ref config) = params.configuration {
-            if let Some(ref push_config) = config.push_notification_config {
-                let task_config = TaskPushConfig {
-                    task_id: task_id.clone(),
-                    push_notification_config: push_config.clone(),
-                };
-                self.store_push_config(task_config).await;
-            }
-        }
+        if let Some(ref config) = params.configuration
+            && let Some(ref push_config) = config.push_notification_config
+                && let Err(e) = self.save_push_config(&task_id, push_config).await {
+                    warn!(error = %e, "Failed to save push config");
+                }
 
         // Build RequestContext (aligned with Go's RequestContext)
         let mut ctx = RequestContext::new(&task_id, &context_id);
         ctx.message = Some(message.clone());
         ctx.stored_task = stored_task;
         ctx.metadata = params.metadata.clone();
+
+        // Run RequestContextInterceptors (aligned with Go's reqContextInterceptors)
+        for interceptor in &self.req_context_interceptors {
+            interceptor.intercept(&mut ctx).await?;
+        }
 
         let queue = self.queue_manager.get_or_create_queue(&task_id).await;
 
@@ -163,7 +212,7 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
     /// Spawns agent execution in a background task, writing events to the queue.
     fn spawn_execution(&self, ctx: RequestContext, queue: Arc<EventQueue>) {
         let executor = Arc::clone(&self.executor);
-        let tasks = Arc::clone(&self.tasks);
+        let task_store = Arc::clone(&self.task_store);
         let task_id = ctx.task_id.clone();
 
         let handle = tokio::spawn(async move {
@@ -172,7 +221,7 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
                 // Emit a failed task event
                 let mut task = Task::new(&ctx.task_id, &ctx.context_id);
                 task.status = TaskStatus::failed(e.to_string());
-                tasks.write().await.insert(task.id.clone(), task.clone());
+                let _ = task_store.save(&task, None, crate::types::TaskVersion::MISSING).await;
                 let _ = queue.send(Event::Task(task));
             }
         });
@@ -199,23 +248,24 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
             .configuration
             .as_ref()
             .and_then(|c| c.blocking)
-            .map(|b| !b)
-            .unwrap_or(false);
+            .is_some_and(|b| !b);
 
         let mut last_event: Option<Event> = None;
 
         loop {
             match rx.recv().await {
                 Ok(event) => {
-                    // Persist task snapshots
+                    // Persist task snapshots and send push notifications
                     match &event {
                         Event::Task(t) => {
                             self.store_task(t).await;
+                            self.notify_push(t).await;
                         }
                         Event::StatusUpdate(e) => {
                             if let Some(mut t) = self.get_task_internal(&e.task_id).await {
                                 t.status = TaskStatus::new(e.status.state);
                                 self.store_task(&t).await;
+                                self.notify_push(&t).await;
                             }
                         }
                         _ => {}
@@ -224,15 +274,13 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
                     // Check shouldInterruptNonStreaming conditions
                     if let Some((task_id, should_interrupt)) =
                         Self::should_interrupt_non_streaming(is_non_blocking, &event)
-                    {
-                        if should_interrupt {
+                        && should_interrupt {
                             let t = self
                                 .get_task_internal(&task_id)
                                 .await
                                 .unwrap_or_else(|| Task::new(&task_id, ""));
                             return Ok(SendMessageResponse::Task(t));
                         }
-                    }
 
                     if event.is_terminal() {
                         return match event {
@@ -245,7 +293,7 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
                                     .unwrap_or_else(|| Task::new(&e.task_id, ""));
                                 Ok(SendMessageResponse::Task(t))
                             }
-                            _ => Err(A2AError::Other("Unexpected terminal event".into()).into()),
+                            _ => Err(A2AError::Other("Unexpected terminal event".into())),
                         };
                     }
 
@@ -265,15 +313,12 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
                                         .unwrap_or_else(|| Task::new(tid, ""));
                                     Ok(SendMessageResponse::Task(t))
                                 } else {
-                                    Err(A2AError::Other(
-                                        "Event queue closed unexpectedly".into(),
-                                    )
-                                    .into())
+                                    Err(A2AError::Other("Event queue closed unexpectedly".into()))
                                 }
                             }
                         };
                     }
-                    return Err(A2AError::Other("Event queue closed unexpectedly".into()).into());
+                    return Err(A2AError::Other("Event queue closed unexpectedly".into()));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     warn!("Event stream lagged by {} messages", n);
@@ -307,31 +352,45 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
             Event::Task(t) if t.status.state == crate::types::TaskState::AuthRequired => {
                 Some((t.id.clone(), true))
             }
-            Event::StatusUpdate(e)
-                if e.status.state == crate::types::TaskState::AuthRequired =>
-            {
+            Event::StatusUpdate(e) if e.status.state == crate::types::TaskState::AuthRequired => {
                 Some((e.task_id.clone(), true))
             }
             _ => None,
         }
     }
 
-    /// Stores a push notification config.
-    async fn store_push_config(&self, config: TaskPushConfig) {
-        let mut configs = self.push_configs.write().await;
-        let task_configs = configs.entry(config.task_id.clone()).or_default();
+    /// Saves a push notification config via the `PushConfigStore`.
+    async fn save_push_config(
+        &self,
+        task_id: &str,
+        config: &crate::types::PushConfig,
+    ) -> Result<crate::types::PushConfig> {
+        self.push_config_store.save(task_id, config).await
+    }
 
-        // Replace if same config_id exists
-        if let Some(ref config_id) = config.push_notification_config.id {
-            if let Some(pos) = task_configs
-                .iter()
-                .position(|c| c.push_notification_config.id.as_ref() == Some(config_id))
-            {
-                task_configs[pos] = config;
+    /// Sends push notifications for a task state change.
+    ///
+    /// Aligned with Go's `processor.processEvent`: after each task state change,
+    /// look up all push configs for this task and deliver the task snapshot.
+    async fn notify_push(&self, task: &Task) {
+        let sender = match &self.push_sender {
+            Some(s) => Arc::clone(s),
+            None => return,
+        };
+
+        let configs = match self.push_config_store.list(&task.id).await {
+            Ok(c) => c,
+            Err(e) => {
+                debug!(error = %e, task_id = %task.id, "Failed to list push configs");
                 return;
             }
+        };
+
+        for config in &configs {
+            if let Err(e) = sender.send_push(config, task).await {
+                warn!(error = %e, task_id = %task.id, "Push notification delivery failed");
+            }
         }
-        task_configs.push(config);
     }
 }
 
@@ -349,11 +408,10 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         let mut result = self.collect_result(rx, &params).await?;
 
         // Apply history length
-        if let SendMessageResponse::Task(ref mut t) = result {
-            if let Some(ref config) = params.configuration {
+        if let SendMessageResponse::Task(ref mut t) = result
+            && let Some(ref config) = params.configuration {
                 Self::apply_history_length(t, config.history_length);
             }
-        }
 
         self.queue_manager.remove_queue(&task_id).await;
         info!(task_id = %task_id, "Message send completed");
@@ -373,7 +431,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     warn!("Event stream lagged by {} messages", n);
-                    Some((Err(A2AError::Other(format!("Lagged by {} events", n))), rx))
+                    Some((Err(A2AError::Other(format!("Lagged by {n} events"))), rx))
                 }
             }
         });
@@ -421,14 +479,14 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
 
         let executor = Arc::clone(&self.executor);
         let q = Arc::clone(&queue);
-        let tasks = Arc::clone(&self.tasks);
+        let task_store = Arc::clone(&self.task_store);
         let tid = params.id.clone();
         tokio::spawn(async move {
             if let Err(e) = executor.cancel(&ctx, &q).await {
                 error!(error = %e, task_id = %tid, "Cancel execution failed");
                 let mut t = Task::new(&tid, &ctx.context_id);
                 t.status = TaskStatus::failed(e.to_string());
-                tasks.write().await.insert(t.id.clone(), t.clone());
+                let _ = task_store.save(&t, None, crate::types::TaskVersion::MISSING).await;
                 let _ = q.send(Event::Task(t));
             }
         });
@@ -443,7 +501,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
                 info!(task_id = %params.id, "Task canceled");
                 Ok(t)
             }
-            _ => Err(A2AError::Other("Cancel did not produce a Task".into()).into()),
+            _ => Err(A2AError::Other("Cancel did not produce a Task".into())),
         }
     }
 
@@ -480,10 +538,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         Ok(Box::pin(stream))
     }
 
-    async fn on_set_task_push_config(
-        &self,
-        params: TaskPushConfig,
-    ) -> Result<TaskPushConfig> {
+    async fn on_set_task_push_config(&self, params: TaskPushConfig) -> Result<TaskPushConfig> {
         let card = self.executor.agent_card();
         if !card.capabilities.push_notifications {
             return Err(JsonRpcError::push_notification_not_supported().into());
@@ -492,8 +547,14 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
             .await
             .ok_or_else(|| JsonRpcError::task_not_found(&params.task_id))?;
 
-        self.store_push_config(params.clone()).await;
-        Ok(params)
+        let saved = self
+            .push_config_store
+            .save(&params.task_id, &params.push_notification_config)
+            .await?;
+        Ok(TaskPushConfig {
+            task_id: params.task_id,
+            push_notification_config: saved,
+        })
     }
 
     async fn on_get_task_push_config(
@@ -508,21 +569,11 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
             .await
             .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
 
-        let configs = self.push_configs.read().await;
-        let task_configs = configs
-            .get(&params.id)
-            .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
-
-        let config = match params.push_notification_config_id {
-            Some(ref id) => task_configs
-                .iter()
-                .find(|c| c.push_notification_config.id.as_ref() == Some(id))
-                .cloned(),
-            None => task_configs.first().cloned(),
-        };
-
-        config.ok_or_else(|| {
-            JsonRpcError::internal_error("Push notification config not found").into()
+        let config_id = params.push_notification_config_id.as_deref().unwrap_or("");
+        let config = self.push_config_store.get(&params.id, config_id).await?;
+        Ok(TaskPushConfig {
+            task_id: params.id,
+            push_notification_config: config,
         })
     }
 
@@ -538,14 +589,17 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
             .await
             .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
 
-        let configs = self.push_configs.read().await;
-        Ok(configs.get(&params.id).cloned().unwrap_or_default())
+        let configs = self.push_config_store.list(&params.id).await?;
+        Ok(configs
+            .into_iter()
+            .map(|c| TaskPushConfig {
+                task_id: params.id.clone(),
+                push_notification_config: c,
+            })
+            .collect())
     }
 
-    async fn on_delete_task_push_config(
-        &self,
-        params: DeleteTaskPushConfigParams,
-    ) -> Result<()> {
+    async fn on_delete_task_push_config(&self, params: DeleteTaskPushConfigParams) -> Result<()> {
         let card = self.executor.agent_card();
         if !card.capabilities.push_notifications {
             return Err(JsonRpcError::push_notification_not_supported().into());
@@ -554,14 +608,9 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
             .await
             .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
 
-        let mut configs = self.push_configs.write().await;
-        if let Some(task_configs) = configs.get_mut(&params.id) {
-            task_configs.retain(|c| {
-                c.push_notification_config.id.as_ref().map(|s| s.as_str())
-                    != Some(&params.push_notification_config_id)
-            });
-        }
-        Ok(())
+        self.push_config_store
+            .delete(&params.id, &params.push_notification_config_id)
+            .await
     }
 
     async fn on_get_extended_agent_card(&self) -> Result<crate::types::AgentCard> {
@@ -573,9 +622,11 @@ impl<E: AgentExecutor> Clone for DefaultRequestHandler<E> {
     fn clone(&self) -> Self {
         Self {
             executor: Arc::clone(&self.executor),
-            tasks: Arc::clone(&self.tasks),
+            task_store: Arc::clone(&self.task_store),
             queue_manager: Arc::clone(&self.queue_manager),
-            push_configs: Arc::clone(&self.push_configs),
+            push_config_store: Arc::clone(&self.push_config_store),
+            push_sender: self.push_sender.clone(),
+            req_context_interceptors: self.req_context_interceptors.clone(),
             running_tasks: Arc::clone(&self.running_tasks),
         }
     }

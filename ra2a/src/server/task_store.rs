@@ -5,50 +5,94 @@
 use async_trait::async_trait;
 
 use crate::error::Result;
-use crate::types::Task;
+use crate::types::{ListTasksRequest, ListTasksResponse, Task, TaskVersion};
+use crate::server::events::Event;
 
 /// Agent Task Store interface.
 ///
-/// Defines the methods for persisting and retrieving `Task` objects.
+/// Aligned with Go's `TaskStore` in `tasks.go`. Implementations may use
+/// the `prev` version for optimistic concurrency control during updates.
 #[async_trait]
 pub trait TaskStore: Send + Sync {
     /// Saves or updates a task in the store.
-    async fn save(&self, task: &Task) -> Result<()>;
+    ///
+    /// `event` is the event that triggered this save (for audit / event-sourced stores).
+    /// `prev` is the previous version for optimistic concurrency control.
+    /// Returns the new version after saving.
+    async fn save(
+        &self,
+        task: &Task,
+        event: Option<&Event>,
+        prev: TaskVersion,
+    ) -> Result<TaskVersion>;
 
-    /// Retrieves a task from the store by ID.
-    async fn get(&self, task_id: &str) -> Result<Option<Task>>;
+    /// Retrieves a task and its version from the store by ID.
+    ///
+    /// Returns `None` if the task does not exist.
+    async fn get(&self, task_id: &str) -> Result<Option<(Task, TaskVersion)>>;
 
     /// Deletes a task from the store by ID.
     async fn delete(&self, task_id: &str) -> Result<()>;
 
-    /// Lists all task IDs in the store.
-    async fn list_ids(&self) -> Result<Vec<String>>;
+    /// Lists tasks matching the given query parameters.
+    async fn list(&self, req: &ListTasksRequest) -> Result<ListTasksResponse>;
 }
 
-/// In-memory implementation of TaskStore.
+/// A versioned task entry for in-memory storage.
+#[derive(Debug, Clone)]
+struct VersionedTask {
+    task: Task,
+    version: TaskVersion,
+}
+
+/// In-memory implementation of `TaskStore`.
+///
+/// Uses a simple monotonic counter for version tracking.
 #[derive(Debug, Default)]
 pub struct InMemoryTaskStore {
-    tasks: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, Task>>>,
+    tasks: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, VersionedTask>>>,
+    next_version: std::sync::Arc<std::sync::atomic::AtomicI64>,
 }
 
 impl InMemoryTaskStore {
     /// Creates a new in-memory task store.
+    #[must_use] 
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            tasks: Default::default(),
+            next_version: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(1)),
+        }
     }
 }
 
 #[async_trait]
 impl TaskStore for InMemoryTaskStore {
-    async fn save(&self, task: &Task) -> Result<()> {
+    async fn save(
+        &self,
+        task: &Task,
+        _event: Option<&Event>,
+        _prev: TaskVersion,
+    ) -> Result<TaskVersion> {
+        let ver = TaskVersion(
+            self.next_version
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        );
         let mut tasks = self.tasks.write().await;
-        tasks.insert(task.id.clone(), task.clone());
-        Ok(())
+        tasks.insert(
+            task.id.clone(),
+            VersionedTask {
+                task: task.clone(),
+                version: ver,
+            },
+        );
+        Ok(ver)
     }
 
-    async fn get(&self, task_id: &str) -> Result<Option<Task>> {
+    async fn get(&self, task_id: &str) -> Result<Option<(Task, TaskVersion)>> {
         let tasks = self.tasks.read().await;
-        Ok(tasks.get(task_id).cloned())
+        Ok(tasks
+            .get(task_id)
+            .map(|vt| (vt.task.clone(), vt.version)))
     }
 
     async fn delete(&self, task_id: &str) -> Result<()> {
@@ -57,23 +101,59 @@ impl TaskStore for InMemoryTaskStore {
         Ok(())
     }
 
-    async fn list_ids(&self) -> Result<Vec<String>> {
+    async fn list(&self, req: &ListTasksRequest) -> Result<ListTasksResponse> {
         let tasks = self.tasks.read().await;
-        Ok(tasks.keys().cloned().collect())
+        let mut result: Vec<Task> = tasks.values().map(|vt| vt.task.clone()).collect();
+
+        // Apply context_id filter
+        if let Some(ref ctx_id) = req.context_id {
+            result.retain(|t| t.context_id == *ctx_id);
+        }
+
+        // Apply status filter
+        if let Some(ref state) = req.status {
+            result.retain(|t| t.status.state == *state);
+        }
+
+        let total_size = result.len() as i32;
+        let page_size = req.page_size.unwrap_or(50).min(100) as usize;
+
+        // Simple offset-based pagination using page_token as numeric offset
+        let offset: usize = req
+            .page_token
+            .as_deref()
+            .and_then(|t| t.parse().ok())
+            .unwrap_or(0);
+
+        let paged: Vec<Task> = result.into_iter().skip(offset).take(page_size).collect();
+        let next_offset = offset + paged.len();
+        let next_page_token = if (next_offset as i32) < total_size {
+            Some(next_offset.to_string())
+        } else {
+            None
+        };
+
+        Ok(ListTasksResponse {
+            tasks: paged,
+            total_size: Some(total_size),
+            page_size: Some(page_size as i32),
+            next_page_token,
+        })
     }
 }
 
-/// SQL-based task store using SQLx (requires `sql` feature).
+/// SQL-based task store using `SQLx` (requires `sql` feature).
 ///
 /// This module provides database-backed implementations of `TaskStore`
-/// using SQLx for SQLite, PostgreSQL, and MySQL.
+/// using `SQLx` for `SQLite`, `PostgreSQL`, and `MySQL`.
 #[cfg(any(feature = "sqlite", feature = "postgresql", feature = "mysql"))]
 pub mod sql {
-    use super::*;
+    use super::{async_trait, Event, Task, TaskVersion, ListTasksRequest, ListTasksResponse, Result, TaskStore};
     use crate::types::{TaskState, TaskStatus};
+    use std::sync::atomic::{AtomicI64, Ordering};
 
-    /// SQL table schema for tasks (SQLite compatible).
-    pub const TASK_TABLE_SCHEMA_SQLITE: &str = r#"
+    /// SQL table schema for tasks (`SQLite` compatible).
+    pub const TASK_TABLE_SCHEMA_SQLITE: &str = r"
         CREATE TABLE IF NOT EXISTS a2a_tasks (
             id TEXT PRIMARY KEY,
             context_id TEXT NOT NULL,
@@ -86,10 +166,10 @@ pub mod sql {
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
-    "#;
+    ";
 
-    /// SQL table schema for tasks (PostgreSQL compatible).
-    pub const TASK_TABLE_SCHEMA_POSTGRES: &str = r#"
+    /// SQL table schema for tasks (`PostgreSQL` compatible).
+    pub const TASK_TABLE_SCHEMA_POSTGRES: &str = r"
         CREATE TABLE IF NOT EXISTS a2a_tasks (
             id TEXT PRIMARY KEY,
             context_id TEXT NOT NULL,
@@ -102,7 +182,7 @@ pub mod sql {
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW()
         )
-    "#;
+    ";
 
     /// Row representation for tasks in SQL.
     #[derive(Debug, Clone)]
@@ -126,7 +206,8 @@ pub mod sql {
     }
 
     impl TaskRow {
-        /// Converts a Task to a TaskRow for storage.
+        /// Converts a Task to a `TaskRow` for storage.
+        #[must_use] 
         pub fn from_task(task: &Task) -> Self {
             Self {
                 id: task.id.clone(),
@@ -153,7 +234,7 @@ pub mod sql {
             }
         }
 
-        /// Converts a TaskRow back to a Task.
+        /// Converts a `TaskRow` back to a Task.
         pub fn to_task(&self) -> Result<Task> {
             let state = string_to_task_state(&self.status_state);
 
@@ -181,7 +262,7 @@ pub mod sql {
         }
     }
 
-    /// Converts TaskState to a kebab-case string for storage.
+    /// Converts `TaskState` to a kebab-case string for storage.
     fn task_state_to_string(state: TaskState) -> String {
         match state {
             TaskState::Submitted => "submitted",
@@ -197,7 +278,7 @@ pub mod sql {
         .to_string()
     }
 
-    /// Converts a string to TaskState.
+    /// Converts a string to `TaskState`.
     fn string_to_task_state(s: &str) -> TaskState {
         match s {
             "submitted" => TaskState::Submitted,
@@ -241,12 +322,16 @@ pub mod sql {
                 #[derive(Debug, Clone)]
                 pub struct $TaskStore {
                     pool: DbPool,
+                    next_version: std::sync::Arc<AtomicI64>,
                 }
 
                 impl $TaskStore {
                     /// Creates a new store with the given connection pool.
                     pub fn new(pool: DbPool) -> Self {
-                        Self { pool }
+                        Self {
+                            pool,
+                            next_version: std::sync::Arc::new(AtomicI64::new(1)),
+                        }
                     }
 
                     /// Creates the required tables if they don't exist.
@@ -261,7 +346,12 @@ pub mod sql {
 
                 #[async_trait]
                 impl TaskStore for $TaskStore {
-                    async fn save(&self, task: &Task) -> Result<()> {
+                    async fn save(
+                        &self,
+                        task: &Task,
+                        _event: Option<&Event>,
+                        _prev: TaskVersion,
+                    ) -> Result<TaskVersion> {
                         let row = TaskRow::from_task(task);
                         sqlx::query($task_save)
                             .bind(&row.id)
@@ -275,10 +365,11 @@ pub mod sql {
                             .execute(&self.pool)
                             .await
                             .map_err(db_err)?;
-                        Ok(())
+                        let ver = TaskVersion(self.next_version.fetch_add(1, Ordering::Relaxed));
+                        Ok(ver)
                     }
 
-                    async fn get(&self, task_id: &str) -> Result<Option<Task>> {
+                    async fn get(&self, task_id: &str) -> Result<Option<(Task, TaskVersion)>> {
                         let row = sqlx::query($task_get)
                             .bind(task_id)
                             .fetch_optional(&self.pool)
@@ -297,7 +388,7 @@ pub mod sql {
                                     artifacts: r.get("artifacts"),
                                     metadata: r.get("metadata"),
                                 };
-                                Ok(Some(task_row.to_task()?))
+                                Ok(Some((task_row.to_task()?, TaskVersion::MISSING)))
                             }
                             None => Ok(None),
                         }
@@ -312,12 +403,35 @@ pub mod sql {
                         Ok(())
                     }
 
-                    async fn list_ids(&self) -> Result<Vec<String>> {
-                        let rows = sqlx::query("SELECT id FROM a2a_tasks")
+                    async fn list(&self, _req: &ListTasksRequest) -> Result<ListTasksResponse> {
+                        // Basic implementation: return all tasks without filtering
+                        let rows = sqlx::query("SELECT id, context_id, status_state, status_message, status_timestamp, history, artifacts, metadata FROM a2a_tasks")
                             .fetch_all(&self.pool)
                             .await
                             .map_err(db_err)?;
-                        Ok(rows.iter().map(|r| r.get("id")).collect())
+                        let tasks: Vec<Task> = rows
+                            .iter()
+                            .filter_map(|r| {
+                                let task_row = TaskRow {
+                                    id: r.get("id"),
+                                    context_id: r.get("context_id"),
+                                    status_state: r.get("status_state"),
+                                    status_message: r.get("status_message"),
+                                    status_timestamp: r.get("status_timestamp"),
+                                    history: r.get("history"),
+                                    artifacts: r.get("artifacts"),
+                                    metadata: r.get("metadata"),
+                                };
+                                task_row.to_task().ok()
+                            })
+                            .collect();
+                        let total = tasks.len() as i32;
+                        Ok(ListTasksResponse {
+                            tasks,
+                            total_size: Some(total),
+                            page_size: Some(total),
+                            next_page_token: None,
+                        })
                     }
                 }
             }
@@ -333,7 +447,7 @@ pub mod sql {
         pool_type: sqlx::SqlitePool,
         task_store_name: SqliteTaskStore,
         task_schema: TASK_TABLE_SCHEMA_SQLITE,
-        task_save_sql: r#"
+        task_save_sql: r"
             INSERT INTO a2a_tasks (id, context_id, status_state, status_message, status_timestamp, history, artifacts, metadata, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
@@ -341,7 +455,7 @@ pub mod sql {
                 status_message = excluded.status_message, status_timestamp = excluded.status_timestamp,
                 history = excluded.history, artifacts = excluded.artifacts,
                 metadata = excluded.metadata, updated_at = CURRENT_TIMESTAMP
-        "#,
+        ",
         task_get_sql: "SELECT id, context_id, status_state, status_message, status_timestamp, history, artifacts, metadata FROM a2a_tasks WHERE id = ?",
         task_delete_sql: "DELETE FROM a2a_tasks WHERE id = ?",
     }
@@ -352,7 +466,7 @@ pub mod sql {
         pool_type: sqlx::PgPool,
         task_store_name: PostgresTaskStore,
         task_schema: TASK_TABLE_SCHEMA_POSTGRES,
-        task_save_sql: r#"
+        task_save_sql: r"
             INSERT INTO a2a_tasks (id, context_id, status_state, status_message, status_timestamp, history, artifacts, metadata, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
             ON CONFLICT(id) DO UPDATE SET
@@ -360,7 +474,7 @@ pub mod sql {
                 status_message = EXCLUDED.status_message, status_timestamp = EXCLUDED.status_timestamp,
                 history = EXCLUDED.history, artifacts = EXCLUDED.artifacts,
                 metadata = EXCLUDED.metadata, updated_at = NOW()
-        "#,
+        ",
         task_get_sql: "SELECT id, context_id, status_state, status_message, status_timestamp, history::TEXT, artifacts::TEXT, metadata::TEXT FROM a2a_tasks WHERE id = $1",
         task_delete_sql: "DELETE FROM a2a_tasks WHERE id = $1",
     }
@@ -375,14 +489,49 @@ mod tests {
         let store = InMemoryTaskStore::new();
         let task = Task::new("task-1", "ctx-1");
 
-        store.save(&task).await.unwrap();
+        let ver = store
+            .save(&task, None, TaskVersion::MISSING)
+            .await
+            .unwrap();
+        assert!(ver.0 > 0);
 
         let retrieved = store.get("task-1").await.unwrap();
         assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().id, "task-1");
+        let (t, v) = retrieved.unwrap();
+        assert_eq!(t.id, "task-1");
+        assert_eq!(v, ver);
 
         store.delete("task-1").await.unwrap();
         let deleted = store.get("task-1").await.unwrap();
         assert!(deleted.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_inmemory_task_store_list() {
+        let store = InMemoryTaskStore::new();
+        let t1 = Task::new("task-1", "ctx-a");
+        let t2 = Task::new("task-2", "ctx-a");
+        let t3 = Task::new("task-3", "ctx-b");
+
+        store.save(&t1, None, TaskVersion::MISSING).await.unwrap();
+        store.save(&t2, None, TaskVersion::MISSING).await.unwrap();
+        store.save(&t3, None, TaskVersion::MISSING).await.unwrap();
+
+        // List all
+        let resp = store
+            .list(&ListTasksRequest::default())
+            .await
+            .unwrap();
+        assert_eq!(resp.total_size, Some(3));
+
+        // Filter by context_id
+        let resp = store
+            .list(&ListTasksRequest {
+                context_id: Some("ctx-a".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(resp.total_size, Some(2));
     }
 }

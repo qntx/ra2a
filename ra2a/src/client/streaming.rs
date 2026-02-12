@@ -41,7 +41,7 @@ impl StreamingClient {
     /// Creates a new streaming client with custom configuration.
     pub fn with_config(base_url: impl Into<String>, config: ClientConfig) -> Result<Self> {
         let base_url = base_url.into();
-        let card_url = format!("{}/.well-known/agent.json", base_url.trim_end_matches('/'));
+        let card_url = format!("{}/.well-known/agent-card.json", base_url.trim_end_matches('/'));
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
@@ -64,7 +64,7 @@ impl StreamingClient {
         headers: HeaderMap,
     ) -> Result<Self> {
         let base_url = base_url.into();
-        let card_url = format!("{}/.well-known/agent.json", base_url.trim_end_matches('/'));
+        let card_url = format!("{}/.well-known/agent-card.json", base_url.trim_end_matches('/'));
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
@@ -82,21 +82,25 @@ impl StreamingClient {
     }
 
     /// Returns the base URL of the agent.
+    #[must_use] 
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
 
     /// Returns the client configuration.
-    pub fn config(&self) -> &ClientConfig {
+    #[must_use] 
+    pub const fn config(&self) -> &ClientConfig {
         &self.config
     }
 
     /// Returns the cached agent card, if available.
+    #[must_use] 
     pub fn cached_agent_card(&self) -> Option<&AgentCard> {
         self.agent_card.as_deref()
     }
 
     /// Checks if streaming is supported by both client and agent.
+    #[must_use] 
     pub fn supports_streaming(&self) -> bool {
         if !self.config.streaming {
             return false;
@@ -340,13 +344,15 @@ impl StreamingClientBuilder {
     }
 
     /// Sets the client configuration.
+    #[must_use] 
     pub fn config(mut self, config: ClientConfig) -> Self {
         self.config = config;
         self
     }
 
     /// Enables or disables streaming.
-    pub fn streaming(mut self, enabled: bool) -> Self {
+    #[must_use] 
+    pub const fn streaming(mut self, enabled: bool) -> Self {
         self.config.streaming = enabled;
         self
     }
@@ -373,12 +379,14 @@ impl StreamingClientBuilder {
     }
 
     /// Sets the request timeout.
-    pub fn timeout(mut self, secs: u64) -> Self {
+    #[must_use] 
+    pub const fn timeout(mut self, secs: u64) -> Self {
         self.timeout_secs = Some(secs);
         self
     }
 
     /// Sets the accepted output modes.
+    #[must_use] 
     pub fn accepted_output_modes(mut self, modes: Vec<String>) -> Self {
         self.config.accepted_output_modes = modes;
         self
@@ -415,7 +423,7 @@ mod tests {
         let client = StreamingClient::new("https://agent.example.com").unwrap();
         assert_eq!(
             client.card_url,
-            "https://agent.example.com/.well-known/agent.json"
+            "https://agent.example.com/.well-known/agent-card.json"
         );
     }
 }

@@ -24,7 +24,7 @@ fn urlencoding_encode(s: &str) -> String {
             ' ' => result.push('+'),
             _ => {
                 for b in c.to_string().as_bytes() {
-                    result.push_str(&format!("%{:02X}", b));
+                    result.push_str(&format!("%{b:02X}"));
                 }
             }
         }
@@ -156,6 +156,7 @@ pub struct CompositeCredential {
 
 impl CompositeCredential {
     /// Creates a new composite credential.
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             providers: Vec::new(),
@@ -223,6 +224,7 @@ pub struct CredentialContext {
 
 impl CredentialContext {
     /// Creates a new credential context.
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -248,7 +250,7 @@ impl CredentialContext {
     }
 }
 
-/// Credentials returned by a CredentialService.
+/// Credentials returned by a `CredentialService`.
 #[derive(Debug, Clone)]
 pub struct Credentials {
     /// The access token.
@@ -273,6 +275,7 @@ impl Credentials {
     }
 
     /// Creates new credentials with expiration.
+    #[must_use] 
     pub fn with_expiry(mut self, expires_in: Duration) -> Self {
         self.expires_at = Some(Instant::now() + expires_in);
         self
@@ -285,11 +288,13 @@ impl Credentials {
     }
 
     /// Checks if the credentials have expired.
+    #[must_use] 
     pub fn is_expired(&self) -> bool {
         self.expires_at.is_some_and(|exp| Instant::now() >= exp)
     }
 
     /// Returns the authorization header value.
+    #[must_use] 
     pub fn authorization_header(&self) -> String {
         format!("{} {}", self.token_type, self.access_token)
     }
@@ -311,12 +316,12 @@ impl RefreshableCredential {
             service,
             context,
             cached: RwLock::new(None),
-            refresh_buffer: Duration::from_secs(60),
+            refresh_buffer: Duration::from_mins(1),
         }
     }
 
     /// Sets the refresh buffer time.
-    pub fn with_refresh_buffer(mut self, buffer: Duration) -> Self {
+    pub const fn with_refresh_buffer(mut self, buffer: Duration) -> Self {
         self.refresh_buffer = buffer;
         self
     }
@@ -382,6 +387,7 @@ pub struct InMemoryCredentialStore {
 
 impl InMemoryCredentialStore {
     /// Creates a new in-memory credential store.
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -429,6 +435,7 @@ pub struct InMemoryCredentialService {
 
 impl InMemoryCredentialService {
     /// Creates a new in-memory credential service.
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             store: Arc::new(InMemoryCredentialStore::new()),
@@ -436,12 +443,13 @@ impl InMemoryCredentialService {
     }
 
     /// Creates a service with an existing store.
-    pub fn with_store(store: Arc<InMemoryCredentialStore>) -> Self {
+    pub const fn with_store(store: Arc<InMemoryCredentialStore>) -> Self {
         Self { store }
     }
 
     /// Gets the underlying store.
-    pub fn store(&self) -> &Arc<InMemoryCredentialStore> {
+    #[must_use] 
+    pub const fn store(&self) -> &Arc<InMemoryCredentialStore> {
         &self.store
     }
 }
@@ -459,7 +467,7 @@ impl CredentialService for InMemoryCredentialService {
         self.store
             .get(key)
             .await
-            .ok_or_else(|| A2AError::InvalidParams(format!("No credentials for context: {}", key)))
+            .ok_or_else(|| A2AError::InvalidParams(format!("No credentials for context: {key}")))
     }
 
     async fn refresh_credentials(&self, context: &CredentialContext) -> Result<Credentials> {
@@ -475,7 +483,7 @@ impl CredentialService for InMemoryCredentialService {
         }
     }
 }
-/// OAuth2 client credentials flow provider.
+/// `OAuth2` client credentials flow provider.
 #[derive(Debug, Clone)]
 pub struct OAuth2ClientCredential {
     client_id: String,
@@ -486,7 +494,7 @@ pub struct OAuth2ClientCredential {
 }
 
 impl OAuth2ClientCredential {
-    /// Creates a new OAuth2 client credentials provider.
+    /// Creates a new `OAuth2` client credentials provider.
     pub fn new(
         client_id: impl Into<String>,
         client_secret: impl Into<String>,
@@ -501,7 +509,8 @@ impl OAuth2ClientCredential {
         }
     }
 
-    /// Adds scopes to the OAuth2 request.
+    /// Adds scopes to the `OAuth2` request.
+    #[must_use] 
     pub fn with_scopes(mut self, scopes: Vec<String>) -> Self {
         self.scopes = scopes;
         self
@@ -531,21 +540,20 @@ impl OAuth2ClientCredential {
             .body(body)
             .send()
             .await
-            .map_err(|e| A2AError::Other(format!("Token request failed: {}", e)))?;
+            .map_err(|e| A2AError::Other(format!("Token request failed: {e}")))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let error_body = response.text().await.unwrap_or_default();
             return Err(A2AError::InvalidParams(format!(
-                "Token request failed with status {}: {}",
-                status, error_body
+                "Token request failed with status {status}: {error_body}"
             )));
         }
 
         let token_response: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| A2AError::Other(format!("Failed to parse token response: {}", e)))?;
+            .map_err(|e| A2AError::Other(format!("Failed to parse token response: {e}")))?;
 
         let access_token = token_response["access_token"]
             .as_str()
@@ -580,13 +588,12 @@ impl CredentialProvider for OAuth2ClientCredential {
         // Check cached token
         {
             let cached = self.cached_token.read().await;
-            if let Some(ref creds) = *cached {
-                if !creds.is_expired() {
+            if let Some(ref creds) = *cached
+                && !creds.is_expired() {
                     let mut headers = HashMap::new();
                     headers.insert("Authorization".to_string(), creds.authorization_header());
                     return Ok(headers);
                 }
-            }
         }
 
         // Fetch new token
@@ -664,7 +671,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_credentials() {
-        let creds = Credentials::bearer("test-token").with_expiry(Duration::from_secs(3600));
+        let creds = Credentials::bearer("test-token").with_expiry(Duration::from_hours(1));
 
         assert_eq!(creds.token_type, "Bearer");
         assert_eq!(creds.access_token, "test-token");

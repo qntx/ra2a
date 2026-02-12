@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 /// Defines the configuration for the supported OAuth 2.0 flows.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OAuthFlows {
     /// Configuration for the OAuth Authorization Code flow.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -25,6 +25,7 @@ pub struct OAuthFlows {
 
 impl OAuthFlows {
     /// Creates flows with authorization code configuration.
+    #[must_use] 
     pub fn authorization_code(flow: AuthorizationCodeOAuthFlow) -> Self {
         Self {
             authorization_code: Some(flow),
@@ -33,6 +34,7 @@ impl OAuthFlows {
     }
 
     /// Creates flows with client credentials configuration.
+    #[must_use] 
     pub fn client_credentials(flow: ClientCredentialsOAuthFlow) -> Self {
         Self {
             client_credentials: Some(flow),
@@ -42,13 +44,13 @@ impl OAuthFlows {
 }
 
 /// Defines configuration for the OAuth 2.0 Authorization Code flow.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AuthorizationCodeOAuthFlow {
     /// The authorization URL to be used for this flow.
     pub authorization_url: String,
     /// The token URL to be used for this flow.
     pub token_url: String,
-    /// The available scopes for the OAuth2 security scheme.
+    /// The available scopes for the `OAuth2` security scheme.
     pub scopes: HashMap<String, String>,
     /// The URL to be used for obtaining refresh tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -72,11 +74,11 @@ impl AuthorizationCodeOAuthFlow {
 }
 
 /// Defines configuration for the OAuth 2.0 Client Credentials flow.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ClientCredentialsOAuthFlow {
     /// The token URL to be used for this flow.
     pub token_url: String,
-    /// The available scopes for the OAuth2 security scheme.
+    /// The available scopes for the `OAuth2` security scheme.
     pub scopes: HashMap<String, String>,
     /// The URL to be used for obtaining refresh tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -95,11 +97,11 @@ impl ClientCredentialsOAuthFlow {
 }
 
 /// Defines configuration for the OAuth 2.0 Implicit flow.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ImplicitOAuthFlow {
     /// The authorization URL to be used for this flow.
     pub authorization_url: String,
-    /// The available scopes for the OAuth2 security scheme.
+    /// The available scopes for the `OAuth2` security scheme.
     pub scopes: HashMap<String, String>,
     /// The URL to be used for obtaining refresh tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,11 +120,11 @@ impl ImplicitOAuthFlow {
 }
 
 /// Defines configuration for the OAuth 2.0 Resource Owner Password flow.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PasswordOAuthFlow {
     /// The token URL to be used for this flow.
     pub token_url: String,
-    /// The available scopes for the OAuth2 security scheme.
+    /// The available scopes for the `OAuth2` security scheme.
     pub scopes: HashMap<String, String>,
     /// The URL to be used for obtaining refresh tokens.
     #[serde(skip_serializing_if = "Option::is_none")]

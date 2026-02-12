@@ -1,8 +1,8 @@
 //! Demo: A2A Client connecting to local server
 //!
-//! Run this after starting the server_example:
-//! 1. cargo run --example server_example --features server
-//! 2. cargo run --example demo_client --features server
+//! Run this after starting the `server_example`:
+//! 1. cargo run --example `server_example` --features server
+//! 2. cargo run --example `demo_client` --features server
 
 use ra2a::types::Message;
 
@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Fetch agent card
     println!("📋 Fetching agent card...");
     let card: serde_json::Value = client
-        .get(format!("{}/.well-known/agent.json", base_url))
+        .get(format!("{base_url}/.well-known/agent.json"))
         .send()
         .await?
         .json()
@@ -85,19 +85,16 @@ fn print_response(response: &serde_json::Value) {
                 .get("state")
                 .and_then(|s| s.as_str())
                 .unwrap_or("unknown");
-            println!("   Status: {}", state);
+            println!("   Status: {state}");
 
-            if let Some(msg) = status.get("message") {
-                if let Some(parts) = msg.get("parts") {
-                    if let Some(first) = parts.as_array().and_then(|a| a.first()) {
-                        if let Some(text) = first.get("text") {
+            if let Some(msg) = status.get("message")
+                && let Some(parts) = msg.get("parts")
+                    && let Some(first) = parts.as_array().and_then(|a| a.first())
+                        && let Some(text) = first.get("text") {
                             println!("   Response: {}\n", text.as_str().unwrap_or(""));
                         }
-                    }
-                }
-            }
         }
     } else if let Some(error) = response.get("error") {
-        println!("   Error: {:?}\n", error);
+        println!("   Error: {error:?}\n");
     }
 }

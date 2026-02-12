@@ -1,7 +1,7 @@
 //! Client factory for creating A2A clients based on agent capabilities.
 //!
-//! The ClientFactory automatically selects the appropriate transport
-//! based on the agent's advertised capabilities in its AgentCard.
+//! The `ClientFactory` automatically selects the appropriate transport
+//! based on the agent's advertised capabilities in its `AgentCard`.
 
 use super::transports::{
     ClientTransport, JsonRpcTransport, RestTransport, TransportOptions, TransportType,
@@ -30,7 +30,8 @@ impl ClientFactory {
     }
 
     /// Creates a factory with custom transport options.
-    pub fn with_options(options: TransportOptions) -> Self {
+    #[must_use] 
+    pub const fn with_options(options: TransportOptions) -> Self {
         Self {
             options,
             preferred_transport: None,
@@ -38,12 +39,14 @@ impl ClientFactory {
     }
 
     /// Sets the preferred transport type.
-    pub fn prefer_transport(mut self, transport: TransportType) -> Self {
+    #[must_use] 
+    pub const fn prefer_transport(mut self, transport: TransportType) -> Self {
         self.preferred_transport = Some(transport);
         self
     }
 
     /// Sets the request timeout.
+    #[must_use] 
     pub fn timeout(mut self, secs: u64) -> Self {
         self.options = self.options.timeout(secs);
         self

@@ -4,28 +4,28 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 
 use super::Part;
 
 /// Identifies the sender of the message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum Role {
     /// Message from the user/client.
+    #[default]
     User,
     /// Message from the agent/service.
     Agent,
 }
 
-impl Default for Role {
-    fn default() -> Self {
-        Self::User
-    }
-}
 
 /// Represents a single message in the conversation between a user and an agent.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+///
+/// The `kind` field is injected as `"message"` during JSON serialization
+/// (aligned with Go's `Message.MarshalJSON`). It is not stored on the struct.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Message {
     /// A unique identifier for the message (typically a UUID).
@@ -34,9 +34,6 @@ pub struct Message {
     pub role: Role,
     /// An array of content parts that form the message body.
     pub parts: Vec<Part>,
-    /// The type of this object (always "message").
-    #[serde(default = "default_message_kind")]
-    pub kind: String,
     /// The ID of the task this message is part of.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
@@ -52,10 +49,49 @@ pub struct Message {
     /// Optional metadata for extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, serde_json::Value>>,
+
+    /// Ignored during deserialization; injected as `"message"` on serialization.
+    #[serde(default, skip_serializing)]
+    #[allow(dead_code)]
+    kind: Option<String>,
 }
 
-fn default_message_kind() -> String {
-    "message".to_string()
+impl Serialize for Message {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Helper<'a> {
+            kind: &'static str,
+            message_id: &'a str,
+            role: &'a Role,
+            parts: &'a Vec<Part>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            task_id: &'a Option<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            context_id: &'a Option<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            reference_task_ids: &'a Option<Vec<String>>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            extensions: &'a Option<Vec<String>>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            metadata: &'a Option<HashMap<String, serde_json::Value>>,
+        }
+        Helper {
+            kind: "message",
+            message_id: &self.message_id,
+            role: &self.role,
+            parts: &self.parts,
+            task_id: &self.task_id,
+            context_id: &self.context_id,
+            reference_task_ids: &self.reference_task_ids,
+            extensions: &self.extensions,
+            metadata: &self.metadata,
+        }
+        .serialize(serializer)
+    }
 }
 
 impl Message {
@@ -65,21 +101,23 @@ impl Message {
             message_id: message_id.into(),
             role,
             parts,
-            kind: "message".to_string(),
             task_id: None,
             context_id: None,
             reference_task_ids: None,
             extensions: None,
             metadata: None,
+            kind: None,
         }
     }
 
     /// Creates a new user message with auto-generated ID.
+    #[must_use] 
     pub fn user(parts: Vec<Part>) -> Self {
         Self::new(uuid::Uuid::new_v4().to_string(), Role::User, parts)
     }
 
     /// Creates a new agent message with auto-generated ID.
+    #[must_use] 
     pub fn agent(parts: Vec<Part>) -> Self {
         Self::new(uuid::Uuid::new_v4().to_string(), Role::Agent, parts)
     }
@@ -107,33 +145,39 @@ impl Message {
     }
 
     /// Sets the extensions for this message.
+    #[must_use] 
     pub fn with_extensions(mut self, extensions: Vec<String>) -> Self {
         self.extensions = Some(extensions);
         self
     }
 
     /// Sets the metadata for this message.
+    #[must_use] 
     pub fn with_metadata(mut self, metadata: HashMap<String, serde_json::Value>) -> Self {
         self.metadata = Some(metadata);
         self
     }
 
     /// Returns true if this message is from a user.
+    #[must_use] 
     pub fn is_user(&self) -> bool {
         self.role == Role::User
     }
 
     /// Returns true if this message is from an agent.
+    #[must_use] 
     pub fn is_agent(&self) -> bool {
         self.role == Role::Agent
     }
 
     /// Returns the text content of this message, joining text parts with newlines.
+    #[must_use] 
     pub fn text_content(&self) -> Option<String> {
         self.text_joined("\n")
     }
 
     /// Returns the text content of this message, joining text parts with the given delimiter.
+    #[must_use] 
     pub fn text_joined(&self, delimiter: &str) -> Option<String> {
         let texts: Vec<&str> = self.parts.iter().filter_map(|p| p.as_text()).collect();
         if texts.is_empty() {

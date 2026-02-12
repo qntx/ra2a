@@ -49,7 +49,7 @@ impl<H: RequestHandler> GrpcServiceImpl<H> {
     }
 
     /// Creates a new gRPC service with shared handler and agent card.
-    pub fn with_shared(handler: Arc<H>, agent_card: Arc<AgentCard>) -> Self {
+    pub const fn with_shared(handler: Arc<H>, agent_card: Arc<AgentCard>) -> Self {
         Self {
             handler,
             agent_card,
@@ -81,11 +81,10 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         if let Some(config) = req.configuration {
             let mut send_config = MessageSendConfig::default();
             send_config.blocking = Some(config.blocking);
-            if let Some(history_length) = config.history_length {
-                if history_length > 0 {
+            if let Some(history_length) = config.history_length
+                && history_length > 0 {
                     send_config.history_length = Some(history_length);
                 }
-            }
             send_config.accepted_output_modes = Some(config.accepted_output_modes.clone());
             if let Some(push_config) = config.push_notification_config {
                 send_config.push_notification_config = Some(NativePushConfig::from(push_config));
@@ -141,11 +140,10 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         if let Some(config) = req.configuration {
             let mut send_config = MessageSendConfig::default();
             send_config.blocking = Some(config.blocking);
-            if let Some(history_length) = config.history_length {
-                if history_length > 0 {
+            if let Some(history_length) = config.history_length
+                && history_length > 0 {
                     send_config.history_length = Some(history_length);
                 }
-            }
             if !config.accepted_output_modes.is_empty() {
                 send_config.accepted_output_modes = Some(config.accepted_output_modes);
             }
@@ -204,11 +202,10 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let mut params = TaskQueryParams::new(&req.id);
-        if let Some(history_length) = req.history_length {
-            if history_length > 0 {
+        if let Some(history_length) = req.history_length
+            && history_length > 0 {
                 params.history_length = Some(history_length);
             }
-        }
 
         let task = self
             .handler
@@ -221,9 +218,42 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
     async fn list_tasks(
         &self,
-        _request: Request<ListTasksRequest>,
+        request: Request<ListTasksRequest>,
     ) -> Result<Response<ListTasksResponse>, Status> {
-        Err(Status::unimplemented("list_tasks not yet implemented"))
+        let req = request.into_inner();
+
+        let params = crate::types::ListTasksRequest {
+            context_id: if req.context_id.is_empty() {
+                None
+            } else {
+                Some(req.context_id)
+            },
+            status: None,
+            page_size: req.page_size,
+            page_token: if req.page_token.is_empty() {
+                None
+            } else {
+                Some(req.page_token)
+            },
+            history_length: req.history_length,
+            last_updated_after: None,
+            include_artifacts: req.include_artifacts.unwrap_or(false),
+        };
+
+        let result = self
+            .handler
+            .on_list_tasks(params)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let proto_tasks = result.tasks.into_iter().map(proto::Task::from).collect();
+
+        Ok(Response::new(ListTasksResponse {
+            tasks: proto_tasks,
+            next_page_token: result.next_page_token.unwrap_or_default(),
+            page_size: result.page_size.unwrap_or(0),
+            total_size: result.total_size.unwrap_or(0),
+        }))
     }
 
     async fn cancel_task(
@@ -295,7 +325,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         let config = req
             .config
-            .map(|c| NativePushConfig::from(c))
+            .map(NativePushConfig::from)
             .ok_or_else(|| Status::invalid_argument("config is required"))?;
 
         let params = crate::types::TaskPushConfig {
@@ -361,11 +391,37 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
     async fn list_task_push_notification_config(
         &self,
-        _request: Request<ListTaskPushNotificationConfigRequest>,
+        request: Request<ListTaskPushNotificationConfigRequest>,
     ) -> Result<Response<ListTaskPushNotificationConfigResponse>, Status> {
-        Err(Status::unimplemented(
-            "list_task_push_notification_config not yet implemented",
-        ))
+        let req = request.into_inner();
+
+        let params = crate::types::ListTaskPushConfigParams {
+            id: req.task_id.clone(),
+            metadata: None,
+        };
+
+        let configs = self
+            .handler
+            .on_list_task_push_config(params)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let proto_configs = configs
+            .into_iter()
+            .map(|c| TaskPushNotificationConfig {
+                tenant: String::new(),
+                id: c.push_notification_config.id.clone().unwrap_or_default(),
+                task_id: c.task_id,
+                push_notification_config: Some(proto::PushNotificationConfig::from(
+                    c.push_notification_config,
+                )),
+            })
+            .collect();
+
+        Ok(Response::new(ListTaskPushNotificationConfigResponse {
+            configs: proto_configs,
+            next_page_token: String::new(),
+        }))
     }
 
     async fn get_extended_agent_card(
@@ -413,7 +469,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
     }
 }
 
-/// Converts a TaskStatusUpdateEvent to a proto StreamResponse.
+/// Converts a `TaskStatusUpdateEvent` to a proto `StreamResponse`.
 fn convert_status_update_to_response(
     update: crate::types::TaskStatusUpdateEvent,
 ) -> StreamResponse {
@@ -429,7 +485,7 @@ fn convert_status_update_to_response(
     }
 }
 
-/// Converts a TaskArtifactUpdateEvent to a proto StreamResponse.
+/// Converts a `TaskArtifactUpdateEvent` to a proto `StreamResponse`.
 fn convert_artifact_update_to_response(
     update: crate::types::TaskArtifactUpdateEvent,
 ) -> StreamResponse {
@@ -439,8 +495,8 @@ fn convert_artifact_update_to_response(
                 task_id: update.task_id,
                 context_id: update.context_id,
                 artifact: Some(proto::Artifact::from(update.artifact)),
-                append: update.append.unwrap_or(false),
-                last_chunk: update.last_chunk.unwrap_or(false),
+                append: update.append,
+                last_chunk: update.last_chunk,
                 metadata: update.metadata.and_then(hashmap_to_struct),
             },
         )),

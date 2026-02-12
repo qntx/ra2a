@@ -25,7 +25,7 @@ pub struct A2AClient {
     http_client: reqwest::Client,
     /// The base URL of the agent.
     base_url: String,
-    /// The agent card URL (typically base_url + "/.well-known/agent.json").
+    /// The agent card URL (typically `base_url` + "/.well-known/agent-card.json").
     card_url: String,
     /// Client configuration.
     config: ClientConfig,
@@ -43,7 +43,7 @@ impl A2AClient {
     /// Creates a new A2A client with custom configuration.
     pub fn with_config(base_url: impl Into<String>, config: ClientConfig) -> Result<Self> {
         let base_url = base_url.into();
-        let card_url = format!("{}/.well-known/agent.json", base_url.trim_end_matches('/'));
+        let card_url = format!("{}/.well-known/agent-card.json", base_url.trim_end_matches('/'));
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
@@ -78,7 +78,7 @@ impl A2AClient {
             .map_err(|e| A2AError::Other(e.to_string()))?;
 
         let card_url = format!(
-            "{}/.well-known/agent.json",
+            "{}/.well-known/agent-card.json",
             transport.base_url.trim_end_matches('/')
         );
 
@@ -92,12 +92,14 @@ impl A2AClient {
     }
 
     /// Returns the base URL of the agent.
+    #[must_use] 
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
 
     /// Returns the client configuration.
-    pub fn config(&self) -> &ClientConfig {
+    #[must_use] 
+    pub const fn config(&self) -> &ClientConfig {
         &self.config
     }
 
@@ -233,6 +235,7 @@ impl A2AClientBuilder {
     }
 
     /// Sets the client configuration.
+    #[must_use] 
     pub fn config(mut self, config: ClientConfig) -> Self {
         self.config = config;
         self
@@ -255,13 +258,15 @@ impl A2AClientBuilder {
     }
 
     /// Sets the request timeout.
-    pub fn timeout(mut self, secs: u64) -> Self {
+    #[must_use] 
+    pub const fn timeout(mut self, secs: u64) -> Self {
         self.timeout_secs = Some(secs);
         self
     }
 
     /// Enables or disables streaming.
-    pub fn streaming(mut self, enabled: bool) -> Self {
+    #[must_use] 
+    pub const fn streaming(mut self, enabled: bool) -> Self {
         self.config.streaming = enabled;
         self
     }
@@ -287,7 +292,7 @@ impl A2AClientBuilder {
             .map_err(|e| A2AError::Other(e.to_string()))?;
 
         let card_url = format!(
-            "{}/.well-known/agent.json",
+            "{}/.well-known/agent-card.json",
             self.base_url.trim_end_matches('/')
         );
 
@@ -321,13 +326,13 @@ mod tests {
         let client = A2AClient::new("https://agent.example.com").unwrap();
         assert_eq!(
             client.card_url,
-            "https://agent.example.com/.well-known/agent.json"
+            "https://agent.example.com/.well-known/agent-card.json"
         );
 
         let client = A2AClient::new("https://agent.example.com/").unwrap();
         assert_eq!(
             client.card_url,
-            "https://agent.example.com/.well-known/agent.json"
+            "https://agent.example.com/.well-known/agent-card.json"
         );
     }
 }

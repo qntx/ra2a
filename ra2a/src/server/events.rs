@@ -28,6 +28,7 @@ pub enum Event {
 
 impl Event {
     /// Returns the task ID from this event, if available.
+    #[must_use] 
     pub fn task_id(&self) -> Option<&str> {
         match self {
             Self::StatusUpdate(e) => Some(&e.task_id),
@@ -38,7 +39,8 @@ impl Event {
     }
 
     /// Returns true if this is a final event (status update with `final = true`).
-    pub fn is_final(&self) -> bool {
+    #[must_use] 
+    pub const fn is_final(&self) -> bool {
         match self {
             Self::StatusUpdate(e) => e.r#final,
             _ => false,
@@ -48,7 +50,8 @@ impl Event {
     /// Returns true if this event represents a terminal condition that should
     /// stop the non-streaming event collection loop. Aligned with Go's
     /// `shouldInterruptNonStreaming` + final-event detection.
-    pub fn is_terminal(&self) -> bool {
+    #[must_use] 
+    pub const fn is_terminal(&self) -> bool {
         match self {
             Self::StatusUpdate(e) => e.r#final || e.status.state.is_terminal(),
             Self::Task(t) => t.status.state.is_terminal(),
@@ -58,6 +61,7 @@ impl Event {
     }
 
     /// Returns the SSE event type string and JSON data for this event.
+    #[must_use] 
     pub fn to_sse_data(&self) -> (String, String) {
         let (event_type, data) = match self {
             Self::StatusUpdate(e) => (
@@ -75,22 +79,26 @@ impl Event {
     }
 
     /// Creates an event from a task status update.
-    pub fn status_update(event: TaskStatusUpdateEvent) -> Self {
+    #[must_use] 
+    pub const fn status_update(event: TaskStatusUpdateEvent) -> Self {
         Self::StatusUpdate(event)
     }
 
     /// Creates an event from an artifact update.
-    pub fn artifact_update(event: TaskArtifactUpdateEvent) -> Self {
+    #[must_use] 
+    pub const fn artifact_update(event: TaskArtifactUpdateEvent) -> Self {
         Self::ArtifactUpdate(event)
     }
 
     /// Creates an event from a task.
-    pub fn task(task: Task) -> Self {
+    #[must_use] 
+    pub const fn task(task: Task) -> Self {
         Self::Task(task)
     }
 
     /// Creates an event from a message.
-    pub fn message(message: Message) -> Self {
+    #[must_use] 
+    pub const fn message(message: Message) -> Self {
         Self::Message(message)
     }
 }
@@ -103,6 +111,7 @@ pub struct EventQueue {
 
 impl EventQueue {
     /// Creates a new event queue with the specified capacity.
+    #[must_use] 
     pub fn new(capacity: usize) -> Self {
         let (sender, _) = broadcast::channel(capacity);
         Self { sender }
@@ -112,16 +121,18 @@ impl EventQueue {
     pub fn send(&self, event: Event) -> Result<()> {
         self.sender
             .send(event)
-            .map_err(|e| A2AError::Other(format!("Failed to send event: {}", e)))?;
+            .map_err(|e| A2AError::Other(format!("Failed to send event: {e}")))?;
         Ok(())
     }
 
     /// Subscribes to events from this queue.
+    #[must_use] 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
         self.sender.subscribe()
     }
 
     /// Returns the number of active subscribers.
+    #[must_use] 
     pub fn subscriber_count(&self) -> usize {
         self.sender.receiver_count()
     }
@@ -172,11 +183,13 @@ pub struct QueueManager {
 
 impl QueueManager {
     /// Creates a new queue manager.
+    #[must_use] 
     pub fn new() -> Self {
         Self::with_capacity(100)
     }
 
     /// Creates a new queue manager with the specified queue capacity.
+    #[must_use] 
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             queues: Arc::new(RwLock::new(HashMap::new())),
@@ -244,7 +257,7 @@ impl QueueManager {
         let queue = self
             .get_queue(task_id)
             .await
-            .map_err(|e| A2AError::Other(format!("No queue for task {}: {}", task_id, e)))?;
+            .map_err(|e| A2AError::Other(format!("No queue for task {task_id}: {e}")))?;
         queue.send(event)
     }
 }

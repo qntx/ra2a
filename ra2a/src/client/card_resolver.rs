@@ -9,7 +9,7 @@ use crate::error::{A2AError, Result};
 use crate::types::AgentCard;
 
 /// Well-known path for agent card discovery.
-pub const AGENT_CARD_WELL_KNOWN_PATH: &str = ".well-known/agent.json";
+pub const AGENT_CARD_WELL_KNOWN_PATH: &str = ".well-known/agent-card.json";
 
 /// Agent Card resolver for fetching agent cards from agents.
 #[derive(Debug, Clone)]
@@ -48,6 +48,7 @@ impl A2ACardResolver {
     }
 
     /// Returns the full URL to the agent card.
+    #[must_use] 
     pub fn card_url(&self) -> String {
         format!("{}/{}", self.base_url, self.agent_card_path)
     }
@@ -65,9 +66,7 @@ impl A2ACardResolver {
     where
         F: FnOnce(&AgentCard) -> Result<()>,
     {
-        let path = relative_path
-            .map(|p| p.trim_start_matches('/').to_string())
-            .unwrap_or_else(|| self.agent_card_path.clone());
+        let path = relative_path.map_or_else(|| self.agent_card_path.clone(), |p| p.trim_start_matches('/').to_string());
 
         let target_url = format!("{}/{}", self.base_url, path);
 
@@ -76,7 +75,7 @@ impl A2ACardResolver {
             .get(&target_url)
             .send()
             .await
-            .map_err(|e| A2AError::Other(format!("Failed to fetch agent card: {}", e)))?;
+            .map_err(|e| A2AError::Other(format!("Failed to fetch agent card: {e}")))?;
 
         if !response.status().is_success() {
             return Err(A2AError::Other(format!(
@@ -89,7 +88,7 @@ impl A2ACardResolver {
         let agent_card: AgentCard = response.json().await.map_err(|e| {
             A2AError::Json(serde_json::Error::io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("Failed to parse agent card JSON: {}", e),
+                format!("Failed to parse agent card JSON: {e}"),
             )))
         })?;
 
@@ -142,7 +141,7 @@ mod tests {
         let resolver = A2ACardResolver::new(client, "https://agent.example.com");
         assert_eq!(
             resolver.card_url(),
-            "https://agent.example.com/.well-known/agent.json"
+            "https://agent.example.com/.well-known/agent-card.json"
         );
     }
 
@@ -152,7 +151,7 @@ mod tests {
         let resolver = A2ACardResolver::new(client, "https://agent.example.com/");
         assert_eq!(
             resolver.card_url(),
-            "https://agent.example.com/.well-known/agent.json"
+            "https://agent.example.com/.well-known/agent-card.json"
         );
     }
 }

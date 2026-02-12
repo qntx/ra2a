@@ -9,6 +9,11 @@ use serde::{Deserialize, Serialize};
 use super::{Message, Task};
 use crate::error::JsonRpcError;
 
+/// Helper for serde: skip serializing boolean fields when false.
+fn is_false(v: &bool) -> bool {
+    !v
+}
+
 /// The JSON-RPC protocol version.
 pub const JSONRPC_VERSION: &str = "2.0";
 
@@ -24,25 +29,25 @@ pub enum RequestId {
 
 impl From<String> for RequestId {
     fn from(s: String) -> Self {
-        RequestId::String(s)
+        Self::String(s)
     }
 }
 
 impl From<&str> for RequestId {
     fn from(s: &str) -> Self {
-        RequestId::String(s.to_string())
+        Self::String(s.to_string())
     }
 }
 
 impl From<i64> for RequestId {
     fn from(n: i64) -> Self {
-        RequestId::Number(n)
+        Self::Number(n)
     }
 }
 
 impl Default for RequestId {
     fn default() -> Self {
-        RequestId::String(uuid::Uuid::new_v4().to_string())
+        Self::String(uuid::Uuid::new_v4().to_string())
     }
 }
 
@@ -119,6 +124,7 @@ pub struct JsonRpcErrorResponse {
 
 impl JsonRpcErrorResponse {
     /// Creates a new error response.
+    #[must_use] 
     pub fn new(id: Option<RequestId>, error: JsonRpcError) -> Self {
         Self {
             jsonrpc: JSONRPC_VERSION.to_string(),
@@ -143,7 +149,8 @@ pub struct MessageSendParams {
 
 impl MessageSendParams {
     /// Creates new send parameters with a message.
-    pub fn new(message: Message) -> Self {
+    #[must_use] 
+    pub const fn new(message: Message) -> Self {
         Self {
             message,
             configuration: None,
@@ -152,6 +159,7 @@ impl MessageSendParams {
     }
 
     /// Sets the configuration.
+    #[must_use] 
     pub fn with_configuration(mut self, config: MessageSendConfig) -> Self {
         self.configuration = Some(config);
         self
@@ -352,6 +360,53 @@ pub struct GetAuthenticatedExtendedCardParams {
     pub metadata: Option<HashMap<String, serde_json::Value>>,
 }
 
+/// Parameters for listing tasks (aligned with Go's `ListTasksRequest`).
+///
+/// JSON field names use `snake_case` to match Go's json tags.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ListTasksRequest {
+    /// The context ID to filter tasks by.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_id: Option<String>,
+    /// Filter by task state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<super::TaskState>,
+    /// Maximum number of tasks to return (1-100, default 50).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_size: Option<i32>,
+    /// Token for retrieving the next page of results.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_token: Option<String>,
+    /// Number of recent messages to include per task.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_length: Option<i32>,
+    /// Only return tasks updated after this ISO 8601 timestamp.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_updated_after: Option<String>,
+    /// Whether to include artifacts in the response.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub include_artifacts: bool,
+}
+
+/// Response for listing tasks (aligned with Go's `ListTasksResponse`).
+///
+/// JSON field names use `snake_case` to match Go's json tags.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ListTasksResponse {
+    /// The tasks matching the query.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tasks: Vec<Task>,
+    /// Total number of tasks available (before pagination).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_size: Option<i32>,
+    /// Maximum number of tasks returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_size: Option<i32>,
+    /// Token for retrieving the next page. Empty if no more results.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_page_token: Option<String>,
+}
+
 /// Result of a message/send request (Task or direct Message).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -374,13 +429,13 @@ pub enum JsonRpcResponse<R> {
 
 impl<R> JsonRpcResponse<R> {
     /// Returns true if this is a success response.
-    pub fn is_success(&self) -> bool {
-        matches!(self, JsonRpcResponse::Success(_))
+    pub const fn is_success(&self) -> bool {
+        matches!(self, Self::Success(_))
     }
 
     /// Returns true if this is an error response.
-    pub fn is_error(&self) -> bool {
-        matches!(self, JsonRpcResponse::Error(_))
+    pub const fn is_error(&self) -> bool {
+        matches!(self, Self::Error(_))
     }
 }
 
@@ -491,7 +546,8 @@ pub enum A2ARequest {
 
 impl A2ARequest {
     /// Returns the method name of this request.
-    pub fn method(&self) -> &'static str {
+    #[must_use] 
+    pub const fn method(&self) -> &'static str {
         match self {
             Self::SendMessage { .. } => "message/send",
             Self::StreamMessage { .. } => "message/stream",
@@ -507,7 +563,8 @@ impl A2ARequest {
     }
 
     /// Returns the request ID.
-    pub fn id(&self) -> &RequestId {
+    #[must_use] 
+    pub const fn id(&self) -> &RequestId {
         match self {
             Self::SendMessage { id, .. }
             | Self::StreamMessage { id, .. }
@@ -571,20 +628,21 @@ impl SseEvent {
     }
 
     /// Formats the event as SSE wire format.
+    #[must_use] 
     pub fn to_sse_string(&self) -> String {
         let mut result = String::new();
         if let Some(ref event) = self.event {
-            result.push_str(&format!("event: {}\n", event));
+            result.push_str(&format!("event: {event}\n"));
         }
         if let Some(ref id) = self.id {
-            result.push_str(&format!("id: {}\n", id));
+            result.push_str(&format!("id: {id}\n"));
         }
         if let Some(retry) = self.retry {
-            result.push_str(&format!("retry: {}\n", retry));
+            result.push_str(&format!("retry: {retry}\n"));
         }
         // Handle multi-line data
         for line in self.data.lines() {
-            result.push_str(&format!("data: {}\n", line));
+            result.push_str(&format!("data: {line}\n"));
         }
         result.push('\n');
         result
