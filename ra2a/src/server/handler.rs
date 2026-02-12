@@ -1,21 +1,108 @@
-//! Request handlers for A2A server endpoints.
+//! Request handler trait and JSON-RPC dispatcher for the A2A server.
+//!
+//! Defines the [`RequestHandler`] trait (the server-side interface for all
+//! A2A JSON-RPC methods) and the [`handle_request`] dispatcher that routes
+//! incoming JSON bodies to the appropriate method.
+
+use async_trait::async_trait;
+use futures::Stream;
+use std::pin::Pin;
 
 use crate::error::{JsonRpcError, Result};
 use crate::types::{
     DeleteTaskPushNotificationConfigParams, GetTaskPushNotificationConfigParams,
     JsonRpcErrorResponse, JsonRpcRequest, JsonRpcSuccessResponse,
-    ListTaskPushNotificationConfigParams, MessageSendParams, SendMessageResult, TaskIdParams,
-    TaskPushNotificationConfig, TaskQueryParams, TaskResubscriptionParams,
+    ListTaskPushNotificationConfigParams, Message, MessageSendParams, Task, TaskIdParams,
+    TaskPushNotificationConfig, TaskQueryParams,
 };
 
-use super::{AgentExecutor, ExecutionContext, ServerState};
+use super::ServerState;
+use super::events::Event;
 
-/// Handles incoming JSON-RPC requests and routes them to the appropriate handler.
-pub async fn handle_request<E: AgentExecutor>(
-    state: &ServerState<E>,
-    request_body: &str,
-) -> Result<String> {
-    // Parse the request
+// ---------------------------------------------------------------------------
+// RequestHandler trait
+// ---------------------------------------------------------------------------
+
+/// A boxed stream of events for streaming responses.
+pub type EventStream = Pin<Box<dyn Stream<Item = Result<Event>> + Send>>;
+
+/// Trait defining the interface for handling A2A JSON-RPC requests.
+///
+/// Implement this trait to customize how your server handles incoming requests.
+/// The `DefaultRequestHandler` provides a standard implementation that coordinates
+/// between the `AgentExecutor`, `TaskStore`, and `QueueManager`.
+#[async_trait]
+pub trait RequestHandler: Send + Sync {
+    /// Handles the `message/send` request (non-streaming).
+    async fn on_message_send(&self, params: MessageSendParams) -> Result<SendMessageResponse>;
+
+    /// Handles the `message/stream` request (streaming).
+    async fn on_message_stream(&self, params: MessageSendParams) -> Result<EventStream>;
+
+    /// Handles the `tasks/get` request.
+    async fn on_get_task(&self, params: TaskQueryParams) -> Result<Task>;
+
+    /// Handles the `tasks/cancel` request.
+    async fn on_cancel_task(&self, params: TaskIdParams) -> Result<Task>;
+
+    /// Handles the `tasks/resubscribe` request.
+    async fn on_resubscribe(&self, params: TaskIdParams) -> Result<EventStream>;
+
+    /// Handles the `tasks/pushNotificationConfig/set` request.
+    async fn on_set_push_notification_config(
+        &self,
+        params: TaskPushNotificationConfig,
+    ) -> Result<TaskPushNotificationConfig>;
+
+    /// Handles the `tasks/pushNotificationConfig/get` request.
+    async fn on_get_push_notification_config(
+        &self,
+        params: GetTaskPushNotificationConfigParams,
+    ) -> Result<TaskPushNotificationConfig>;
+
+    /// Handles the `tasks/pushNotificationConfig/list` request.
+    async fn on_list_push_notification_config(
+        &self,
+        params: ListTaskPushNotificationConfigParams,
+    ) -> Result<Vec<TaskPushNotificationConfig>>;
+
+    /// Handles the `tasks/pushNotificationConfig/delete` request.
+    async fn on_delete_push_notification_config(
+        &self,
+        params: DeleteTaskPushNotificationConfigParams,
+    ) -> Result<()>;
+}
+
+/// Response type for `message/send` operations.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(untagged)]
+pub enum SendMessageResponse {
+    /// A task was created or updated.
+    Task(Task),
+    /// A direct message response (no task created).
+    Message(Message),
+}
+
+impl From<Task> for SendMessageResponse {
+    fn from(task: Task) -> Self {
+        Self::Task(task)
+    }
+}
+
+impl From<Message> for SendMessageResponse {
+    fn from(message: Message) -> Self {
+        Self::Message(message)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JSON-RPC dispatcher
+// ---------------------------------------------------------------------------
+
+/// Dispatches a raw JSON-RPC request body to the appropriate
+/// [`RequestHandler`](super::RequestHandler) method and returns the serialized response.
+pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<String> {
+    // Parse the request envelope
     let request: JsonRpcRequest<serde_json::Value> = match serde_json::from_str(request_body) {
         Ok(req) => req,
         Err(_) => {
@@ -24,245 +111,87 @@ pub async fn handle_request<E: AgentExecutor>(
         }
     };
 
-    let response = match request.method.as_str() {
-        "message/send" => handle_send_message(state, &request).await,
-        "message/stream" => handle_send_message(state, &request).await,
-        "tasks/get" => handle_get_task(state, &request).await,
-        "tasks/cancel" => handle_cancel_task(state, &request).await,
-        "tasks/resubscribe" => handle_resubscribe(state, &request).await,
-        "tasks/pushNotificationConfig/set" => handle_set_push_config(state, &request).await,
-        "tasks/pushNotificationConfig/get" => handle_get_push_config(state, &request).await,
-        "tasks/pushNotificationConfig/list" => handle_list_push_configs(state, &request).await,
-        "tasks/pushNotificationConfig/delete" => handle_delete_push_config(state, &request).await,
-        "agent/getAuthenticatedExtendedCard" => handle_get_extended_card(state, &request).await,
-        _ => {
-            let error = JsonRpcError::method_not_found(&request.method);
-            Err(error.into())
+    let id = request.id.clone();
+    let handler = &state.handler;
+
+    // Dispatch to the appropriate handler method
+    let result: Result<String> = match request.method.as_str() {
+        "message/send" => {
+            let params = parse_params::<MessageSendParams>(&request)?;
+            let resp = handler.on_message_send(params).await?;
+            serialize_success(&id, &resp)
         }
+        "tasks/get" => {
+            let params = parse_params::<TaskQueryParams>(&request)?;
+            let task = handler.on_get_task(params).await?;
+            serialize_success(&id, &task)
+        }
+        "tasks/cancel" => {
+            let params = parse_params::<TaskIdParams>(&request)?;
+            let task = handler.on_cancel_task(params).await?;
+            serialize_success(&id, &task)
+        }
+        "tasks/resubscribe" => {
+            let params = parse_params::<TaskIdParams>(&request)?;
+            // Resubscribe returns a stream, but for non-streaming endpoint
+            // we just acknowledge. The actual streaming happens via SSE.
+            let _stream = handler.on_resubscribe(params).await?;
+            serialize_success(&id, &serde_json::Value::Null)
+        }
+        "tasks/pushNotificationConfig/set" => {
+            let params = parse_params::<TaskPushNotificationConfig>(&request)?;
+            let config = handler.on_set_push_notification_config(params).await?;
+            serialize_success(&id, &config)
+        }
+        "tasks/pushNotificationConfig/get" => {
+            let params = parse_params::<GetTaskPushNotificationConfigParams>(&request)?;
+            let config = handler.on_get_push_notification_config(params).await?;
+            serialize_success(&id, &config)
+        }
+        "tasks/pushNotificationConfig/list" => {
+            let params = parse_params::<ListTaskPushNotificationConfigParams>(&request)?;
+            let configs = handler.on_list_push_notification_config(params).await?;
+            serialize_success(&id, &configs)
+        }
+        "tasks/pushNotificationConfig/delete" => {
+            let params = parse_params::<DeleteTaskPushNotificationConfigParams>(&request)?;
+            handler.on_delete_push_notification_config(params).await?;
+            serialize_success(&id, &serde_json::Value::Null)
+        }
+        "agent/getAuthenticatedExtendedCard" => {
+            serialize_success(&id, &*state.agent_card)
+        }
+        _ => Err(JsonRpcError::method_not_found(&request.method).into()),
     };
 
-    let json_response = match response {
-        Ok(result) => result,
+    match result {
+        Ok(json) => Ok(json),
         Err(e) => {
-            let error = match e {
-                crate::error::A2AError::JsonRpc(err) => err,
-                _ => JsonRpcError::internal_error(e.to_string()),
-            };
-            serde_json::to_string(&JsonRpcErrorResponse::new(Some(request.id), error))?
+            let rpc_err = e.to_jsonrpc_error();
+            Ok(serde_json::to_string(&JsonRpcErrorResponse::new(
+                Some(id),
+                rpc_err,
+            ))?)
         }
-    };
-
-    Ok(json_response)
-}
-
-/// Handles the message/send request.
-async fn handle_send_message<E: AgentExecutor>(
-    state: &ServerState<E>,
-    request: &JsonRpcRequest<serde_json::Value>,
-) -> Result<String> {
-    let params: MessageSendParams = match &request.params {
-        Some(p) => serde_json::from_value(p.clone())?,
-        None => {
-            return Err(JsonRpcError::invalid_params("Missing params").into());
-        }
-    };
-
-    let message = params.message;
-
-    // Get or create task context
-    let (task_id, context_id) = match (&message.task_id, &message.context_id) {
-        (Some(tid), Some(cid)) => (tid.clone(), cid.clone()),
-        (Some(tid), None) => {
-            // Look up existing task for context
-            if let Some(task) = state.get_task(tid).await {
-                (tid.clone(), task.context_id)
-            } else {
-                (tid.clone(), uuid::Uuid::new_v4().to_string())
-            }
-        }
-        _ => (
-            uuid::Uuid::new_v4().to_string(),
-            uuid::Uuid::new_v4().to_string(),
-        ),
-    };
-
-    let ctx = ExecutionContext::new(&task_id, &context_id);
-
-    // Execute the agent logic
-    let task = state.executor.execute(&ctx, &message).await?;
-
-    // Store the task
-    state.store_task(task.clone()).await;
-
-    // Build response
-    let result = SendMessageResult::Task(task);
-    let response = JsonRpcSuccessResponse::new(Some(request.id.clone()), result);
-
-    Ok(serde_json::to_string(&response)?)
-}
-
-/// Handles the tasks/get request.
-async fn handle_get_task<E: AgentExecutor>(
-    state: &ServerState<E>,
-    request: &JsonRpcRequest<serde_json::Value>,
-) -> Result<String> {
-    let params: TaskQueryParams = match &request.params {
-        Some(p) => serde_json::from_value(p.clone())?,
-        None => {
-            return Err(JsonRpcError::invalid_params("Missing params").into());
-        }
-    };
-
-    let task = state
-        .get_task(&params.id)
-        .await
-        .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
-
-    let response = JsonRpcSuccessResponse::new(Some(request.id.clone()), task);
-    Ok(serde_json::to_string(&response)?)
-}
-
-/// Handles the tasks/cancel request.
-async fn handle_cancel_task<E: AgentExecutor>(
-    state: &ServerState<E>,
-    request: &JsonRpcRequest<serde_json::Value>,
-) -> Result<String> {
-    let params: TaskIdParams = match &request.params {
-        Some(p) => serde_json::from_value(p.clone())?,
-        None => {
-            return Err(JsonRpcError::invalid_params("Missing params").into());
-        }
-    };
-
-    // Check if task exists
-    let task = state
-        .get_task(&params.id)
-        .await
-        .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
-
-    // Check if task can be canceled
-    if task.status.state.is_terminal() {
-        return Err(JsonRpcError::task_not_cancelable(&params.id).into());
     }
-
-    // Get context for cancellation
-    let ctx = ExecutionContext::new(&task.id, &task.context_id);
-
-    // Cancel the task through the executor
-    let canceled_task = state.executor.cancel(&ctx, &params.id).await?;
-
-    // Store the updated task
-    state.store_task(canceled_task.clone()).await;
-
-    let response = JsonRpcSuccessResponse::new(Some(request.id.clone()), canceled_task);
-    Ok(serde_json::to_string(&response)?)
 }
 
-/// Handles the agent/getAuthenticatedExtendedCard request.
-async fn handle_get_extended_card<E: AgentExecutor>(
-    state: &ServerState<E>,
+/// Extracts and deserializes params from a JSON-RPC request.
+fn parse_params<T: serde::de::DeserializeOwned>(
     request: &JsonRpcRequest<serde_json::Value>,
-) -> Result<String> {
-    let card = state.executor.agent_card().clone();
-    let response = JsonRpcSuccessResponse::new(Some(request.id.clone()), card);
-    Ok(serde_json::to_string(&response)?)
-}
-
-/// Handles the tasks/resubscribe request.
-async fn handle_resubscribe<E: AgentExecutor>(
-    state: &ServerState<E>,
-    request: &JsonRpcRequest<serde_json::Value>,
-) -> Result<String> {
-    let params: TaskResubscriptionParams = match &request.params {
-        Some(p) => serde_json::from_value(p.clone())?,
-        None => return Err(JsonRpcError::invalid_params("Missing params").into()),
-    };
-
-    // Verify task exists
-    let task = state
-        .get_task(&params.id)
-        .await
-        .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
-
-    let response = JsonRpcSuccessResponse::new(Some(request.id.clone()), task);
-    Ok(serde_json::to_string(&response)?)
-}
-
-/// Handles the tasks/pushNotificationConfig/set request.
-async fn handle_set_push_config<E: AgentExecutor>(
-    state: &ServerState<E>,
-    request: &JsonRpcRequest<serde_json::Value>,
-) -> Result<String> {
-    let config: TaskPushNotificationConfig = match &request.params {
-        Some(p) => serde_json::from_value(p.clone())?,
-        None => return Err(JsonRpcError::invalid_params("Missing params").into()),
-    };
-
-    // Check if push notifications are supported
-    let card = state.executor.agent_card();
-    let supports_push = card.capabilities.push_notifications.unwrap_or(false);
-
-    if !supports_push {
-        return Err(JsonRpcError::push_notification_not_supported().into());
+) -> Result<T> {
+    match &request.params {
+        Some(p) => Ok(serde_json::from_value(p.clone())?),
+        None => Err(JsonRpcError::invalid_params("Missing params").into()),
     }
-
-    // Store the config
-    state.store_push_config(config.clone()).await;
-
-    let response = JsonRpcSuccessResponse::new(Some(request.id.clone()), config);
-    Ok(serde_json::to_string(&response)?)
 }
 
-/// Handles the tasks/pushNotificationConfig/get request.
-async fn handle_get_push_config<E: AgentExecutor>(
-    state: &ServerState<E>,
-    request: &JsonRpcRequest<serde_json::Value>,
+/// Serializes a success response.
+fn serialize_success<T: serde::Serialize>(
+    id: &crate::types::RequestId,
+    result: &T,
 ) -> Result<String> {
-    let params: GetTaskPushNotificationConfigParams = match &request.params {
-        Some(p) => serde_json::from_value(p.clone())?,
-        None => return Err(JsonRpcError::invalid_params("Missing params").into()),
-    };
-
-    let config = state
-        .get_push_config(&params.id, params.push_notification_config_id.as_deref())
-        .await
-        .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
-
-    let response = JsonRpcSuccessResponse::new(Some(request.id.clone()), config);
-    Ok(serde_json::to_string(&response)?)
-}
-
-/// Handles the tasks/pushNotificationConfig/list request.
-async fn handle_list_push_configs<E: AgentExecutor>(
-    state: &ServerState<E>,
-    request: &JsonRpcRequest<serde_json::Value>,
-) -> Result<String> {
-    let params: ListTaskPushNotificationConfigParams = match &request.params {
-        Some(p) => serde_json::from_value(p.clone())?,
-        None => return Err(JsonRpcError::invalid_params("Missing params").into()),
-    };
-
-    let configs = state.list_push_configs(&params.id).await;
-
-    let response = JsonRpcSuccessResponse::new(Some(request.id.clone()), configs);
-    Ok(serde_json::to_string(&response)?)
-}
-
-/// Handles the tasks/pushNotificationConfig/delete request.
-async fn handle_delete_push_config<E: AgentExecutor>(
-    state: &ServerState<E>,
-    request: &JsonRpcRequest<serde_json::Value>,
-) -> Result<String> {
-    let params: DeleteTaskPushNotificationConfigParams = match &request.params {
-        Some(p) => serde_json::from_value(p.clone())?,
-        None => return Err(JsonRpcError::invalid_params("Missing params").into()),
-    };
-
-    state
-        .delete_push_config(&params.id, &params.push_notification_config_id)
-        .await;
-
-    let response = JsonRpcSuccessResponse::new(Some(request.id.clone()), serde_json::Value::Null);
+    let response = JsonRpcSuccessResponse::new(Some(id.clone()), result);
     Ok(serde_json::to_string(&response)?)
 }
 

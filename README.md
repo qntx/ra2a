@@ -26,28 +26,12 @@ ra2a implements the full [A2A protocol specification][a2a-spec] (v0.3.0) with an
 
 See [Security](SECURITY.md) before using in production.
 
-## Architecture
-
-```text
-┌─────────────────────────────────────────────────┐
-│                      ra2a                       │
-├──────────┬──────────┬──────────┬────────────────┤
-│  client  │  server  │   grpc   │   telemetry    │
-│          │  (Axum)  │ (tonic)  │ (OpenTelemetry)│
-├──────────┴──────────┴──────────┴────────────────┤
-│            types · error · crypto               │
-├─────────────────────────────────────────────────┤
-│     postgresql  │    mysql    │     sqlite      │
-└─────────────────┴─────────────┴─────────────────┘
-```
-
 ## Quick Start
 
-Add to your `Cargo.toml`:
+Add ra2a to your project:
 
-```toml
-[dependencies]
-ra2a = "0.4"
+```bash
+cargo add ra2a
 ```
 
 ### Build an Agent (Server)

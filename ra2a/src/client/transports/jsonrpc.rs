@@ -63,7 +63,7 @@ impl JsonRpcTransport {
             .default_headers(headers)
             .danger_accept_invalid_certs(!options.verify_tls)
             .build()
-            .map_err(|e| A2AError::Connection(e.to_string()))?;
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
         let base_url = options.base_url.trim_end_matches('/').to_string();
         let card_url = format!("{}/.well-known/agent.json", base_url);
@@ -187,7 +187,7 @@ fn parse_sse_byte_stream(response: reqwest::Response) -> EventStream<StreamEvent
                     }
                     Ok(None) => return None,
                     Err(e) => {
-                        return Some((Err(A2AError::Stream(e.to_string())), (byte_stream, buf)));
+                        return Some((Err(A2AError::Other(e.to_string())), (byte_stream, buf)));
                     }
                 }
             }
@@ -337,6 +337,7 @@ impl ClientTransport for JsonRpcTransport {
         Ok(card)
     }
 }
+
 
 #[cfg(test)]
 mod tests {

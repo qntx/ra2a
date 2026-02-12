@@ -10,9 +10,7 @@ use std::task::{Context, Poll};
 use tracing::{debug, warn};
 
 use crate::error::{A2AError, Result};
-use crate::types::{
-    Message, StreamingMessageResult, Task, TaskArtifactUpdateEvent, TaskStatusUpdateEvent,
-};
+use crate::types::{Message, Task, TaskArtifactUpdateEvent, TaskStatusUpdateEvent};
 
 use super::{ClientEvent, UpdateEvent};
 
@@ -86,17 +84,22 @@ impl A2ASseEvent {
                     update: Some(UpdateEvent::Artifact(event)),
                 })
             }
-            SseEventType::Error => Err(A2AError::Stream(format!("Server error: {}", self.data))),
+            SseEventType::Error => Err(A2AError::Other(format!("Server error: {}", self.data))),
             SseEventType::Unknown(t) => {
                 warn!("Unknown SSE event type: {}", t);
-                // Try to parse as a generic streaming result
-                if let Ok(result) = serde_json::from_str::<StreamingMessageResult>(&self.data) {
-                    match result {
-                        StreamingMessageResult::Task(task) => {
+                // Try to detect type from JSON 'kind' field
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&self.data) {
+                    match v.get("kind").and_then(|k| k.as_str()) {
+                        Some("task") => {
+                            let task: Task = serde_json::from_value(v)?;
                             Ok(ClientEvent::TaskUpdate { task, update: None })
                         }
-                        StreamingMessageResult::Message(msg) => Ok(ClientEvent::Message(msg)),
-                        StreamingMessageResult::StatusUpdate(event) => {
+                        Some("message") => {
+                            let msg: Message = serde_json::from_value(v)?;
+                            Ok(ClientEvent::Message(msg))
+                        }
+                        Some("status-update") => {
+                            let event: TaskStatusUpdateEvent = serde_json::from_value(v)?;
                             let task = Task::new(&event.task_id, &event.context_id)
                                 .with_status(event.status.clone());
                             Ok(ClientEvent::TaskUpdate {
@@ -104,16 +107,18 @@ impl A2ASseEvent {
                                 update: Some(UpdateEvent::Status(event)),
                             })
                         }
-                        StreamingMessageResult::ArtifactUpdate(event) => {
+                        Some("artifact-update") => {
+                            let event: TaskArtifactUpdateEvent = serde_json::from_value(v)?;
                             let task = Task::new(&event.task_id, &event.context_id);
                             Ok(ClientEvent::TaskUpdate {
                                 task,
                                 update: Some(UpdateEvent::Artifact(event)),
                             })
                         }
+                        _ => Err(A2AError::Other(format!("Unknown event type: {}", t))),
                     }
                 } else {
-                    Err(A2AError::Stream(format!("Unknown event type: {}", t)))
+                    Err(A2AError::Other(format!("Unknown event type: {}", t)))
                 }
             }
         }
@@ -217,7 +222,7 @@ where
                 }
                 Poll::Ready(Some(Err(e))) => {
                     *this.closed = true;
-                    return Poll::Ready(Some(Err(A2AError::Stream(e.to_string()))));
+                    return Poll::Ready(Some(Err(A2AError::Other(e.to_string()))));
                 }
                 Poll::Ready(None) => {
                     *this.closed = true;
@@ -245,6 +250,7 @@ where
         }
     }
 }
+
 
 #[cfg(test)]
 mod tests {

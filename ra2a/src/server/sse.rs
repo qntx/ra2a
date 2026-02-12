@@ -13,49 +13,24 @@ use std::task::{Context, Poll};
 use tokio::sync::broadcast;
 use tracing::error;
 
-use crate::types::{
-    JsonRpcSuccessResponse, RequestId, StreamingMessageResult, Task, TaskArtifactUpdateEvent,
-    TaskStatusUpdateEvent,
-};
+use crate::types::{JsonRpcSuccessResponse, RequestId};
 
 use super::Event;
 
-/// Converts an `Event` to an SSE event data string.
+/// Converts an `Event` to an SSE event type string and JSON-RPC response body.
 fn event_to_sse_data(event: &Event, request_id: Option<&RequestId>) -> (String, String) {
-    match event {
-        Event::StatusUpdate(e) => {
-            let result = StreamingMessageResult::StatusUpdate(e.clone());
-            let response = JsonRpcSuccessResponse::new(request_id.cloned(), result);
-            (
-                "status-update".to_string(),
-                serde_json::to_string(&response).unwrap_or_default(),
-            )
-        }
-        Event::ArtifactUpdate(e) => {
-            let result = StreamingMessageResult::ArtifactUpdate(e.clone());
-            let response = JsonRpcSuccessResponse::new(request_id.cloned(), result);
-            (
-                "artifact-update".to_string(),
-                serde_json::to_string(&response).unwrap_or_default(),
-            )
-        }
-        Event::Task(t) => {
-            let result = StreamingMessageResult::Task(t.clone());
-            let response = JsonRpcSuccessResponse::new(request_id.cloned(), result);
-            (
-                "task".to_string(),
-                serde_json::to_string(&response).unwrap_or_default(),
-            )
-        }
-        Event::Message(m) => {
-            let result = StreamingMessageResult::Message(m.clone());
-            let response = JsonRpcSuccessResponse::new(request_id.cloned(), result);
-            (
-                "message".to_string(),
-                serde_json::to_string(&response).unwrap_or_default(),
-            )
-        }
-    }
+    let (event_type, result) = match event {
+        Event::StatusUpdate(e) => ("status-update", serde_json::to_value(e).ok()),
+        Event::ArtifactUpdate(e) => ("artifact-update", serde_json::to_value(e).ok()),
+        Event::Task(t) => ("task", serde_json::to_value(t).ok()),
+        Event::Message(m) => ("message", serde_json::to_value(m).ok()),
+    };
+    let result = result.unwrap_or(serde_json::Value::Null);
+    let response = JsonRpcSuccessResponse::new(request_id.cloned(), result);
+    (
+        event_type.to_string(),
+        serde_json::to_string(&response).unwrap_or_default(),
+    )
 }
 
 /// Converts an `Event` to an Axum SSE event.
@@ -242,35 +217,10 @@ impl Default for SseStreamBuilder {
     }
 }
 
-/// Helper function to create a status update event.
-pub fn status_update_event(
-    task_id: &str,
-    context_id: &str,
-    status: crate::types::TaskStatus,
-    is_final: bool,
-) -> Event {
-    Event::StatusUpdate(TaskStatusUpdateEvent::new(
-        task_id, context_id, status, is_final,
-    ))
-}
-
-/// Helper function to create an artifact update event.
-pub fn artifact_update_event(
-    task_id: &str,
-    context_id: &str,
-    artifact: crate::types::Artifact,
-) -> Event {
-    Event::ArtifactUpdate(TaskArtifactUpdateEvent::new(task_id, context_id, artifact))
-}
-
-/// Helper function to create a task event.
-pub fn task_event(task: Task) -> Event {
-    Event::Task(task)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Task;
 
     #[test]
     fn test_event_to_sse_data() {

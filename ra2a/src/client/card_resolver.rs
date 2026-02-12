@@ -75,10 +75,10 @@ impl A2ACardResolver {
             .get(&target_url)
             .send()
             .await
-            .map_err(|e| A2AError::Connection(format!("Failed to fetch agent card: {}", e)))?;
+            .map_err(|e| A2AError::Other(format!("Failed to fetch agent card: {}", e)))?;
 
         if !response.status().is_success() {
-            return Err(A2AError::Connection(format!(
+            return Err(A2AError::Other(format!(
                 "Failed to fetch agent card from {}: HTTP {}",
                 target_url,
                 response.status()
@@ -130,6 +130,7 @@ impl A2ACardResolver {
             .await
     }
 }
+
 
 #[cfg(test)]
 mod tests {

@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{AgentCard, Message, Task, TaskArtifactUpdateEvent, TaskStatusUpdateEvent};
+use super::{Message, Task};
 use crate::error::JsonRpcError;
 
 /// The JSON-RPC protocol version.
@@ -358,84 +358,6 @@ impl TaskResubscriptionParams {
     }
 }
 
-/// Configuration for message streaming request.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct MessageStreamConfiguration {
-    /// A list of output MIME types the client accepts.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub accepted_output_modes: Option<Vec<String>>,
-    /// The number of recent messages to retrieve in the response.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub history_length: Option<i32>,
-    /// Configuration for push notifications.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub push_notification_config: Option<PushNotificationConfig>,
-}
-
-/// Parameters for streaming message request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageStreamParams {
-    /// The message being sent to the agent.
-    pub message: Message,
-    /// Optional configuration for the stream request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub configuration: Option<MessageStreamConfiguration>,
-    /// Optional metadata for extensions.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
-}
-
-impl MessageStreamParams {
-    /// Creates new stream parameters with a message.
-    pub fn new(message: Message) -> Self {
-        Self {
-            message,
-            configuration: None,
-            metadata: None,
-        }
-    }
-
-    /// Sets the configuration.
-    pub fn with_configuration(mut self, config: MessageStreamConfiguration) -> Self {
-        self.configuration = Some(config);
-        self
-    }
-}
-
-/// Request for sending a message.
-pub type SendMessageRequest = JsonRpcRequest<MessageSendParams>;
-
-/// Request for streaming a message.
-pub type SendStreamingMessageRequest = JsonRpcRequest<MessageSendParams>;
-
-/// Request for getting a task.
-pub type GetTaskRequest = JsonRpcRequest<TaskQueryParams>;
-
-/// Request for canceling a task.
-pub type CancelTaskRequest = JsonRpcRequest<TaskIdParams>;
-
-/// Request for resubscribing to a task.
-pub type TaskResubscriptionRequest = JsonRpcRequest<TaskIdParams>;
-
-/// Request for setting push notification config.
-pub type SetTaskPushNotificationConfigRequest = JsonRpcRequest<TaskPushNotificationConfig>;
-
-/// Request for getting push notification config.
-pub type GetTaskPushNotificationConfigRequest = JsonRpcRequest<GetTaskPushNotificationConfigParams>;
-
-/// Request for listing push notification configs.
-pub type ListTaskPushNotificationConfigRequest = JsonRpcRequest<TaskIdParams>;
-
-/// Request for deleting push notification config.
-pub type DeleteTaskPushNotificationConfigRequest =
-    JsonRpcRequest<DeleteTaskPushNotificationConfigParams>;
-
-/// Request for listing push notification configs.
-pub type ListTaskPushNotificationConfigsRequest =
-    JsonRpcRequest<ListTaskPushNotificationConfigParams>;
-
-/// Request for getting authenticated extended card.
-pub type GetAuthenticatedExtendedCardRequest = JsonRpcRequest<GetAuthenticatedExtendedCardParams>;
 
 /// Parameters for getting authenticated extended card.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -445,10 +367,7 @@ pub struct GetAuthenticatedExtendedCardParams {
     pub metadata: Option<HashMap<String, serde_json::Value>>,
 }
 
-/// Request for streaming messages.
-pub type MessageStreamRequest = JsonRpcRequest<MessageStreamParams>;
-
-/// Result of a message/send request.
+/// Result of a message/send request (Task or direct Message).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SendMessageResult {
@@ -457,50 +376,6 @@ pub enum SendMessageResult {
     /// A direct message reply.
     Message(Message),
 }
-
-/// Result of a message/stream request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum StreamingMessageResult {
-    /// A task was created or updated.
-    Task(Task),
-    /// A direct message reply.
-    Message(Message),
-    /// A status update event.
-    StatusUpdate(TaskStatusUpdateEvent),
-    /// An artifact update event.
-    ArtifactUpdate(TaskArtifactUpdateEvent),
-}
-
-/// Successful response for sending a message.
-pub type SendMessageSuccessResponse = JsonRpcSuccessResponse<SendMessageResult>;
-
-/// Successful response for streaming a message.
-pub type SendStreamingMessageSuccessResponse = JsonRpcSuccessResponse<StreamingMessageResult>;
-
-/// Successful response for getting a task.
-pub type GetTaskSuccessResponse = JsonRpcSuccessResponse<Task>;
-
-/// Successful response for canceling a task.
-pub type CancelTaskSuccessResponse = JsonRpcSuccessResponse<Task>;
-
-/// Successful response for setting push notification config.
-pub type SetTaskPushNotificationConfigSuccessResponse =
-    JsonRpcSuccessResponse<TaskPushNotificationConfig>;
-
-/// Successful response for getting push notification config.
-pub type GetTaskPushNotificationConfigSuccessResponse =
-    JsonRpcSuccessResponse<TaskPushNotificationConfig>;
-
-/// Successful response for listing push notification configs.
-pub type ListTaskPushNotificationConfigSuccessResponse =
-    JsonRpcSuccessResponse<Vec<TaskPushNotificationConfig>>;
-
-/// Successful response for deleting push notification config.
-pub type DeleteTaskPushNotificationConfigSuccessResponse = JsonRpcSuccessResponse<()>;
-
-/// Successful response for getting authenticated extended card.
-pub type GetAuthenticatedExtendedCardSuccessResponse = JsonRpcSuccessResponse<AgentCard>;
 
 /// A union type representing any JSON-RPC response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -663,63 +538,8 @@ impl A2ARequest {
     }
 }
 
-/// A discriminated union representing all possible successful JSON-RPC 2.0
-/// responses for the A2A specification methods.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum A2ASuccessResponse {
-    /// Response for message/send.
-    SendMessage(SendMessageSuccessResponse),
-    /// Response for message/stream.
-    StreamMessage(SendStreamingMessageSuccessResponse),
-    /// Response for tasks/get.
-    GetTask(GetTaskSuccessResponse),
-    /// Response for tasks/cancel.
-    CancelTask(CancelTaskSuccessResponse),
-    /// Response for tasks/pushNotificationConfig/set.
-    SetPushNotificationConfig(SetTaskPushNotificationConfigSuccessResponse),
-    /// Response for tasks/pushNotificationConfig/get.
-    GetPushNotificationConfig(GetTaskPushNotificationConfigSuccessResponse),
-    /// Response for tasks/pushNotificationConfig/list.
-    ListPushNotificationConfig(ListTaskPushNotificationConfigSuccessResponse),
-    /// Response for tasks/pushNotificationConfig/delete.
-    DeletePushNotificationConfig(DeleteTaskPushNotificationConfigSuccessResponse),
-    /// Response for agent/getAuthenticatedExtendedCard.
-    GetAuthenticatedExtendedCard(GetAuthenticatedExtendedCardSuccessResponse),
-}
-
-/// A discriminated union representing all possible JSON-RPC 2.0 responses
-/// (success or error) for the A2A specification.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum A2AResponse {
-    /// A successful response.
-    Success(A2ASuccessResponse),
-    /// An error response.
-    Error(JsonRpcErrorResponse),
-}
-
-impl A2AResponse {
-    /// Returns true if this is a success response.
-    #[inline]
-    pub fn is_success(&self) -> bool {
-        matches!(self, Self::Success(_))
-    }
-
-    /// Returns true if this is an error response.
-    #[inline]
-    pub fn is_error(&self) -> bool {
-        matches!(self, Self::Error(_))
-    }
-
-    /// Returns the error if this is an error response.
-    pub fn error(&self) -> Option<&JsonRpcError> {
-        match self {
-            Self::Error(e) => Some(&e.error),
-            _ => None,
-        }
-    }
-}
+/// A JSON-RPC 2.0 response that is either a success or error.
+pub type A2AResponse = JsonRpcResponse<serde_json::Value>;
 
 /// Server-Sent Event wrapper for streaming responses.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -786,6 +606,7 @@ impl SseEvent {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -807,7 +628,7 @@ mod tests {
     fn test_send_message_request() {
         let message = Message::new("msg-1", Role::User, vec![Part::text("Hello")]);
         let params = MessageSendParams::new(message);
-        let request: SendMessageRequest = JsonRpcRequest::new("message/send", params);
+        let request: JsonRpcRequest<MessageSendParams> = JsonRpcRequest::new("message/send", params);
 
         assert_eq!(request.method, "message/send");
         assert_eq!(request.jsonrpc, "2.0");
@@ -836,9 +657,8 @@ mod tests {
     #[test]
     fn test_a2a_response_is_error() {
         let error = JsonRpcError::task_not_found("test-123");
-        let response = A2AResponse::Error(JsonRpcErrorResponse::new(None, error));
+        let response: A2AResponse = JsonRpcResponse::Error(JsonRpcErrorResponse::new(None, error));
         assert!(response.is_error());
         assert!(!response.is_success());
-        assert!(response.error().is_some());
     }
 }

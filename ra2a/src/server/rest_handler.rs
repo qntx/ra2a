@@ -20,9 +20,8 @@ use crate::types::{
     ListTaskPushNotificationConfigParams, Message, MessageSendParams, TaskPushNotificationConfig,
 };
 
-use super::call_context::ServerCallContext;
 use super::events::Event;
-use super::request_handler::{RequestHandler, SendMessageResponse};
+use super::handler::{RequestHandler, SendMessageResponse};
 
 /// REST API response wrapper.
 #[derive(Debug, Clone, Serialize)]
@@ -67,8 +66,10 @@ impl RestErrorResponse {
     pub fn from_error(err: &A2AError) -> Self {
         match err {
             A2AError::JsonRpc(e) => Self::new(e.code, &e.message),
-            A2AError::ClientJsonRpc { code, message, .. } => Self::new(*code, message),
-            _ => Self::new(-32603, err.to_string()),
+            other => {
+                let rpc = other.to_jsonrpc_error();
+                Self::new(rpc.code, rpc.message)
+            }
         }
     }
 }
@@ -152,11 +153,10 @@ pub async fn send_message<H: RequestHandler + 'static>(
     Json(message): Json<Message>,
 ) -> Response {
     let params = MessageSendParams::new(message);
-    let context = ServerCallContext::new();
 
     if query.stream {
         // Return streaming response
-        match rest.handler.on_message_stream(params, Some(&context)).await {
+        match rest.handler.on_message_stream(params).await {
             Ok(stream) => {
                 let sse_stream = event_stream_to_sse(stream);
                 Sse::new(sse_stream).into_response()
@@ -165,7 +165,7 @@ pub async fn send_message<H: RequestHandler + 'static>(
         }
     } else {
         // Return non-streaming response
-        match rest.handler.on_message_send(params, Some(&context)).await {
+        match rest.handler.on_message_send(params).await {
             Ok(response) => match response {
                 SendMessageResponse::Task(task) => Json(task).into_response(),
                 SendMessageResponse::Message(msg) => Json(msg).into_response(),
@@ -181,9 +181,8 @@ pub async fn send_message_stream<H: RequestHandler + 'static>(
     Json(message): Json<Message>,
 ) -> Response {
     let params = MessageSendParams::new(message);
-    let context = ServerCallContext::new();
 
-    match rest.handler.on_message_stream(params, Some(&context)).await {
+    match rest.handler.on_message_stream(params).await {
         Ok(stream) => {
             let sse_stream = event_stream_to_sse(stream);
             Sse::new(sse_stream).into_response()
@@ -200,9 +199,8 @@ pub async fn get_task<H: RequestHandler + 'static>(
 ) -> Response {
     let mut params = crate::types::TaskQueryParams::new(task_id);
     params.history_length = query.history_length.map(|v| v as i32);
-    let context = ServerCallContext::new();
 
-    match rest.handler.on_get_task(params, Some(&context)).await {
+    match rest.handler.on_get_task(params).await {
         Ok(task) => Json(task).into_response(),
         Err(e) => RestErrorResponse::from_error(&e).into_response(),
     }
@@ -214,9 +212,8 @@ pub async fn cancel_task<H: RequestHandler + 'static>(
     Path(task_id): Path<String>,
 ) -> Response {
     let params = crate::types::TaskIdParams::new(task_id);
-    let context = ServerCallContext::new();
 
-    match rest.handler.on_cancel_task(params, Some(&context)).await {
+    match rest.handler.on_cancel_task(params).await {
         Ok(task) => Json(task).into_response(),
         Err(e) => RestErrorResponse::from_error(&e).into_response(),
     }
@@ -228,9 +225,8 @@ pub async fn subscribe_task<H: RequestHandler + 'static>(
     Path(task_id): Path<String>,
 ) -> Response {
     let params = crate::types::TaskIdParams::new(task_id);
-    let context = ServerCallContext::new();
 
-    match rest.handler.on_resubscribe(params, Some(&context)).await {
+    match rest.handler.on_resubscribe(params).await {
         Ok(stream) => {
             let sse_stream = event_stream_to_sse(stream);
             Sse::new(sse_stream).into_response()
@@ -256,11 +252,10 @@ pub async fn set_push_config<H: RequestHandler + 'static>(
         task_id,
         push_notification_config: config,
     };
-    let context = ServerCallContext::new();
 
     match rest
         .handler
-        .on_set_push_notification_config(params, Some(&context))
+        .on_set_push_notification_config(params)
         .await
     {
         Ok(config) => Json(config).into_response(),
@@ -278,11 +273,10 @@ pub async fn get_push_config<H: RequestHandler + 'static>(
     if let Some(config_id) = query.config_id {
         params = params.with_config_id(config_id);
     }
-    let context = ServerCallContext::new();
 
     match rest
         .handler
-        .on_get_push_notification_config(params, Some(&context))
+        .on_get_push_notification_config(params)
         .await
     {
         Ok(config) => Json(config).into_response(),
@@ -296,11 +290,10 @@ pub async fn list_push_configs<H: RequestHandler + 'static>(
     Path(task_id): Path<String>,
 ) -> Response {
     let params = ListTaskPushNotificationConfigParams::new(task_id);
-    let context = ServerCallContext::new();
 
     match rest
         .handler
-        .on_list_push_notification_config(params, Some(&context))
+        .on_list_push_notification_config(params)
         .await
     {
         Ok(configs) => Json(configs).into_response(),
@@ -314,11 +307,10 @@ pub async fn delete_push_config<H: RequestHandler + 'static>(
     Path((task_id, config_id)): Path<(String, String)>,
 ) -> Response {
     let params = DeleteTaskPushNotificationConfigParams::new(task_id, config_id);
-    let context = ServerCallContext::new();
 
     match rest
         .handler
-        .on_delete_push_notification_config(params, Some(&context))
+        .on_delete_push_notification_config(params)
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -328,7 +320,7 @@ pub async fn delete_push_config<H: RequestHandler + 'static>(
 
 /// Converts an event stream to SSE events.
 fn event_stream_to_sse(
-    stream: super::request_handler::EventStream,
+    stream: super::handler::EventStream,
 ) -> impl Stream<Item = std::result::Result<SseEvent, Infallible>> {
     use futures::StreamExt;
 
@@ -375,6 +367,7 @@ pub fn rest_routes<H: RequestHandler + 'static>(handler: RestHandler<H>) -> axum
         .route("/v1/tasks/:id/push-configs", get(list_push_configs::<H>))
         .with_state(handler)
 }
+
 
 #[cfg(test)]
 mod tests {

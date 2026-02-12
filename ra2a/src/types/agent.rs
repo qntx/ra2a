@@ -346,6 +346,7 @@ pub struct AgentCardSignature {
     pub header: Option<HashMap<String, serde_json::Value>>,
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;

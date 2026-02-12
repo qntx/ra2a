@@ -136,13 +136,18 @@ impl Message {
         self.role == Role::Agent
     }
 
-    /// Returns the text content of this message if it contains only text parts.
+    /// Returns the text content of this message, joining text parts with newlines.
     pub fn text_content(&self) -> Option<String> {
+        self.text_joined("\n")
+    }
+
+    /// Returns the text content of this message, joining text parts with the given delimiter.
+    pub fn text_joined(&self, delimiter: &str) -> Option<String> {
         let texts: Vec<&str> = self.parts.iter().filter_map(|p| p.as_text()).collect();
         if texts.is_empty() {
             None
         } else {
-            Some(texts.join("\n"))
+            Some(texts.join(delimiter))
         }
     }
 }
@@ -152,6 +157,7 @@ impl Default for Message {
         Self::user(vec![])
     }
 }
+
 
 #[cfg(test)]
 mod tests {

@@ -10,7 +10,7 @@ use tokio::signal;
 
 use ra2a::{
     error::Result,
-    server::{A2AServer, A2AServerBuilder, AgentExecutor, ExecutionContext, ServerConfig},
+    server::{A2AServer, A2AServerBuilder, AgentExecutor, RequestContext, ServerConfig},
     types::{AgentCapabilities, AgentCard, AgentSkill, Message, Part, Task, TaskState, TaskStatus},
 };
 
@@ -51,7 +51,7 @@ impl HelloWorldExecutor {
 
 #[async_trait]
 impl AgentExecutor for HelloWorldExecutor {
-    async fn execute(&self, ctx: &ExecutionContext, message: &Message) -> Result<Task> {
+    async fn execute(&self, ctx: &RequestContext, message: &Message) -> Result<Task> {
         // Get the text content from the message
         let user_text = message.text_content().unwrap_or_default();
 
@@ -86,7 +86,7 @@ impl AgentExecutor for HelloWorldExecutor {
         Ok(task)
     }
 
-    async fn cancel(&self, ctx: &ExecutionContext, task_id: &str) -> Result<Task> {
+    async fn cancel(&self, ctx: &RequestContext, task_id: &str) -> Result<Task> {
         // For this simple agent, we just mark the task as canceled
         let task =
             Task::new(task_id, &ctx.context_id).with_status(TaskStatus::new(TaskState::Canceled));

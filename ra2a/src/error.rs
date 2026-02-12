@@ -1,8 +1,14 @@
 //! Error types for the A2A SDK.
 //!
-//! This module defines the error types used throughout the SDK, following
-//! the JSON-RPC 2.0 error specification and A2A-specific error codes.
-//! Client-specific error types mirror Python's `client/errors.py`.
+//! This module defines error types aligned with the A2A protocol specification.
+//! Protocol-level errors mirror the Go reference implementation's sentinel errors
+//! and map directly to JSON-RPC error codes.
+//!
+//! # Error Categories
+//!
+//! - **Protocol errors**: A2A-specific errors (e.g., task not found, unsupported operation)
+//! - **Transport errors**: HTTP, JSON, URL parsing errors
+//! - **Infrastructure errors**: Database, I/O errors
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -12,269 +18,153 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, A2AError>;
 
 /// The main error type for the A2A SDK.
+///
+/// Protocol-level variants are aligned with Go reference implementation sentinel errors
+/// (`a2a.ErrTaskNotFound`, `a2a.ErrInvalidParams`, etc.) and map to JSON-RPC error codes.
 #[derive(Error, Debug)]
 pub enum A2AError {
-    /// JSON-RPC protocol errors
+    // === A2A Protocol Errors (aligned with Go sentinel errors) ===
+
+    /// Server received payload that was not well-formed.
+    #[error("parse error: {0}")]
+    ParseError(String),
+
+    /// Server received a well-formed payload which was not a valid request.
+    #[error("invalid request: {0}")]
+    InvalidRequest(String),
+
+    /// A method does not exist or is not supported.
+    #[error("method not found: {0}")]
+    MethodNotFound(String),
+
+    /// Parameters provided for the method were invalid.
+    #[error("invalid params: {0}")]
+    InvalidParams(String),
+
+    /// An unexpected error occurred on the server during processing.
+    #[error("internal error: {0}")]
+    InternalError(String),
+
+    /// A task with the provided ID was not found.
+    #[error("task not found: {0}")]
+    TaskNotFound(String),
+
+    /// The task was in a state where it could not be canceled.
+    #[error("task cannot be canceled: {0}")]
+    TaskNotCancelable(String),
+
+    /// The agent does not support push notifications.
+    #[error("push notification not supported")]
+    PushNotificationNotSupported,
+
+    /// The requested operation is not supported by the agent.
+    #[error("unsupported operation: {0}")]
+    UnsupportedOperation(String),
+
+    /// Incompatibility between requested content types and agent's capabilities.
+    #[error("incompatible content types: {0}")]
+    ContentTypeNotSupported(String),
+
+    /// The agent returned a response that does not conform to the specification.
+    #[error("invalid agent response: {0}")]
+    InvalidAgentResponse(String),
+
+    /// The agent does not have an authenticated extended card configured.
+    #[error("extended card not configured")]
+    ExtendedCardNotConfigured,
+
+    /// The request does not have valid authentication credentials.
+    #[error("unauthenticated: {0}")]
+    Unauthenticated(String),
+
+    /// The caller does not have permission to execute the specified operation.
+    #[error("permission denied: {0}")]
+    Unauthorized(String),
+
+    // === Transport Errors ===
+
+    /// JSON-RPC protocol error received from remote.
     #[error("JSON-RPC error: {0}")]
     JsonRpc(#[from] JsonRpcError),
 
-    /// HTTP transport errors
+    /// HTTP transport error.
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 
-    /// JSON serialization/deserialization errors
+    /// JSON serialization/deserialization error.
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
-    /// URL parsing errors
-    #[error("Invalid URL: {0}")]
+    /// URL parsing error.
+    #[error("invalid URL: {0}")]
     InvalidUrl(#[from] url::ParseError),
 
-    /// Invalid configuration
-    #[error("Invalid configuration: {0}")]
-    InvalidConfig(String),
+    // === Infrastructure Errors ===
 
-    /// Connection errors
-    #[error("Connection error: {0}")]
-    Connection(String),
-
-    /// Timeout errors
-    #[error("Operation timed out: {0}")]
-    Timeout(String),
-
-    /// Stream errors
-    #[error("Stream error: {0}")]
-    Stream(String),
-
-    /// Internal errors
-    #[error("Internal error: {0}")]
-    Internal(String),
-
-    /// Client HTTP error with status code and body.
-    #[error("HTTP {status}: {message}")]
-    ClientHttp {
-        /// HTTP status code.
-        status: u16,
-        /// Error message or response body.
-        message: String,
-        /// Optional response body.
-        body: Option<String>,
-    },
-
-    /// Client JSON parsing error.
-    #[error("Failed to parse JSON response: {message}")]
-    ClientJson {
-        /// Error message.
-        message: String,
-        /// Raw response that failed to parse.
-        raw_response: Option<String>,
-    },
-
-    /// Client JSON-RPC error from server response.
-    #[error("JSON-RPC error [{code}]: {message}")]
-    ClientJsonRpc {
-        /// JSON-RPC error code.
-        code: i32,
-        /// Error message.
-        message: String,
-        /// Additional error data.
-        data: Option<serde_json::Value>,
-    },
-
-    /// Client timeout error.
-    #[error("Request timed out after {duration_secs}s: {message}")]
-    ClientTimeout {
-        /// Timeout duration in seconds.
-        duration_secs: u64,
-        /// Error message.
-        message: String,
-    },
-
-    /// Client invalid state error.
-    #[error("Invalid client state: {message}")]
-    ClientInvalidState {
-        /// Error message.
-        message: String,
-    },
-
-    /// Agent card error.
-    #[error("Agent card error: {message}")]
-    AgentCard {
-        /// Error message.
-        message: String,
-    },
-
-    /// Unsupported transport error.
-    #[error("Unsupported transport: {transport}")]
-    UnsupportedTransport {
-        /// Transport type name.
-        transport: String,
-    },
-
-    /// Server error - used by server-side code.
-    #[error("Server error: {0}")]
-    Server(#[from] ServerError),
-
-    /// Database error - used for SQL storage operations.
-    #[error("Database error: {0}")]
+    /// Database error from SQL storage operations.
+    #[error("database error: {0}")]
     Database(String),
+
+    /// Generic I/O or connection error.
+    #[error("{0}")]
+    Other(String),
 }
 
 impl A2AError {
-    /// Creates a client HTTP error.
-    pub fn client_http(status: u16, message: impl Into<String>) -> Self {
-        Self::ClientHttp {
-            status,
-            message: message.into(),
-            body: None,
-        }
-    }
-
-    /// Creates a client HTTP error with body.
-    pub fn client_http_with_body(
-        status: u16,
-        message: impl Into<String>,
-        body: impl Into<String>,
-    ) -> Self {
-        Self::ClientHttp {
-            status,
-            message: message.into(),
-            body: Some(body.into()),
-        }
-    }
-
-    /// Creates a client JSON error.
-    pub fn client_json(message: impl Into<String>) -> Self {
-        Self::ClientJson {
-            message: message.into(),
-            raw_response: None,
-        }
-    }
-
-    /// Creates a client JSON error with raw response.
-    pub fn client_json_with_response(
-        message: impl Into<String>,
-        raw_response: impl Into<String>,
-    ) -> Self {
-        Self::ClientJson {
-            message: message.into(),
-            raw_response: Some(raw_response.into()),
-        }
-    }
-
-    /// Creates a client JSON-RPC error.
-    pub fn client_jsonrpc(code: i32, message: impl Into<String>) -> Self {
-        Self::ClientJsonRpc {
-            code,
-            message: message.into(),
-            data: None,
-        }
-    }
-
-    /// Creates a client JSON-RPC error with data.
-    pub fn client_jsonrpc_with_data(
-        code: i32,
-        message: impl Into<String>,
-        data: serde_json::Value,
-    ) -> Self {
-        Self::ClientJsonRpc {
-            code,
-            message: message.into(),
-            data: Some(data),
-        }
-    }
-
-    /// Creates a client timeout error.
-    pub fn client_timeout(duration_secs: u64, message: impl Into<String>) -> Self {
-        Self::ClientTimeout {
-            duration_secs,
-            message: message.into(),
-        }
-    }
-
-    /// Creates a client invalid state error.
-    pub fn client_invalid_state(message: impl Into<String>) -> Self {
-        Self::ClientInvalidState {
-            message: message.into(),
-        }
-    }
-
-    /// Creates an agent card error.
-    pub fn agent_card(message: impl Into<String>) -> Self {
-        Self::AgentCard {
-            message: message.into(),
-        }
-    }
-
-    /// Creates an unsupported transport error.
-    pub fn unsupported_transport(transport: impl Into<String>) -> Self {
-        Self::UnsupportedTransport {
-            transport: transport.into(),
-        }
-    }
-
-    /// Returns true if this is a client-side error.
-    pub fn is_client_error(&self) -> bool {
-        matches!(
-            self,
-            Self::ClientHttp { .. }
-                | Self::ClientJson { .. }
-                | Self::ClientJsonRpc { .. }
-                | Self::ClientTimeout { .. }
-                | Self::ClientInvalidState { .. }
-        )
-    }
-
-    /// Returns true if this is a timeout error.
-    pub fn is_timeout(&self) -> bool {
-        matches!(self, Self::Timeout(_) | Self::ClientTimeout { .. })
-    }
-
-    /// Returns true if this is a connection error.
-    pub fn is_connection_error(&self) -> bool {
-        matches!(self, Self::Connection(_) | Self::Http(_))
+    /// Returns `true` if this is a transport-level error (HTTP, JSON, connection).
+    pub fn is_transport_error(&self) -> bool {
+        matches!(self, Self::Http(_) | Self::Json(_) | Self::InvalidUrl(_))
     }
 
     /// Extracts the JSON-RPC error code if this is a JSON-RPC error.
     pub fn jsonrpc_code(&self) -> Option<i32> {
+        if let Self::JsonRpc(e) = self {
+            Some(e.code)
+        } else {
+            None
+        }
+    }
+
+    /// Converts this error to a [`JsonRpcError`] for transport serialization.
+    pub fn to_jsonrpc_error(&self) -> JsonRpcError {
+        let (code, default_msg) = self.jsonrpc_error_code();
+        let message = {
+            let s = self.to_string();
+            if s.is_empty() { default_msg.to_string() } else { s }
+        };
+        JsonRpcError { code: code as i32, message, data: None }
+    }
+
+    /// Maps this error to its corresponding [`JsonRpcErrorCode`] and default message.
+    fn jsonrpc_error_code(&self) -> (JsonRpcErrorCode, &'static str) {
         match self {
-            Self::JsonRpc(e) => Some(e.code),
-            Self::ClientJsonRpc { code, .. } => Some(*code),
-            _ => None,
-        }
-    }
-}
-
-/// Server-side error wrapper.
-#[derive(Error, Debug)]
-pub struct ServerError {
-    /// The underlying JSON-RPC error.
-    pub error: JsonRpcError,
-}
-
-impl fmt::Display for ServerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.error)
-    }
-}
-
-impl ServerError {
-    /// Creates a new server error.
-    pub fn new(error: JsonRpcError) -> Self {
-        Self { error }
-    }
-
-    /// Creates a server error from an error code.
-    pub fn from_code(code: JsonRpcErrorCode) -> Self {
-        Self {
-            error: JsonRpcError::new(code, code.default_message()),
-        }
-    }
-
-    /// Creates a server error with a custom message.
-    pub fn with_message(code: JsonRpcErrorCode, message: impl Into<String>) -> Self {
-        Self {
-            error: JsonRpcError::new(code, message),
+            Self::ParseError(_) => (JsonRpcErrorCode::ParseError, "Parse error"),
+            Self::InvalidRequest(_) => (JsonRpcErrorCode::InvalidRequest, "Invalid request"),
+            Self::MethodNotFound(_) => (JsonRpcErrorCode::MethodNotFound, "Method not found"),
+            Self::InvalidParams(_) => (JsonRpcErrorCode::InvalidParams, "Invalid params"),
+            Self::TaskNotFound(_) => (JsonRpcErrorCode::TaskNotFound, "Task not found"),
+            Self::TaskNotCancelable(_) => {
+                (JsonRpcErrorCode::TaskNotCancelable, "Task not cancelable")
+            }
+            Self::PushNotificationNotSupported => (
+                JsonRpcErrorCode::PushNotificationNotSupported,
+                "Push notification not supported",
+            ),
+            Self::UnsupportedOperation(_) => {
+                (JsonRpcErrorCode::UnsupportedOperation, "Unsupported operation")
+            }
+            Self::ContentTypeNotSupported(_) => (
+                JsonRpcErrorCode::ContentTypeNotSupported,
+                "Content type not supported",
+            ),
+            Self::InvalidAgentResponse(_) => {
+                (JsonRpcErrorCode::InvalidAgentResponse, "Invalid agent response")
+            }
+            Self::ExtendedCardNotConfigured => (
+                JsonRpcErrorCode::AuthenticatedExtendedCardNotConfigured,
+                "Extended card not configured",
+            ),
+            _ => (JsonRpcErrorCode::InternalError, "Internal error"),
         }
     }
 }
@@ -463,6 +353,7 @@ impl JsonRpcError {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -485,34 +376,24 @@ mod tests {
     }
 
     #[test]
-    fn test_client_http_error() {
-        let error = A2AError::client_http(404, "Not Found");
-        assert!(error.is_client_error());
-        assert!(!error.is_timeout());
-        assert_eq!(error.to_string(), "HTTP 404: Not Found");
+    fn test_sentinel_errors_to_jsonrpc() {
+        let err = A2AError::TaskNotFound("task-1".into());
+        let rpc = err.to_jsonrpc_error();
+        assert_eq!(rpc.code, JsonRpcErrorCode::TaskNotFound as i32);
+
+        let err = A2AError::InternalError("boom".into());
+        let rpc = err.to_jsonrpc_error();
+        assert_eq!(rpc.code, JsonRpcErrorCode::InternalError as i32);
     }
 
     #[test]
-    fn test_client_jsonrpc_error() {
-        let error = A2AError::client_jsonrpc(-32001, "Task not found");
-        assert!(error.is_client_error());
-        assert_eq!(error.jsonrpc_code(), Some(-32001));
-    }
+    fn test_other_and_database_errors() {
+        let err = A2AError::Other("something".into());
+        let rpc = err.to_jsonrpc_error();
+        assert_eq!(rpc.code, JsonRpcErrorCode::InternalError as i32);
 
-    #[test]
-    fn test_client_timeout_error() {
-        let error = A2AError::client_timeout(30, "Request timed out");
-        assert!(error.is_timeout());
-        assert!(error.is_client_error());
-    }
-
-    #[test]
-    fn test_server_error() {
-        let server_error = ServerError::from_code(JsonRpcErrorCode::TaskNotFound);
-        assert_eq!(server_error.error.code, -32001);
-
-        let server_error =
-            ServerError::with_message(JsonRpcErrorCode::InternalError, "Custom error");
-        assert_eq!(server_error.error.message, "Custom error");
+        let err = A2AError::Database("db down".into());
+        let rpc = err.to_jsonrpc_error();
+        assert_eq!(rpc.code, JsonRpcErrorCode::InternalError as i32);
     }
 }

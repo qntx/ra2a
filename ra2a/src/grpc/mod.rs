@@ -9,15 +9,6 @@
 //! - Generated protobuf types in the `proto` submodule
 //! - Type conversion utilities between proto and native SDK types
 //! - gRPC client and server implementations (WIP)
-//!
-//! # Example
-//!
-//! ```rust,ignore
-//! use ra2a::grpc::proto;
-//!
-//! // Use generated proto types
-//! let task = proto::Task::default();
-//! ```
 
 // Include the generated protobuf code
 #[allow(missing_docs)]

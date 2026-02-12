@@ -6,7 +6,8 @@ use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{Client, ClientConfig, ClientEvent, EventStream, TransportConfig};
+use super::{Client, ClientConfig, ClientEvent, EventStream};
+use super::transports::TransportOptions;
 use crate::error::{A2AError, Result};
 use crate::types::{
     AgentCard, DeleteTaskPushNotificationConfigParams, GetTaskPushNotificationConfigParams,
@@ -47,7 +48,7 @@ impl A2AClient {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
             .build()
-            .map_err(|e| A2AError::Connection(e.to_string()))?;
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
         Ok(Self {
             http_client,
@@ -58,8 +59,8 @@ impl A2AClient {
         })
     }
 
-    /// Creates a new A2A client with transport configuration.
-    pub fn with_transport(transport: TransportConfig) -> Result<Self> {
+    /// Creates a new A2A client with transport options.
+    pub fn with_transport(transport: TransportOptions) -> Result<Self> {
         let mut headers = HeaderMap::new();
         for (name, value) in &transport.headers {
             if let (Ok(name), Ok(value)) = (
@@ -74,7 +75,7 @@ impl A2AClient {
             .timeout(Duration::from_secs(transport.timeout_secs))
             .default_headers(headers)
             .build()
-            .map_err(|e| A2AError::Connection(e.to_string()))?;
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
         let card_url = format!(
             "{}/.well-known/agent.json",
@@ -289,7 +290,7 @@ impl A2AClientBuilder {
             .timeout(Duration::from_secs(timeout))
             .default_headers(headers)
             .build()
-            .map_err(|e| A2AError::Connection(e.to_string()))?;
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
         let card_url = format!(
             "{}/.well-known/agent.json",
@@ -305,6 +306,7 @@ impl A2AClientBuilder {
         })
     }
 }
+
 
 #[cfg(test)]
 mod tests {

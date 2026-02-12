@@ -101,6 +101,7 @@ pub mod well_known {
     pub const HUMAN_IN_LOOP: &str = "urn:a2a:ext:human-in-loop";
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;

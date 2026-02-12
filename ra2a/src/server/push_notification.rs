@@ -93,7 +93,7 @@ impl PushNotificationSender {
             headers.insert(
                 AUTHORIZATION,
                 HeaderValue::from_str(&format!("Bearer {}", token))
-                    .map_err(|e| A2AError::InvalidConfig(e.to_string()))?,
+                    .map_err(|e| A2AError::InvalidParams(e.to_string()))?,
             );
         }
 
@@ -111,7 +111,7 @@ impl PushNotificationSender {
             .await
             .map_err(|e| {
                 error!("Failed to send push notification: {}", e);
-                A2AError::Connection(format!("Push notification failed: {}", e))
+                A2AError::Other(format!("Push notification failed: {}", e))
             })?;
 
         if !response.status().is_success() {
@@ -121,7 +121,7 @@ impl PushNotificationSender {
                 "Push notification returned error status {}: {}",
                 status, body
             );
-            return Err(A2AError::Internal(format!(
+            return Err(A2AError::InternalError(format!(
                 "Push notification failed with status {}: {}",
                 status, body
             )));
@@ -146,7 +146,7 @@ impl PushNotificationSender {
                         headers.insert(
                             AUTHORIZATION,
                             HeaderValue::from_str(&format!("Bearer {}", creds))
-                                .map_err(|e| A2AError::InvalidConfig(e.to_string()))?,
+                                .map_err(|e| A2AError::InvalidParams(e.to_string()))?,
                         );
                         return Ok(());
                     }
@@ -156,7 +156,7 @@ impl PushNotificationSender {
                         headers.insert(
                             AUTHORIZATION,
                             HeaderValue::from_str(&format!("Basic {}", creds))
-                                .map_err(|e| A2AError::InvalidConfig(e.to_string()))?,
+                                .map_err(|e| A2AError::InvalidParams(e.to_string()))?,
                         );
                         return Ok(());
                     }
@@ -264,6 +264,7 @@ impl PushNotificationManager {
         Ok(())
     }
 }
+
 
 #[cfg(test)]
 mod tests {

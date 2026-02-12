@@ -90,6 +90,7 @@ impl ClientConfig {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;

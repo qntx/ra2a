@@ -223,6 +223,116 @@ impl Task {
     pub fn state(&self) -> TaskState {
         self.status.state
     }
+
+    /// Returns the number of messages in the task's history.
+    pub fn message_count(&self) -> usize {
+        self.history.as_ref().map_or(0, Vec::len)
+    }
+
+    /// Returns the number of artifacts attached to the task.
+    pub fn artifact_count(&self) -> usize {
+        self.artifacts.as_ref().map_or(0, Vec::len)
+    }
+
+    /// Returns the last message in the task's history.
+    pub fn last_message(&self) -> Option<&Message> {
+        self.history.as_ref().and_then(|h| h.last())
+    }
+
+    /// Returns the last user message in the task's history.
+    pub fn last_user_message(&self) -> Option<&Message> {
+        self.history
+            .as_ref()
+            .and_then(|h| h.iter().rev().find(|m| m.role == super::Role::User))
+    }
+
+    /// Returns the last agent message in the task's history.
+    pub fn last_agent_message(&self) -> Option<&Message> {
+        self.history
+            .as_ref()
+            .and_then(|h| h.iter().rev().find(|m| m.role == super::Role::Agent))
+    }
+
+    /// Finds an artifact by its ID.
+    pub fn artifact_by_id(&self, artifact_id: &str) -> Option<&Artifact> {
+        self.artifacts
+            .as_ref()
+            .and_then(|arts| arts.iter().find(|a| a.artifact_id == artifact_id))
+    }
+
+    /// Returns `true` if the task is waiting for user input.
+    pub fn is_waiting_for_input(&self) -> bool {
+        matches!(
+            self.status.state,
+            TaskState::InputRequired | TaskState::AuthRequired
+        )
+    }
+
+    /// Validates that the task is in the expected state.
+    pub fn is_in_state(&self, expected: TaskState) -> bool {
+        self.status.state == expected
+    }
+
+    /// Validates that the task is in one of the expected states.
+    pub fn is_in_any_state(&self, expected: &[TaskState]) -> bool {
+        expected.contains(&self.status.state)
+    }
+
+    /// Updates the task status to a new state.
+    pub fn set_state(&mut self, state: TaskState) {
+        self.status = TaskStatus::new(state);
+    }
+
+    /// Updates the task status with a new state and message.
+    pub fn set_state_with_message(&mut self, state: TaskState, message: Message) {
+        self.status = TaskStatus::with_message(state, message);
+    }
+
+    /// Truncates history to the last `n` messages.
+    ///
+    /// If `len` is `None` or the history is shorter, this is a no-op.
+    pub fn truncate_history(&mut self, len: Option<usize>) {
+        if let (Some(max), Some(history)) = (len, self.history.as_mut()) {
+            if history.len() > max {
+                let start = history.len() - max;
+                *history = history.split_off(start);
+            }
+        }
+    }
+
+    /// Appends artifact data from an update event.
+    ///
+    /// When `append` is `true`, parts are added to an existing artifact.
+    /// When `false`, the artifact is replaced or inserted.
+    pub fn apply_artifact_update(&mut self, event: &TaskArtifactUpdateEvent) {
+        let artifacts = self.artifacts.get_or_insert_with(Vec::new);
+        let artifact_id = &event.artifact.artifact_id;
+        let append_parts = event.append.unwrap_or(false);
+
+        let existing_idx = artifacts.iter().position(|a| &a.artifact_id == artifact_id);
+
+        if !append_parts {
+            if let Some(idx) = existing_idx {
+                artifacts[idx] = event.artifact.clone();
+            } else {
+                artifacts.push(event.artifact.clone());
+            }
+        } else if let Some(idx) = existing_idx {
+            artifacts[idx].parts.extend(event.artifact.parts.clone());
+        }
+    }
+
+    /// Inserts or merges a metadata key-value pair.
+    pub fn set_metadata(&mut self, key: impl Into<String>, value: serde_json::Value) {
+        self.metadata
+            .get_or_insert_with(HashMap::new)
+            .insert(key.into(), value);
+    }
+
+    /// Creates a [`TaskStatusUpdateEvent`] from the current task state.
+    pub fn status_update_event(&self, is_final: bool) -> TaskStatusUpdateEvent {
+        TaskStatusUpdateEvent::new(&self.id, &self.context_id, self.status.clone(), is_final)
+    }
 }
 
 impl Default for Task {
@@ -280,6 +390,19 @@ impl Artifact {
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
         self
+    }
+
+    /// Creates a text artifact with the given content.
+    pub fn text(artifact_id: impl Into<String>, text: impl Into<String>) -> Self {
+        Self::new(artifact_id, vec![Part::text(text)])
+    }
+
+    /// Creates a data artifact with the given JSON content.
+    pub fn data(
+        artifact_id: impl Into<String>,
+        data: HashMap<String, serde_json::Value>,
+    ) -> Self {
+        Self::new(artifact_id, vec![Part::data(data)])
     }
 }
 
@@ -425,6 +548,7 @@ impl TaskArtifactUpdateEvent {
         }
     }
 }
+
 
 #[cfg(test)]
 mod tests {

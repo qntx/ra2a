@@ -30,19 +30,13 @@ pub struct GrpcTransport {
 
 impl GrpcTransport {
     /// Creates a new gRPC transport connected to the given endpoint.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let transport = GrpcTransport::connect("http://localhost:50051").await?;
-    /// ```
     pub async fn connect(endpoint: impl Into<String>) -> Result<Self> {
         let endpoint = endpoint.into();
         let channel = Channel::from_shared(endpoint)
-            .map_err(|e| A2AError::Connection(e.to_string()))?
+            .map_err(|e| A2AError::Other(e.to_string()))?
             .connect()
             .await
-            .map_err(|e| A2AError::Connection(e.to_string()))?;
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
         Ok(Self {
             client: A2aServiceClient::new(channel),
@@ -64,7 +58,7 @@ impl GrpcTransport {
             .client
             .send_message(request)
             .await
-            .map_err(|e| A2AError::Connection(e.to_string()))?;
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
         let inner = response.into_inner();
 
@@ -75,7 +69,7 @@ impl GrpcTransport {
             Some(proto::send_message_response::Payload::Message(msg)) => {
                 Ok(SendMessageResult::Message(NativeMessage::from(msg)))
             }
-            None => Err(A2AError::Internal("empty response".to_string())),
+            None => Err(A2AError::InternalError("empty response".to_string())),
         }
     }
 
@@ -90,7 +84,7 @@ impl GrpcTransport {
             .client
             .send_streaming_message(request)
             .await
-            .map_err(|e| A2AError::Connection(e.to_string()))?;
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
         Ok(GrpcEventStream::new(response.into_inner()))
     }
@@ -107,7 +101,7 @@ impl GrpcTransport {
             .client
             .get_task(request)
             .await
-            .map_err(|e| A2AError::Connection(e.to_string()))?;
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
         Ok(NativeTask::from(response.into_inner()))
     }
@@ -123,7 +117,7 @@ impl GrpcTransport {
             .client
             .cancel_task(request)
             .await
-            .map_err(|e| A2AError::Connection(e.to_string()))?;
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
         Ok(NativeTask::from(response.into_inner()))
     }
@@ -142,7 +136,7 @@ impl GrpcTransport {
             .client
             .subscribe_to_task(request)
             .await
-            .map_err(|e| A2AError::Connection(e.to_string()))?;
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
         Ok(GrpcEventStream::new(response.into_inner()))
     }
@@ -244,6 +238,7 @@ fn convert_stream_response(response: proto::StreamResponse) -> Option<StreamingE
         _ => None,
     }
 }
+
 
 #[cfg(test)]
 mod tests {

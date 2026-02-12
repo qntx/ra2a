@@ -67,45 +67,43 @@ impl ServerConfig {
 
 /// A2A Server application.
 ///
-/// This struct wraps an Axum router configured for handling A2A protocol requests.
-pub struct A2AServer<E: AgentExecutor + 'static> {
+/// Wraps an Axum router configured for handling A2A protocol requests.
+/// All JSON-RPC methods are dispatched through a single
+/// [`RequestHandler`](super::RequestHandler) held in [`ServerState`].
+pub struct A2AServer {
     /// The Axum router.
     router: Router,
     /// Server configuration.
     config: ServerConfig,
-    /// Server state (reserved for future middleware access).
-    #[allow(dead_code)]
-    state: ServerState<E>,
 }
 
-impl<E: AgentExecutor + 'static> A2AServer<E> {
-    /// Creates a new A2A server with the given executor.
-    pub fn new(executor: E) -> Self {
+impl A2AServer {
+    /// Creates a new A2A server from an [`AgentExecutor`].
+    ///
+    /// Internally wraps the executor in a [`DefaultRequestHandler`](super::DefaultRequestHandler).
+    pub fn new(executor: impl AgentExecutor + 'static) -> Self {
         Self::with_config(executor, ServerConfig::default())
     }
 
     /// Creates a new A2A server with custom configuration.
-    pub fn with_config(executor: E, config: ServerConfig) -> Self {
-        let state = ServerState::new(executor);
-        let router = Self::build_router(state.clone(), &config);
+    pub fn with_config(executor: impl AgentExecutor + 'static, config: ServerConfig) -> Self {
+        let state = ServerState::from_executor(executor);
+        let router = Self::build_router(state, &config);
+        Self { router, config }
+    }
 
-        Self {
-            router,
-            config,
-            state,
-        }
+    /// Creates a server from a pre-built [`ServerState`].
+    pub fn from_state(state: ServerState, config: ServerConfig) -> Self {
+        let router = Self::build_router(state, &config);
+        Self { router, config }
     }
 
     /// Builds the Axum router with all A2A endpoints.
-    fn build_router(state: ServerState<E>, config: &ServerConfig) -> Router {
+    fn build_router(state: ServerState, config: &ServerConfig) -> Router {
         let mut router = Router::new()
-            // Agent card endpoint
-            .route("/.well-known/agent.json", get(handle_agent_card::<E>))
-            // Main JSON-RPC endpoint
-            .route("/", post(handle_jsonrpc::<E>))
-            // SSE streaming endpoint
-            .route("/stream", post(handle_sse_stream::<E>))
-            // Health check endpoint
+            .route("/.well-known/agent.json", get(handle_agent_card))
+            .route("/", post(handle_jsonrpc))
+            .route("/stream", post(handle_sse_stream))
             .route("/health", get(handle_health))
             .with_state(state);
 
@@ -155,17 +153,12 @@ impl<E: AgentExecutor + 'static> A2AServer<E> {
 }
 
 /// Handler for the agent card endpoint.
-async fn handle_agent_card<E: AgentExecutor>(
-    State(state): State<ServerState<E>>,
-) -> Json<AgentCard> {
-    Json(state.executor.agent_card().clone())
+async fn handle_agent_card(State(state): State<ServerState>) -> Json<AgentCard> {
+    Json((*state.agent_card).clone())
 }
 
 /// Handler for the main JSON-RPC endpoint.
-async fn handle_jsonrpc<E: AgentExecutor>(
-    State(state): State<ServerState<E>>,
-    body: String,
-) -> Response {
+async fn handle_jsonrpc(State(state): State<ServerState>, body: String) -> Response {
     match handle_request(&state, &body).await {
         Ok(response) => Response::builder()
             .status(StatusCode::OK)
@@ -182,7 +175,7 @@ async fn handle_jsonrpc<E: AgentExecutor>(
                 "id": null
             });
             Response::builder()
-                .status(StatusCode::OK) // JSON-RPC errors still return 200
+                .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(error_body.to_string()))
                 .unwrap()
@@ -197,17 +190,13 @@ async fn handle_health() -> &'static str {
 
 /// Handler for the SSE streaming endpoint.
 ///
-/// This endpoint handles `message/stream` requests via Server-Sent Events.
-async fn handle_sse_stream<E: AgentExecutor + 'static>(
-    State(state): State<ServerState<E>>,
-    body: String,
-) -> Response {
-    use super::ExecutionContext;
-    use crate::types::{
-        JsonRpcRequest, JsonRpcSuccessResponse, MessageSendParams, StreamingMessageResult,
-    };
+/// Dispatches `message/stream` through [`RequestHandler::on_message_stream`](super::RequestHandler::on_message_stream)
+/// and converts the resulting event stream to Server-Sent Events.
+async fn handle_sse_stream(State(state): State<ServerState>, body: String) -> Response {
+    use crate::types::{JsonRpcRequest, MessageSendParams};
     use axum::response::IntoResponse;
     use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
+    use futures::StreamExt;
 
     // Parse the request
     let request: JsonRpcRequest<MessageSendParams> = match serde_json::from_str(&body) {
@@ -231,78 +220,75 @@ async fn handle_sse_stream<E: AgentExecutor + 'static>(
         }
     };
 
-    let message = params.message;
     let request_id = request.id;
 
-    // Determine task_id and context_id
-    let (task_id, context_id) = match (&message.task_id, &message.context_id) {
-        (Some(tid), Some(cid)) => (tid.clone(), cid.clone()),
-        (Some(tid), None) => {
-            if let Some(task) = state.get_task(tid).await {
-                (tid.clone(), task.context_id)
-            } else {
-                (tid.clone(), uuid::Uuid::new_v4().to_string())
-            }
+    // Dispatch to the handler
+    let event_stream = match state.handler.on_message_stream(params).await {
+        Ok(s) => s,
+        Err(e) => {
+            let error_data = serde_json::json!({
+                "jsonrpc": "2.0",
+                "error": { "code": -32603, "message": e.to_string() },
+                "id": request_id
+            });
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(error_data.to_string()))
+                .unwrap();
         }
-        _ => (
-            uuid::Uuid::new_v4().to_string(),
-            uuid::Uuid::new_v4().to_string(),
-        ),
     };
 
-    // Execute the agent
-    let ctx = ExecutionContext::new(&task_id, &context_id);
-    let executor = state.executor.clone();
-
-    // Create a stream that executes and emits events
-    let stream = async_stream::stream! {
-        match executor.execute(&ctx, &message).await {
-            Ok(task) => {
-                let result = StreamingMessageResult::Task(task);
-                let response = JsonRpcSuccessResponse::new(Some(request_id.clone()), result);
-                let data = serde_json::to_string(&response).unwrap_or_default();
-                yield Ok::<_, std::convert::Infallible>(
-                    SseEvent::default().event("task").data(data)
-                );
+    // Convert Event stream to SSE
+    let sse_stream = event_stream.map(move |item| {
+        match item {
+            Ok(event) => {
+                let (event_type, data) = event.to_sse_data();
+                Ok::<_, std::convert::Infallible>(
+                    SseEvent::default().event(event_type).data(data),
+                )
             }
             Err(e) => {
                 let error_data = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "error": {
-                        "code": -32603,
-                        "message": e.to_string()
-                    },
-                    "id": request_id
+                    "error": { "code": -32603, "message": e.to_string() }
                 });
-                yield Ok(SseEvent::default().event("error").data(error_data.to_string()));
+                Ok(SseEvent::default().event("error").data(error_data.to_string()))
             }
         }
-    };
+    });
 
-    Sse::new(stream)
+    Sse::new(sse_stream)
         .keep_alive(KeepAlive::default())
         .into_response()
 }
 
 /// Builder for creating an A2A server.
 #[derive(Debug)]
-pub struct A2AServerBuilder<E> {
-    executor: Option<E>,
+pub struct A2AServerBuilder {
+    /// Pre-built server state (takes priority over executor).
+    state: Option<ServerState>,
+    /// Server configuration.
     config: ServerConfig,
 }
 
-impl<E: AgentExecutor + 'static> A2AServerBuilder<E> {
+impl A2AServerBuilder {
     /// Creates a new server builder.
     pub fn new() -> Self {
         Self {
-            executor: None,
+            state: None,
             config: ServerConfig::default(),
         }
     }
 
-    /// Sets the agent executor.
-    pub fn executor(mut self, executor: E) -> Self {
-        self.executor = Some(executor);
+    /// Sets the agent executor. Wraps it in a [`DefaultRequestHandler`](super::DefaultRequestHandler).
+    pub fn executor(mut self, executor: impl AgentExecutor + 'static) -> Self {
+        self.state = Some(ServerState::from_executor(executor));
+        self
+    }
+
+    /// Sets a pre-built server state (for custom RequestHandler).
+    pub fn state(mut self, state: ServerState) -> Self {
+        self.state = Some(state);
         self
     }
 
@@ -328,14 +314,14 @@ impl<E: AgentExecutor + 'static> A2AServerBuilder<E> {
     ///
     /// # Panics
     ///
-    /// Panics if no executor has been set.
-    pub fn build(self) -> A2AServer<E> {
-        let executor = self.executor.expect("Executor must be set");
-        A2AServer::with_config(executor, self.config)
+    /// Panics if neither executor nor state has been set.
+    pub fn build(self) -> A2AServer {
+        let state = self.state.expect("Executor or state must be set");
+        A2AServer::from_state(state, self.config)
     }
 }
 
-impl<E: AgentExecutor + 'static> Default for A2AServerBuilder<E> {
+impl Default for A2AServerBuilder {
     fn default() -> Self {
         Self::new()
     }

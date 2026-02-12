@@ -46,7 +46,7 @@ impl StreamingClient {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
             .build()
-            .map_err(|e| A2AError::Connection(e.to_string()))?;
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
         Ok(Self {
             http_client,
@@ -70,7 +70,7 @@ impl StreamingClient {
             .timeout(Duration::from_secs(config.timeout_secs))
             .default_headers(headers)
             .build()
-            .map_err(|e| A2AError::Connection(e.to_string()))?;
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
         Ok(Self {
             http_client,
@@ -398,6 +398,7 @@ impl StreamingClientBuilder {
         StreamingClient::with_headers(self.base_url, self.config, self.headers)
     }
 }
+
 
 #[cfg(test)]
 mod tests {

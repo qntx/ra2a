@@ -1795,7 +1795,7 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
 name = "ra2a"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-stream",
  "async-trait",

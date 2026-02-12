@@ -14,26 +14,12 @@ use crate::error::{A2AError, JsonRpcError, Result};
 use crate::types::{
     DeleteTaskPushNotificationConfigParams, GetTaskPushNotificationConfigParams,
     ListTaskPushNotificationConfigParams, Message, MessageSendParams, Task, TaskIdParams,
-    TaskPushNotificationConfig, TaskQueryParams, TaskState, TaskStatus,
+    TaskPushNotificationConfig, TaskQueryParams, TaskStatus,
 };
 
-use super::call_context::ServerCallContext;
 use super::events::{Event, EventQueue, QueueManager};
-use super::request_handler::{EventStream, RequestHandler, SendMessageResponse};
-use super::{AgentExecutor, ExecutionContext};
-
-/// Terminal task states that cannot be modified.
-const TERMINAL_STATES: [TaskState; 4] = [
-    TaskState::Completed,
-    TaskState::Canceled,
-    TaskState::Failed,
-    TaskState::Rejected,
-];
-
-/// Checks if a task state is terminal.
-fn is_terminal_state(state: TaskState) -> bool {
-    TERMINAL_STATES.contains(&state)
-}
+use super::handler::{EventStream, RequestHandler, SendMessageResponse};
+use super::{AgentExecutor, RequestContext};
 
 /// Default request handler for all incoming A2A requests.
 ///
@@ -113,7 +99,6 @@ impl<E: AgentExecutor> DefaultRequestHandler<E> {
     async fn setup_execution(
         &self,
         params: &MessageSendParams,
-        _context: Option<&ServerCallContext>,
     ) -> Result<(String, String, Arc<EventQueue>)> {
         let message = &params.message;
 
@@ -137,7 +122,7 @@ impl<E: AgentExecutor> DefaultRequestHandler<E> {
 
         // Check if task exists and is in valid state
         if let Some(existing_task) = self.get_task_internal(&task_id).await {
-            if is_terminal_state(existing_task.status.state) {
+            if existing_task.status.state.is_terminal() {
                 return Err(JsonRpcError::invalid_params(format!(
                     "Task {} is in terminal state: {:?}",
                     task_id, existing_task.status.state
@@ -198,7 +183,7 @@ impl<E: AgentExecutor> DefaultRequestHandler<E> {
         queue: Arc<EventQueue>,
         tasks: Arc<RwLock<HashMap<String, Task>>>,
     ) {
-        let ctx = ExecutionContext::new(&task_id, &context_id);
+        let ctx = RequestContext::new(&task_id, &context_id);
 
         // Execute the agent
         match executor.execute(&ctx, &message).await {
@@ -239,13 +224,12 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     async fn on_message_send(
         &self,
         params: MessageSendParams,
-        context: Option<&ServerCallContext>,
     ) -> Result<SendMessageResponse> {
-        let (task_id, context_id, _queue) = self.setup_execution(&params, context).await?;
+        let (task_id, context_id, _queue) = self.setup_execution(&params).await?;
         let message = params.message.clone();
 
         // Execute synchronously for non-streaming
-        let ctx = ExecutionContext::new(&task_id, &context_id);
+        let ctx = RequestContext::new(&task_id, &context_id);
         let task = self.executor.execute(&ctx, &message).await?;
 
         // Store the task
@@ -268,9 +252,8 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     async fn on_message_stream(
         &self,
         params: MessageSendParams,
-        context: Option<&ServerCallContext>,
     ) -> Result<EventStream> {
-        let (task_id, context_id, queue) = self.setup_execution(&params, context).await?;
+        let (task_id, context_id, queue) = self.setup_execution(&params).await?;
         let message = params.message.clone();
 
         // Spawn execution task
@@ -306,7 +289,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     warn!("Event stream lagged by {} messages", n);
-                    Some((Err(A2AError::Stream(format!("Lagged by {} events", n))), rx))
+                    Some((Err(A2AError::Other(format!("Lagged by {} events", n))), rx))
                 }
             }
         });
@@ -318,7 +301,6 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     async fn on_get_task(
         &self,
         params: TaskQueryParams,
-        _context: Option<&ServerCallContext>,
     ) -> Result<Task> {
         let task = self
             .get_task_internal(&params.id)
@@ -332,14 +314,13 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     async fn on_cancel_task(
         &self,
         params: TaskIdParams,
-        _context: Option<&ServerCallContext>,
     ) -> Result<Task> {
         let task = self
             .get_task_internal(&params.id)
             .await
             .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
 
-        if is_terminal_state(task.status.state) {
+        if task.status.state.is_terminal() {
             return Err(JsonRpcError::task_not_cancelable(&params.id).into());
         }
 
@@ -352,7 +333,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         }
 
         // Execute cancel on the executor
-        let ctx = ExecutionContext::new(&task.id, &task.context_id);
+        let ctx = RequestContext::new(&task.id, &task.context_id);
         let canceled_task = self.executor.cancel(&ctx, &params.id).await?;
 
         // Store the canceled task
@@ -368,14 +349,13 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     async fn on_resubscribe(
         &self,
         params: TaskIdParams,
-        _context: Option<&ServerCallContext>,
     ) -> Result<EventStream> {
         let task = self
             .get_task_internal(&params.id)
             .await
             .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
 
-        if is_terminal_state(task.status.state) {
+        if task.status.state.is_terminal() {
             return Err(JsonRpcError::invalid_params(format!(
                 "Task {} is in terminal state: {:?}",
                 params.id, task.status.state
@@ -406,7 +386,6 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     async fn on_set_push_notification_config(
         &self,
         params: TaskPushNotificationConfig,
-        _context: Option<&ServerCallContext>,
     ) -> Result<TaskPushNotificationConfig> {
         // Check if push notifications are supported
         let card = self.executor.agent_card();
@@ -426,7 +405,6 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     async fn on_get_push_notification_config(
         &self,
         params: GetTaskPushNotificationConfigParams,
-        _context: Option<&ServerCallContext>,
     ) -> Result<TaskPushNotificationConfig> {
         // Check if push notifications are supported
         let card = self.executor.agent_card();
@@ -460,7 +438,6 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     async fn on_list_push_notification_config(
         &self,
         params: ListTaskPushNotificationConfigParams,
-        _context: Option<&ServerCallContext>,
     ) -> Result<Vec<TaskPushNotificationConfig>> {
         // Check if push notifications are supported
         let card = self.executor.agent_card();
@@ -480,7 +457,6 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     async fn on_delete_push_notification_config(
         &self,
         params: DeleteTaskPushNotificationConfigParams,
-        _context: Option<&ServerCallContext>,
     ) -> Result<()> {
         // Check if push notifications are supported
         let card = self.executor.agent_card();
@@ -517,10 +493,11 @@ impl<E: AgentExecutor> Clone for DefaultRequestHandler<E> {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{AgentCapabilities, AgentCard, Part};
+    use crate::types::{AgentCapabilities, AgentCard, Part, TaskState};
 
     struct TestAgent {
         card: AgentCard,
@@ -528,11 +505,11 @@ mod tests {
 
     #[async_trait]
     impl AgentExecutor for TestAgent {
-        async fn execute(&self, ctx: &ExecutionContext, _message: &Message) -> Result<Task> {
+        async fn execute(&self, ctx: &RequestContext, _message: &Message) -> Result<Task> {
             Ok(Task::new(&ctx.task_id, &ctx.context_id))
         }
 
-        async fn cancel(&self, ctx: &ExecutionContext, task_id: &str) -> Result<Task> {
+        async fn cancel(&self, ctx: &RequestContext, task_id: &str) -> Result<Task> {
             let mut task = Task::new(task_id, &ctx.context_id);
             task.status = TaskStatus::new(TaskState::Canceled);
             Ok(task)
@@ -563,7 +540,7 @@ mod tests {
         let message = Message::user(vec![Part::text("Hello")]);
         let params = MessageSendParams::new(message);
 
-        let result = handler.on_message_send(params, None).await.unwrap();
+        let result = handler.on_message_send(params).await.unwrap();
         match result {
             SendMessageResponse::Task(task) => {
                 assert!(!task.id.is_empty());
@@ -580,7 +557,7 @@ mod tests {
         // First create a task
         let message = Message::user(vec![Part::text("Hello")]);
         let params = MessageSendParams::new(message);
-        let result = handler.on_message_send(params, None).await.unwrap();
+        let result = handler.on_message_send(params).await.unwrap();
 
         let task_id = match result {
             SendMessageResponse::Task(task) => task.id,
@@ -589,7 +566,7 @@ mod tests {
 
         // Now get it
         let get_params = TaskQueryParams::new(&task_id);
-        let task = handler.on_get_task(get_params, None).await.unwrap();
+        let task = handler.on_get_task(get_params).await.unwrap();
         assert_eq!(task.id, task_id);
     }
 
@@ -601,7 +578,7 @@ mod tests {
         // Create a task
         let message = Message::user(vec![Part::text("Hello")]);
         let params = MessageSendParams::new(message);
-        let result = handler.on_message_send(params, None).await.unwrap();
+        let result = handler.on_message_send(params).await.unwrap();
 
         let task_id = match result {
             SendMessageResponse::Task(task) => task.id,
@@ -610,7 +587,7 @@ mod tests {
 
         // Cancel it
         let cancel_params = TaskIdParams::new(&task_id);
-        let canceled = handler.on_cancel_task(cancel_params, None).await.unwrap();
+        let canceled = handler.on_cancel_task(cancel_params).await.unwrap();
         assert_eq!(canceled.status.state, TaskState::Canceled);
     }
 }

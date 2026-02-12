@@ -7,52 +7,25 @@
 //! - **HTTP Client**: Basic HTTP/JSON-RPC client for synchronous requests
 //! - **SSE Streaming**: Server-Sent Events support for real-time updates
 //! - **Middleware**: Request/response interceptors for authentication and logging
-//!
-//! # Example
-//!
-//! ```rust,no_run
-//! use ra2a::client::{A2AClient, Client, StreamingClient};
-//! use ra2a::types::{Message, Part};
-//!
-//! #[tokio::main]
-//! async fn main() -> ra2a::Result<()> {
-//!     // Create a streaming client
-//!     let client = StreamingClient::new("https://agent.example.com")?;
-//!     
-//!     // Send a message and receive streaming updates
-//!     let message = Message::user_text("Hello, agent!");
-//!     let mut stream = client.send_message_streaming(message).await?;
-//!     
-//!     while let Some(event) = futures::StreamExt::next(&mut stream).await {
-//!         println!("Received: {:?}", event?);
-//!     }
-//!     
-//!     Ok(())
-//! }
-//! ```
 
 mod auth;
 mod card_resolver;
-mod client_task_manager;
 mod config;
 mod factory;
 mod http;
 mod middleware;
 mod sse;
 mod streaming;
-mod transport;
 pub mod transports;
 
 pub use auth::*;
 pub use card_resolver::*;
-pub use client_task_manager::*;
 pub use config::*;
 pub use factory::*;
 pub use http::*;
 pub use middleware::*;
 pub use sse::*;
 pub use streaming::*;
-pub use transport::*;
 pub use transports::{
     ClientTransport, EventStream as TransportEventStream, JsonRpcTransport, RestTransport,
     SendMessageResponse, StreamEvent, TransportOptions, TransportType,

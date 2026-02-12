@@ -356,7 +356,7 @@ impl CredentialProvider for RefreshableCredential {
         let cached = self.cached.read().await;
         let creds = cached
             .as_ref()
-            .ok_or_else(|| A2AError::InvalidConfig("No credentials available".to_string()))?;
+            .ok_or_else(|| A2AError::InvalidParams("No credentials available".to_string()))?;
 
         let mut headers = HashMap::new();
         headers.insert("Authorization".to_string(), creds.authorization_header());
@@ -458,7 +458,7 @@ impl CredentialService for InMemoryCredentialService {
         self.store
             .get(key)
             .await
-            .ok_or_else(|| A2AError::InvalidConfig(format!("No credentials for context: {}", key)))
+            .ok_or_else(|| A2AError::InvalidParams(format!("No credentials for context: {}", key)))
     }
 
     async fn refresh_credentials(&self, context: &CredentialContext) -> Result<Credentials> {
@@ -530,12 +530,12 @@ impl OAuth2ClientCredential {
             .body(body)
             .send()
             .await
-            .map_err(|e| A2AError::Connection(format!("Token request failed: {}", e)))?;
+            .map_err(|e| A2AError::Other(format!("Token request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let error_body = response.text().await.unwrap_or_default();
-            return Err(A2AError::InvalidConfig(format!(
+            return Err(A2AError::InvalidParams(format!(
                 "Token request failed with status {}: {}",
                 status, error_body
             )));
@@ -544,11 +544,11 @@ impl OAuth2ClientCredential {
         let token_response: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| A2AError::Connection(format!("Failed to parse token response: {}", e)))?;
+            .map_err(|e| A2AError::Other(format!("Failed to parse token response: {}", e)))?;
 
         let access_token = token_response["access_token"]
             .as_str()
-            .ok_or_else(|| A2AError::InvalidConfig("Missing access_token in response".to_string()))?
+            .ok_or_else(|| A2AError::InvalidParams("Missing access_token in response".into()))?
             .to_string();
 
         let token_type = token_response["token_type"]
@@ -594,7 +594,7 @@ impl CredentialProvider for OAuth2ClientCredential {
         let cached = self.cached_token.read().await;
         let creds = cached
             .as_ref()
-            .ok_or_else(|| A2AError::InvalidConfig("Failed to obtain token".to_string()))?;
+            .ok_or_else(|| A2AError::InvalidParams("Failed to obtain token".to_string()))?;
 
         let mut headers = HashMap::new();
         headers.insert("Authorization".to_string(), creds.authorization_header());
@@ -608,6 +608,7 @@ impl CredentialProvider for OAuth2ClientCredential {
         Ok(())
     }
 }
+
 
 #[cfg(test)]
 mod tests {

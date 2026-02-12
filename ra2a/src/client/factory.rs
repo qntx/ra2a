@@ -88,7 +88,7 @@ impl ClientFactory {
                 let transport = RestTransport::new(self.options.clone())?;
                 Ok(Box::new(transport))
             }
-            TransportType::Grpc => Err(A2AError::InvalidConfig(
+            TransportType::Grpc => Err(A2AError::InvalidParams(
                 "gRPC transport not yet implemented".to_string(),
             )),
         }
@@ -147,6 +147,7 @@ impl Default for ClientFactory {
         }
     }
 }
+
 
 #[cfg(test)]
 mod tests {

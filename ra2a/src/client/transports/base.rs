@@ -51,7 +51,7 @@ impl std::str::FromStr for TransportType {
             "JSONRPC" | "JSON-RPC" => Ok(Self::JsonRpc),
             "HTTP+JSON" | "REST" => Ok(Self::Rest),
             "GRPC" => Ok(Self::Grpc),
-            _ => Err(crate::error::A2AError::InvalidConfig(format!(
+            _ => Err(crate::error::A2AError::InvalidParams(format!(
                 "Unknown transport type: {}",
                 s
             ))),
@@ -187,6 +187,7 @@ impl TransportOptions {
         self
     }
 }
+
 
 #[cfg(test)]
 mod tests {
