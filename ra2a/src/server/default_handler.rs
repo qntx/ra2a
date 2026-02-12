@@ -186,8 +186,10 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
 
     /// Collects events from the queue until a terminal event is received.
     /// Used for non-streaming `message/send`. Stores task snapshots along the way.
-    async fn collect_result(&self, queue: &EventQueue) -> Result<SendMessageResponse> {
-        let mut rx = queue.subscribe();
+    async fn collect_result(
+        &self,
+        mut rx: tokio::sync::broadcast::Receiver<Event>,
+    ) -> Result<SendMessageResponse> {
         loop {
             match rx.recv().await {
                 Ok(event) => {
@@ -255,11 +257,12 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         let (ctx, queue) = self.build_request_context(&params).await?;
         let task_id = ctx.task_id.clone();
 
-        // Subscribe before spawning so we don't miss events
+        // Subscribe BEFORE spawning so we don't miss any events
+        let rx = queue.subscribe();
         self.spawn_execution(ctx, Arc::clone(&queue));
 
         // Collect events until terminal
-        let mut result = self.collect_result(&queue).await?;
+        let mut result = self.collect_result(rx).await?;
 
         // Apply history length
         if let SendMessageResponse::Task(ref mut t) = result {
@@ -277,10 +280,9 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         let (ctx, queue) = self.build_request_context(&params).await?;
         let task_id = ctx.task_id.clone();
 
-        self.spawn_execution(ctx, Arc::clone(&queue));
-
-        // Return event stream from queue subscription
+        // Subscribe BEFORE spawning so we don't miss any events
         let receiver = queue.subscribe();
+        self.spawn_execution(ctx, Arc::clone(&queue));
         let stream = futures::stream::unfold(receiver, |mut rx| async move {
             match rx.recv().await {
                 Ok(event) => Some((Ok(event), rx)),
@@ -330,6 +332,9 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         ctx.stored_task = Some(task);
         ctx.metadata = params.metadata.clone();
 
+        // Subscribe BEFORE spawning so we don't miss any events
+        let rx = queue.subscribe();
+
         let executor = Arc::clone(&self.executor);
         let q = Arc::clone(&queue);
         let tasks = Arc::clone(&self.tasks);
@@ -344,7 +349,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
             }
         });
 
-        let result = self.collect_result(&queue).await?;
+        let result = self.collect_result(rx).await?;
         self.queue_manager.remove_queue(&params.id).await;
 
         match result {
@@ -502,7 +507,8 @@ mod tests {
     #[async_trait]
     impl AgentExecutor for TestAgent {
         async fn execute(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
-            let task = Task::new(&ctx.task_id, &ctx.context_id);
+            let mut task = Task::new(&ctx.task_id, &ctx.context_id);
+            task.status = TaskStatus::new(TaskState::Completed);
             queue
                 .send(Event::Task(task))
                 .map_err(|e| A2AError::Other(e.to_string()))?;
@@ -576,16 +582,12 @@ mod tests {
         let agent = create_test_agent();
         let handler = DefaultRequestHandler::new(agent);
 
-        let message = Message::user(vec![Part::text("Hello")]);
-        let params = MessageSendParams::new(message);
-        let result = handler.on_message_send(params).await.unwrap();
+        // Insert a Working task directly so it is cancelable
+        let mut task = Task::new("cancel-test-id", "ctx-1");
+        task.status = TaskStatus::new(TaskState::Working);
+        handler.store_task(&task).await;
 
-        let task_id = match result {
-            SendMessageResponse::Task(task) => task.id,
-            _ => panic!("Expected Task response"),
-        };
-
-        let cancel_params = TaskIdParams::new(&task_id);
+        let cancel_params = TaskIdParams::new("cancel-test-id");
         let canceled = handler.on_cancel_task(cancel_params).await.unwrap();
         assert_eq!(canceled.status.state, TaskState::Canceled);
     }
