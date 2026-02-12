@@ -18,10 +18,14 @@ mod sse;
 mod streaming;
 pub mod transports;
 
+use std::pin::Pin;
+
+use async_trait::async_trait;
 pub use auth::*;
 pub use card_resolver::*;
 pub use config::*;
 pub use factory::*;
+use futures::Stream;
 pub use http::*;
 pub use middleware::*;
 pub use sse::*;
@@ -31,15 +35,11 @@ pub use transports::{
     SendMessageResponse, StreamEvent, TransportOptions, TransportType,
 };
 
-use async_trait::async_trait;
-use futures::Stream;
-use std::pin::Pin;
-
 use crate::error::Result;
 use crate::types::{
-    AgentCard, DeleteTaskPushNotificationConfigParams, GetTaskPushNotificationConfigParams,
-    ListTaskPushNotificationConfigParams, Message, Task, TaskArtifactUpdateEvent, TaskIdParams,
-    TaskPushNotificationConfig, TaskQueryParams, TaskStatusUpdateEvent,
+    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
+    Message, Task, TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig, TaskQueryParams,
+    TaskStatusUpdateEvent,
 };
 
 /// Update event from streaming responses.
@@ -86,16 +86,10 @@ pub trait Client: Send + Sync {
     async fn cancel_task(&self, params: TaskIdParams) -> Result<Task>;
 
     /// Sets or updates the push notification configuration for a task.
-    async fn set_task_callback(
-        &self,
-        config: TaskPushNotificationConfig,
-    ) -> Result<TaskPushNotificationConfig>;
+    async fn set_task_callback(&self, config: TaskPushConfig) -> Result<TaskPushConfig>;
 
     /// Retrieves the push notification configuration for a task.
-    async fn get_task_callback(
-        &self,
-        params: GetTaskPushNotificationConfigParams,
-    ) -> Result<TaskPushNotificationConfig>;
+    async fn get_task_callback(&self, params: GetTaskPushConfigParams) -> Result<TaskPushConfig>;
 
     /// Resubscribes to a task's event stream.
     async fn resubscribe(&self, params: TaskIdParams) -> Result<EventStream>;
@@ -103,13 +97,13 @@ pub trait Client: Send + Sync {
     /// Lists all push notification configurations for a task.
     async fn list_task_push_notification_config(
         &self,
-        params: ListTaskPushNotificationConfigParams,
-    ) -> Result<Vec<TaskPushNotificationConfig>>;
+        params: ListTaskPushConfigParams,
+    ) -> Result<Vec<TaskPushConfig>>;
 
     /// Deletes a push notification configuration for a task.
     async fn delete_task_push_notification_config(
         &self,
-        params: DeleteTaskPushNotificationConfigParams,
+        params: DeleteTaskPushConfigParams,
     ) -> Result<()>;
 
     /// Retrieves the agent's card.

@@ -1,7 +1,8 @@
 //! Client-side middleware for intercepting and modifying requests.
 
-use async_trait::async_trait;
 use std::collections::HashMap;
+
+use async_trait::async_trait;
 
 use crate::types::AgentCard;
 
@@ -188,7 +189,6 @@ impl InterceptorChain {
         Ok((request_payload, headers))
     }
 }
-
 
 #[cfg(test)]
 mod tests {

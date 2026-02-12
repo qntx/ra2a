@@ -239,7 +239,6 @@ fn convert_stream_response(response: proto::StreamResponse) -> Option<StreamingE
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

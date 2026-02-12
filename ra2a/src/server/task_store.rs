@@ -227,8 +227,9 @@ pub mod sql {
             #[doc = concat!("SQL-backed task store for the `", $feat, "` database backend.")]
             #[cfg(feature = $feat)]
             pub mod $mod {
-                use super::*;
                 use sqlx::Row;
+
+                use super::*;
 
                 type DbPool = $Pool;
 
@@ -364,7 +365,6 @@ pub mod sql {
         task_delete_sql: "DELETE FROM a2a_tasks WHERE id = $1",
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -2,15 +2,15 @@
 //!
 //! Defines the abstract interface that all transport implementations must follow.
 
+use std::pin::Pin;
+
 use async_trait::async_trait;
 use futures::Stream;
-use std::pin::Pin;
 
 use crate::error::Result;
 use crate::types::{
-    AgentCard, DeleteTaskPushNotificationConfigParams, GetTaskPushNotificationConfigParams,
-    ListTaskPushNotificationConfigParams, Message, Task, TaskIdParams, TaskPushNotificationConfig,
-    TaskQueryParams, TaskResubscriptionParams,
+    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
+    Message, Task, TaskIdParams, TaskPushConfig, TaskQueryParams, TaskResubscriptionParams,
 };
 
 /// A boxed stream of streaming events.
@@ -104,25 +104,25 @@ pub trait ClientTransport: Send + Sync {
     /// Sets or updates push notification configuration for a task.
     async fn set_task_push_notification_config(
         &self,
-        config: TaskPushNotificationConfig,
-    ) -> Result<TaskPushNotificationConfig>;
+        config: TaskPushConfig,
+    ) -> Result<TaskPushConfig>;
 
     /// Gets push notification configuration for a task.
     async fn get_task_push_notification_config(
         &self,
-        params: GetTaskPushNotificationConfigParams,
-    ) -> Result<TaskPushNotificationConfig>;
+        params: GetTaskPushConfigParams,
+    ) -> Result<TaskPushConfig>;
 
     /// Lists all push notification configurations for a task.
     async fn list_task_push_notification_configs(
         &self,
-        params: ListTaskPushNotificationConfigParams,
-    ) -> Result<Vec<TaskPushNotificationConfig>>;
+        params: ListTaskPushConfigParams,
+    ) -> Result<Vec<TaskPushConfig>>;
 
     /// Deletes a push notification configuration.
     async fn delete_task_push_notification_config(
         &self,
-        params: DeleteTaskPushNotificationConfigParams,
+        params: DeleteTaskPushConfigParams,
     ) -> Result<()>;
 
     /// Resubscribes to a task's event stream.
@@ -187,7 +187,6 @@ impl TransportOptions {
         self
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -3,8 +3,9 @@
 //! The AgentCard is a self-describing manifest that provides essential metadata
 //! about an agent including identity, capabilities, skills, and security requirements.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 use super::SecurityScheme;
 
@@ -345,7 +346,6 @@ pub struct AgentCardSignature {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub header: Option<HashMap<String, serde_json::Value>>,
 }
-
 
 #[cfg(test)]
 mod tests {

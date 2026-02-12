@@ -1,7 +1,8 @@
 //! Agent Card resolver for fetching and caching agent cards.
 
-use reqwest::Client as HttpClient;
 use std::sync::Arc;
+
+use reqwest::Client as HttpClient;
 use tokio::sync::RwLock;
 
 use crate::error::{A2AError, Result};
@@ -130,7 +131,6 @@ impl A2ACardResolver {
             .await
     }
 }
-
 
 #[cfg(test)]
 mod tests {

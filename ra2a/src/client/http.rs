@@ -1,19 +1,19 @@
 //! HTTP-based A2A client implementation.
 
-use async_trait::async_trait;
-use futures::stream;
-use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{Client, ClientConfig, ClientEvent, EventStream};
+use async_trait::async_trait;
+use futures::stream;
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+
 use super::transports::TransportOptions;
+use super::{Client, ClientConfig, ClientEvent, EventStream};
 use crate::error::{A2AError, Result};
 use crate::types::{
-    AgentCard, DeleteTaskPushNotificationConfigParams, GetTaskPushNotificationConfigParams,
-    JsonRpcRequest, JsonRpcResponse, ListTaskPushNotificationConfigParams, Message,
-    MessageSendParams, SendMessageResult, Task, TaskIdParams, TaskPushNotificationConfig,
-    TaskQueryParams,
+    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcRequest,
+    JsonRpcResponse, ListTaskPushConfigParams, Message, MessageSendParams, SendMessageResult, Task,
+    TaskIdParams, TaskPushConfig, TaskQueryParams,
 };
 
 /// HTTP-based A2A client.
@@ -169,21 +169,15 @@ impl Client for A2AClient {
         self.send_request(request).await
     }
 
-    async fn set_task_callback(
-        &self,
-        config: TaskPushNotificationConfig,
-    ) -> Result<TaskPushNotificationConfig> {
-        let request: JsonRpcRequest<TaskPushNotificationConfig> =
-            JsonRpcRequest::new("tasks/pushNotificationConfig/set", config);
+    async fn set_task_callback(&self, config: TaskPushConfig) -> Result<TaskPushConfig> {
+        let request: JsonRpcRequest<TaskPushConfig> =
+            JsonRpcRequest::new("tasks/PushConfig/set", config);
         self.send_request(request).await
     }
 
-    async fn get_task_callback(
-        &self,
-        params: GetTaskPushNotificationConfigParams,
-    ) -> Result<TaskPushNotificationConfig> {
-        let request: JsonRpcRequest<GetTaskPushNotificationConfigParams> =
-            JsonRpcRequest::new("tasks/pushNotificationConfig/get", params);
+    async fn get_task_callback(&self, params: GetTaskPushConfigParams) -> Result<TaskPushConfig> {
+        let request: JsonRpcRequest<GetTaskPushConfigParams> =
+            JsonRpcRequest::new("tasks/PushConfig/get", params);
         self.send_request(request).await
     }
 
@@ -197,19 +191,19 @@ impl Client for A2AClient {
 
     async fn list_task_push_notification_config(
         &self,
-        params: ListTaskPushNotificationConfigParams,
-    ) -> Result<Vec<TaskPushNotificationConfig>> {
-        let request: JsonRpcRequest<ListTaskPushNotificationConfigParams> =
-            JsonRpcRequest::new("tasks/pushNotificationConfig/list", params);
+        params: ListTaskPushConfigParams,
+    ) -> Result<Vec<TaskPushConfig>> {
+        let request: JsonRpcRequest<ListTaskPushConfigParams> =
+            JsonRpcRequest::new("tasks/PushConfig/list", params);
         self.send_request(request).await
     }
 
     async fn delete_task_push_notification_config(
         &self,
-        params: DeleteTaskPushNotificationConfigParams,
+        params: DeleteTaskPushConfigParams,
     ) -> Result<()> {
-        let request: JsonRpcRequest<DeleteTaskPushNotificationConfigParams> =
-            JsonRpcRequest::new("tasks/pushNotificationConfig/delete", params);
+        let request: JsonRpcRequest<DeleteTaskPushConfigParams> =
+            JsonRpcRequest::new("tasks/PushConfig/delete", params);
         self.send_request(request).await
     }
 
@@ -306,7 +300,6 @@ impl A2AClientBuilder {
         })
     }
 }
-
 
 #[cfg(test)]
 mod tests {

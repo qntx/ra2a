@@ -4,9 +4,10 @@ edition = "2024"
 max_width = 100
 use_small_heuristics = "Default"
 
-# Import organization (stable features only)
+# Import organization
 reorder_imports = true
 reorder_modules = true
+group_imports = "StdExternalCrate"  # nightly-only; enforce manually: std → external → crate
 
 # Code style
 newline_style = "Auto"

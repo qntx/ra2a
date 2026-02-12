@@ -2,19 +2,20 @@
 //!
 //! Implements the A2A protocol over HTTP+JSON REST API.
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use futures::stream;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
-use std::time::Duration;
 
 use super::{
     ClientTransport, EventStream, SendMessageResponse, StreamEvent, TransportOptions, TransportType,
 };
 use crate::error::{A2AError, Result};
 use crate::types::{
-    AgentCard, DeleteTaskPushNotificationConfigParams, GetTaskPushNotificationConfigParams,
-    ListTaskPushNotificationConfigParams, Message, Task, TaskArtifactUpdateEvent, TaskIdParams,
-    TaskPushNotificationConfig, TaskQueryParams, TaskResubscriptionParams, TaskStatusUpdateEvent,
+    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
+    Message, Task, TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig, TaskQueryParams,
+    TaskResubscriptionParams, TaskStatusUpdateEvent,
 };
 
 /// REST transport for A2A protocol.
@@ -269,11 +270,11 @@ impl ClientTransport for RestTransport {
 
     async fn set_task_push_notification_config(
         &self,
-        config: TaskPushNotificationConfig,
-    ) -> Result<TaskPushNotificationConfig> {
+        config: TaskPushConfig,
+    ) -> Result<TaskPushConfig> {
         let response = self
             .client
-            .put(self.url(&format!("/tasks/{}/pushNotificationConfig", config.task_id)))
+            .put(self.url(&format!("/tasks/{}/PushConfig", config.task_id)))
             .json(&config.push_notification_config)
             .send()
             .await?;
@@ -287,9 +288,9 @@ impl ClientTransport for RestTransport {
 
     async fn get_task_push_notification_config(
         &self,
-        params: GetTaskPushNotificationConfigParams,
-    ) -> Result<TaskPushNotificationConfig> {
-        let mut url = self.url(&format!("/tasks/{}/pushNotificationConfig", params.id));
+        params: GetTaskPushConfigParams,
+    ) -> Result<TaskPushConfig> {
+        let mut url = self.url(&format!("/tasks/{}/PushConfig", params.id));
         if let Some(ref config_id) = params.push_notification_config_id {
             url = format!("{}/{}", url, config_id);
         }
@@ -305,11 +306,11 @@ impl ClientTransport for RestTransport {
 
     async fn list_task_push_notification_configs(
         &self,
-        params: ListTaskPushNotificationConfigParams,
-    ) -> Result<Vec<TaskPushNotificationConfig>> {
+        params: ListTaskPushConfigParams,
+    ) -> Result<Vec<TaskPushConfig>> {
         let response = self
             .client
-            .get(self.url(&format!("/tasks/{}/pushNotificationConfigs", params.id)))
+            .get(self.url(&format!("/tasks/{}/PushConfigs", params.id)))
             .send()
             .await?;
 
@@ -322,12 +323,12 @@ impl ClientTransport for RestTransport {
 
     async fn delete_task_push_notification_config(
         &self,
-        params: DeleteTaskPushNotificationConfigParams,
+        params: DeleteTaskPushConfigParams,
     ) -> Result<()> {
         let response = self
             .client
             .delete(self.url(&format!(
-                "/tasks/{}/pushNotificationConfig/{}",
+                "/tasks/{}/PushConfig/{}",
                 params.id, params.push_notification_config_id
             )))
             .send()
@@ -368,7 +369,6 @@ impl ClientTransport for RestTransport {
         Ok(response.json().await?)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

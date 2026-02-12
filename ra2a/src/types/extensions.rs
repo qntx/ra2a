@@ -3,8 +3,9 @@
 //! Extensions allow agents and clients to negotiate and use additional
 //! capabilities beyond the core A2A specification.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// Represents an extension declaration in requests or responses.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -100,7 +101,6 @@ pub mod well_known {
     /// Extension for human-in-the-loop workflows.
     pub const HUMAN_IN_LOOP: &str = "urn:a2a:ext:human-in-loop";
 }
-
 
 #[cfg(test)]
 mod tests {

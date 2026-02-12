@@ -3,20 +3,20 @@
 //! This module provides a full-featured A2A client with SSE streaming support,
 //! combining both synchronous and asynchronous communication patterns.
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use async_trait::async_trait;
 use futures::stream;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
-use std::sync::Arc;
-use std::time::Duration;
 use tracing::{debug, instrument};
 
 use super::{Client, ClientConfig, ClientEvent, EventStream};
 use crate::error::{A2AError, Result};
 use crate::types::{
-    AgentCard, DeleteTaskPushNotificationConfigParams, GetTaskPushNotificationConfigParams,
-    JsonRpcRequest, JsonRpcResponse, ListTaskPushNotificationConfigParams, Message,
-    MessageSendConfiguration, MessageSendParams, SendMessageResult, Task, TaskIdParams,
-    TaskPushNotificationConfig, TaskQueryParams,
+    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcRequest,
+    JsonRpcResponse, ListTaskPushConfigParams, Message, MessageSendConfig, MessageSendParams,
+    SendMessageResult, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
 };
 
 /// A full-featured A2A client with SSE streaming support.
@@ -127,7 +127,7 @@ impl StreamingClient {
         if !self.config.accepted_output_modes.is_empty()
             || !self.config.push_notification_configs.is_empty()
         {
-            let mut config = MessageSendConfiguration::default();
+            let mut config = MessageSendConfig::default();
             if !self.config.accepted_output_modes.is_empty() {
                 config.accepted_output_modes = Some(self.config.accepted_output_modes.clone());
             }
@@ -243,22 +243,16 @@ impl Client for StreamingClient {
     }
 
     #[instrument(skip(self))]
-    async fn set_task_callback(
-        &self,
-        config: TaskPushNotificationConfig,
-    ) -> Result<TaskPushNotificationConfig> {
-        let request: JsonRpcRequest<TaskPushNotificationConfig> =
-            JsonRpcRequest::new("tasks/pushNotificationConfig/set", config);
+    async fn set_task_callback(&self, config: TaskPushConfig) -> Result<TaskPushConfig> {
+        let request: JsonRpcRequest<TaskPushConfig> =
+            JsonRpcRequest::new("tasks/PushConfig/set", config);
         self.send_request(request).await
     }
 
     #[instrument(skip(self))]
-    async fn get_task_callback(
-        &self,
-        params: GetTaskPushNotificationConfigParams,
-    ) -> Result<TaskPushNotificationConfig> {
-        let request: JsonRpcRequest<GetTaskPushNotificationConfigParams> =
-            JsonRpcRequest::new("tasks/pushNotificationConfig/get", params);
+    async fn get_task_callback(&self, params: GetTaskPushConfigParams) -> Result<TaskPushConfig> {
+        let request: JsonRpcRequest<GetTaskPushConfigParams> =
+            JsonRpcRequest::new("tasks/PushConfig/get", params);
         self.send_request(request).await
     }
 
@@ -302,20 +296,20 @@ impl Client for StreamingClient {
     #[instrument(skip(self))]
     async fn list_task_push_notification_config(
         &self,
-        params: ListTaskPushNotificationConfigParams,
-    ) -> Result<Vec<TaskPushNotificationConfig>> {
-        let request: JsonRpcRequest<ListTaskPushNotificationConfigParams> =
-            JsonRpcRequest::new("tasks/pushNotificationConfig/list", params);
+        params: ListTaskPushConfigParams,
+    ) -> Result<Vec<TaskPushConfig>> {
+        let request: JsonRpcRequest<ListTaskPushConfigParams> =
+            JsonRpcRequest::new("tasks/PushConfig/list", params);
         self.send_request(request).await
     }
 
     #[instrument(skip(self))]
     async fn delete_task_push_notification_config(
         &self,
-        params: DeleteTaskPushNotificationConfigParams,
+        params: DeleteTaskPushConfigParams,
     ) -> Result<()> {
-        let request: JsonRpcRequest<DeleteTaskPushNotificationConfigParams> =
-            JsonRpcRequest::new("tasks/pushNotificationConfig/delete", params);
+        let request: JsonRpcRequest<DeleteTaskPushConfigParams> =
+            JsonRpcRequest::new("tasks/PushConfig/delete", params);
         self.send_request(request).await
     }
 
@@ -398,7 +392,6 @@ impl StreamingClientBuilder {
         StreamingClient::with_headers(self.base_url, self.config, self.headers)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

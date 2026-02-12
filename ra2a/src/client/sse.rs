@@ -3,16 +3,16 @@
 //! This module provides basic SSE parsing for real-time event updates
 //! from A2A agents.
 
-use futures::Stream;
-use pin_project_lite::pin_project;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use futures::Stream;
+use pin_project_lite::pin_project;
 use tracing::{debug, warn};
 
+use super::{ClientEvent, UpdateEvent};
 use crate::error::{A2AError, Result};
 use crate::types::{Message, Task, TaskArtifactUpdateEvent, TaskStatusUpdateEvent};
-
-use super::{ClientEvent, UpdateEvent};
 
 /// SSE event types as defined by the A2A protocol.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -250,7 +250,6 @@ where
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

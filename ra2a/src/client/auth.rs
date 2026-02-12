@@ -4,10 +4,11 @@
 //! for securing client requests to A2A agents. This module mirrors the Python SDK's
 //! `client/auth/` module structure.
 
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use async_trait::async_trait;
 use tokio::sync::RwLock;
 
 use crate::error::{A2AError, Result};
@@ -608,7 +609,6 @@ impl CredentialProvider for OAuth2ClientCredential {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {

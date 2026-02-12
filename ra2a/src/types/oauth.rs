@@ -2,8 +2,9 @@
 //!
 //! Defines configuration for OAuth 2.0 flows used in security schemes.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// Defines the configuration for the supported OAuth 2.0 flows.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -138,7 +139,6 @@ impl PasswordOAuthFlow {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

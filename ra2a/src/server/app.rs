@@ -190,76 +190,114 @@ async fn handle_health() -> &'static str {
 
 /// Handler for the SSE streaming endpoint.
 ///
-/// Dispatches `message/stream` through [`RequestHandler::on_message_stream`](super::RequestHandler::on_message_stream)
-/// and converts the resulting event stream to Server-Sent Events.
+/// Dispatches `message/stream` and `tasks/resubscribe` through the
+/// [`RequestHandler`](super::RequestHandler), wrapping each event in a JSON-RPC
+/// response envelope — aligned with Go's `handleStreamingRequest` in `jsonrpc.go`.
 async fn handle_sse_stream(State(state): State<ServerState>, body: String) -> Response {
-    use crate::types::{JsonRpcRequest, MessageSendParams};
     use axum::response::IntoResponse;
     use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
     use futures::StreamExt;
 
-    // Parse the request
-    let request: JsonRpcRequest<MessageSendParams> = match serde_json::from_str(&body) {
+    use crate::error::JsonRpcError;
+    use crate::types::{JsonRpcRequest, MessageSendParams, TaskIdParams};
+
+    // Parse the JSON-RPC request envelope
+    let request: JsonRpcRequest<serde_json::Value> = match serde_json::from_str(&body) {
         Ok(req) => req,
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(format!(r#"{{"error":"{}"}}"#, e)))
-                .unwrap();
+        Err(_) => {
+            return sse_jsonrpc_error_response(None, JsonRpcError::parse_error());
         }
     };
 
-    let params = match request.params {
-        Some(p) => p,
-        None => {
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::from(r#"{"error":"Missing params"}"#))
-                .unwrap();
+    let request_id = request.id.clone();
+    let handler = &state.handler;
+
+    // Dispatch to the appropriate streaming method (Go: handleStreamingRequest)
+    let event_stream = match request.method.as_str() {
+        "message/stream" => {
+            let params: MessageSendParams = match request
+                .params
+                .as_ref()
+                .ok_or_else(|| JsonRpcError::invalid_params("Missing params"))
+                .and_then(|p| {
+                    serde_json::from_value(p.clone())
+                        .map_err(|e| JsonRpcError::invalid_params(e.to_string()))
+                }) {
+                Ok(p) => p,
+                Err(e) => return sse_jsonrpc_error_response(Some(&request_id), e),
+            };
+            handler.on_message_stream(params).await
+        }
+        "tasks/resubscribe" => {
+            let params: TaskIdParams = match request
+                .params
+                .as_ref()
+                .ok_or_else(|| JsonRpcError::invalid_params("Missing params"))
+                .and_then(|p| {
+                    serde_json::from_value(p.clone())
+                        .map_err(|e| JsonRpcError::invalid_params(e.to_string()))
+                }) {
+                Ok(p) => p,
+                Err(e) => return sse_jsonrpc_error_response(Some(&request_id), e),
+            };
+            handler.on_resubscribe(params).await
+        }
+        _ => {
+            return sse_jsonrpc_error_response(
+                Some(&request_id),
+                JsonRpcError::method_not_found(&request.method),
+            );
         }
     };
 
-    let request_id = request.id;
-
-    // Dispatch to the handler
-    let event_stream = match state.handler.on_message_stream(params).await {
+    let event_stream = match event_stream {
         Ok(s) => s,
         Err(e) => {
-            let error_data = serde_json::json!({
-                "jsonrpc": "2.0",
-                "error": { "code": -32603, "message": e.to_string() },
-                "id": request_id
-            });
-            return Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(error_data.to_string()))
-                .unwrap();
+            return sse_jsonrpc_error_response(Some(&request_id), e.to_jsonrpc_error());
         }
     };
 
-    // Convert Event stream to SSE
+    // Wrap each event in a JSON-RPC response envelope (Go: eventSeqToSSEDataStream)
+    let id_for_stream = request_id.clone();
     let sse_stream = event_stream.map(move |item| {
-        match item {
-            Ok(event) => {
-                let (event_type, data) = event.to_sse_data();
-                Ok::<_, std::convert::Infallible>(
-                    SseEvent::default().event(event_type).data(data),
-                )
-            }
+        let data = match item {
+            Ok(event) => serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id_for_stream,
+                "result": event,
+            }),
             Err(e) => {
-                let error_data = serde_json::json!({
-                    "error": { "code": -32603, "message": e.to_string() }
-                });
-                Ok(SseEvent::default().event("error").data(error_data.to_string()))
+                let rpc_err = e.to_jsonrpc_error();
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id_for_stream,
+                    "error": { "code": rpc_err.code, "message": rpc_err.message },
+                })
             }
-        }
+        };
+        Ok::<_, std::convert::Infallible>(SseEvent::default().data(data.to_string()))
     });
 
     Sse::new(sse_stream)
         .keep_alive(KeepAlive::default())
         .into_response()
+}
+
+/// Builds a plain JSON-RPC error HTTP response for SSE setup failures.
+fn sse_jsonrpc_error_response(
+    id: Option<&crate::types::RequestId>,
+    error: crate::error::JsonRpcError,
+) -> Response {
+    let resp = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": { "code": error.code, "message": error.message },
+    });
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(resp.to_string()))
+        .unwrap()
 }
 
 /// Builder for creating an A2A server.

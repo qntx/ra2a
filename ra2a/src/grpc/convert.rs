@@ -5,14 +5,13 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use super::proto;
 use crate::types::{
     Artifact as NativeArtifact, DataPart, FileContent, FilePart as NativeFilePart, FileWithBytes,
-    FileWithUri, Message as NativeMessage, Part as NativePart,
-    PushNotificationConfig as NativePushConfig, Role as NativeRole, Task as NativeTask,
-    TaskState as NativeTaskState, TaskStatus as NativeTaskStatus, TextPart,
+    FileWithUri, Message as NativeMessage, Part as NativePart, PushConfig as NativePushConfig,
+    Role as NativeRole, Task as NativeTask, TaskState as NativeTaskState,
+    TaskStatus as NativeTaskStatus, TextPart,
 };
-
-use super::proto;
 
 impl From<NativeTaskState> for proto::TaskState {
     fn from(state: NativeTaskState) -> Self {
@@ -411,8 +410,9 @@ impl From<proto::PushNotificationConfig> for NativePushConfig {
             } else {
                 Some(config.token)
             },
-            authentication: config.authentication.map(|auth| {
-                crate::types::PushNotificationAuthenticationInfo {
+            authentication: config
+                .authentication
+                .map(|auth| crate::types::PushAuthInfo {
                     schemes: if auth.scheme.is_empty() {
                         vec![]
                     } else {
@@ -423,8 +423,7 @@ impl From<proto::PushNotificationConfig> for NativePushConfig {
                     } else {
                         Some(auth.credentials)
                     },
-                }
-            }),
+                }),
         }
     }
 }
@@ -517,7 +516,6 @@ fn prost_value_to_json(value: prost_types::Value) -> Option<serde_json::Value> {
         prost_types::value::Kind::StructValue(s) => struct_to_json(s),
     }
 }
-
 
 #[cfg(test)]
 mod tests {

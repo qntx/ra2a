@@ -4,15 +4,17 @@
 
 #![allow(unused_imports)]
 
-use async_trait::async_trait;
 use std::sync::Arc;
-use tokio::signal;
 
+use async_trait::async_trait;
 use ra2a::{
     error::Result,
-    server::{A2AServer, A2AServerBuilder, AgentExecutor, RequestContext, ServerConfig},
+    server::{
+        A2AServer, A2AServerBuilder, AgentExecutor, Event, EventQueue, RequestContext, ServerConfig,
+    },
     types::{AgentCapabilities, AgentCard, AgentSkill, Message, Part, Task, TaskState, TaskStatus},
 };
+use tokio::signal;
 
 /// A simple "Hello World" agent executor.
 struct HelloWorldExecutor {
@@ -51,9 +53,13 @@ impl HelloWorldExecutor {
 
 #[async_trait]
 impl AgentExecutor for HelloWorldExecutor {
-    async fn execute(&self, ctx: &RequestContext, message: &Message) -> Result<Task> {
-        // Get the text content from the message
-        let user_text = message.text_content().unwrap_or_default();
+    async fn execute(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
+        // Get the text content from the triggering message
+        let user_text = ctx
+            .message
+            .as_ref()
+            .and_then(|m| m.text_content())
+            .unwrap_or_default();
 
         // Generate a response based on the input
         let response_text = if user_text.to_lowercase().contains("hello")
@@ -75,23 +81,21 @@ impl AgentExecutor for HelloWorldExecutor {
         // Create the response message
         let response_message = Message::agent(vec![Part::text(response_text)]);
 
-        // Create the task with completed status
-        let task = Task::new(&ctx.task_id, &ctx.context_id)
-            .with_status(TaskStatus::with_message(
-                TaskState::Completed,
-                response_message.clone(),
-            ))
-            .with_history(vec![message.clone(), response_message]);
+        // Create the task with completed status and emit it
+        let task = Task::new(&ctx.task_id, &ctx.context_id).with_status(TaskStatus::with_message(
+            TaskState::Completed,
+            response_message,
+        ));
 
-        Ok(task)
+        queue.send(Event::Task(task))?;
+        Ok(())
     }
 
-    async fn cancel(&self, ctx: &RequestContext, task_id: &str) -> Result<Task> {
-        // For this simple agent, we just mark the task as canceled
-        let task =
-            Task::new(task_id, &ctx.context_id).with_status(TaskStatus::new(TaskState::Canceled));
-
-        Ok(task)
+    async fn cancel(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
+        let task = Task::new(&ctx.task_id, &ctx.context_id)
+            .with_status(TaskStatus::new(TaskState::Canceled));
+        queue.send(Event::Task(task))?;
+        Ok(())
     }
 
     fn agent_card(&self) -> &AgentCard {

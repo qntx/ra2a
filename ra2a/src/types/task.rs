@@ -2,8 +2,9 @@
 //!
 //! Tasks represent stateful operations or conversations between clients and agents.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 use super::{Message, Part};
 
@@ -398,10 +399,7 @@ impl Artifact {
     }
 
     /// Creates a data artifact with the given JSON content.
-    pub fn data(
-        artifact_id: impl Into<String>,
-        data: HashMap<String, serde_json::Value>,
-    ) -> Self {
+    pub fn data(artifact_id: impl Into<String>, data: HashMap<String, serde_json::Value>) -> Self {
         Self::new(artifact_id, vec![Part::data(data)])
     }
 }
@@ -548,7 +546,6 @@ impl TaskArtifactUpdateEvent {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

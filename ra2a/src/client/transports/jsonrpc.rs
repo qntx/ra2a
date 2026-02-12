@@ -2,20 +2,21 @@
 //!
 //! Implements the A2A protocol over JSON-RPC 2.0 with HTTP transport.
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use futures::stream;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
-use std::time::Duration;
 
 use super::{
     ClientTransport, EventStream, SendMessageResponse, StreamEvent, TransportOptions, TransportType,
 };
 use crate::error::{A2AError, Result};
 use crate::types::{
-    AgentCard, DeleteTaskPushNotificationConfigParams, GetTaskPushNotificationConfigParams,
-    JsonRpcRequest, JsonRpcResponse, ListTaskPushNotificationConfigParams, Message,
-    MessageSendParams, SendMessageResult, Task, TaskArtifactUpdateEvent, TaskIdParams,
-    TaskPushNotificationConfig, TaskQueryParams, TaskResubscriptionParams, TaskStatusUpdateEvent,
+    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcRequest,
+    JsonRpcResponse, ListTaskPushConfigParams, Message, MessageSendParams, SendMessageResult, Task,
+    TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig, TaskQueryParams,
+    TaskResubscriptionParams, TaskStatusUpdateEvent,
 };
 
 /// JSON-RPC transport for A2A protocol.
@@ -288,34 +289,30 @@ impl ClientTransport for JsonRpcTransport {
 
     async fn set_task_push_notification_config(
         &self,
-        config: TaskPushNotificationConfig,
-    ) -> Result<TaskPushNotificationConfig> {
-        self.send_request("tasks/pushNotificationConfig/set", config)
-            .await
+        config: TaskPushConfig,
+    ) -> Result<TaskPushConfig> {
+        self.send_request("tasks/PushConfig/set", config).await
     }
 
     async fn get_task_push_notification_config(
         &self,
-        params: GetTaskPushNotificationConfigParams,
-    ) -> Result<TaskPushNotificationConfig> {
-        self.send_request("tasks/pushNotificationConfig/get", params)
-            .await
+        params: GetTaskPushConfigParams,
+    ) -> Result<TaskPushConfig> {
+        self.send_request("tasks/PushConfig/get", params).await
     }
 
     async fn list_task_push_notification_configs(
         &self,
-        params: ListTaskPushNotificationConfigParams,
-    ) -> Result<Vec<TaskPushNotificationConfig>> {
-        self.send_request("tasks/pushNotificationConfig/list", params)
-            .await
+        params: ListTaskPushConfigParams,
+    ) -> Result<Vec<TaskPushConfig>> {
+        self.send_request("tasks/PushConfig/list", params).await
     }
 
     async fn delete_task_push_notification_config(
         &self,
-        params: DeleteTaskPushNotificationConfigParams,
+        params: DeleteTaskPushConfigParams,
     ) -> Result<()> {
-        self.send_request("tasks/pushNotificationConfig/delete", params)
-            .await
+        self.send_request("tasks/PushConfig/delete", params).await
     }
 
     async fn resubscribe(
@@ -337,7 +334,6 @@ impl ClientTransport for JsonRpcTransport {
         Ok(card)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -4,20 +4,19 @@
 //! A2A JSON-RPC methods) and the [`handle_request`] dispatcher that routes
 //! incoming JSON bodies to the appropriate method.
 
-use async_trait::async_trait;
-use futures::Stream;
 use std::pin::Pin;
 
-use crate::error::{JsonRpcError, Result};
-use crate::types::{
-    DeleteTaskPushNotificationConfigParams, GetTaskPushNotificationConfigParams,
-    JsonRpcErrorResponse, JsonRpcRequest, JsonRpcSuccessResponse,
-    ListTaskPushNotificationConfigParams, Message, MessageSendParams, Task, TaskIdParams,
-    TaskPushNotificationConfig, TaskQueryParams,
-};
+use async_trait::async_trait;
+use futures::Stream;
 
 use super::ServerState;
 use super::events::Event;
+use crate::error::{JsonRpcError, Result};
+use crate::types::{
+    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcErrorResponse,
+    JsonRpcRequest, JsonRpcSuccessResponse, ListTaskPushConfigParams, Message, MessageSendParams,
+    Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
+};
 
 /// A boxed stream of events for streaming responses.
 pub type EventStream = Pin<Box<dyn Stream<Item = Result<Event>> + Send>>;
@@ -44,29 +43,37 @@ pub trait RequestHandler: Send + Sync {
     /// Handles the `tasks/resubscribe` request.
     async fn on_resubscribe(&self, params: TaskIdParams) -> Result<EventStream>;
 
-    /// Handles the `tasks/pushNotificationConfig/set` request.
+    /// Handles the `tasks/PushConfig/set` request.
     async fn on_set_push_notification_config(
         &self,
-        params: TaskPushNotificationConfig,
-    ) -> Result<TaskPushNotificationConfig>;
+        params: TaskPushConfig,
+    ) -> Result<TaskPushConfig>;
 
-    /// Handles the `tasks/pushNotificationConfig/get` request.
+    /// Handles the `tasks/PushConfig/get` request.
     async fn on_get_push_notification_config(
         &self,
-        params: GetTaskPushNotificationConfigParams,
-    ) -> Result<TaskPushNotificationConfig>;
+        params: GetTaskPushConfigParams,
+    ) -> Result<TaskPushConfig>;
 
-    /// Handles the `tasks/pushNotificationConfig/list` request.
+    /// Handles the `tasks/PushConfig/list` request.
     async fn on_list_push_notification_config(
         &self,
-        params: ListTaskPushNotificationConfigParams,
-    ) -> Result<Vec<TaskPushNotificationConfig>>;
+        params: ListTaskPushConfigParams,
+    ) -> Result<Vec<TaskPushConfig>>;
 
-    /// Handles the `tasks/pushNotificationConfig/delete` request.
+    /// Handles the `tasks/PushConfig/delete` request.
     async fn on_delete_push_notification_config(
         &self,
-        params: DeleteTaskPushNotificationConfigParams,
+        params: DeleteTaskPushConfigParams,
     ) -> Result<()>;
+
+    /// Returns the authenticated extended agent card.
+    ///
+    /// Aligned with Go's `OnGetExtendedAgentCard`. The default implementation
+    /// returns [`A2AError::ExtendedCardNotConfigured`](crate::error::A2AError::ExtendedCardNotConfigured).
+    async fn on_get_extended_agent_card(&self) -> Result<AgentCard> {
+        Err(crate::error::A2AError::ExtendedCardNotConfigured.into())
+    }
 }
 
 /// Response type for `message/send` operations.
@@ -123,35 +130,35 @@ pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<S
             let task = handler.on_cancel_task(params).await?;
             serialize_success(&id, &task)
         }
-        "tasks/resubscribe" => {
-            let params = parse_params::<TaskIdParams>(&request)?;
-            // Resubscribe returns a stream, but for non-streaming endpoint
-            // we just acknowledge. The actual streaming happens via SSE.
-            let _stream = handler.on_resubscribe(params).await?;
-            serialize_success(&id, &serde_json::Value::Null)
-        }
-        "tasks/pushNotificationConfig/set" => {
-            let params = parse_params::<TaskPushNotificationConfig>(&request)?;
+        // Streaming methods (message/stream, tasks/resubscribe) are handled
+        // exclusively by the SSE endpoint, aligned with Go's handleStreamingRequest.
+        "message/stream" | "tasks/resubscribe" => Err(JsonRpcError::invalid_request(
+            "Streaming methods must be called via the SSE endpoint",
+        )
+        .into()),
+        "tasks/PushConfig/set" => {
+            let params = parse_params::<TaskPushConfig>(&request)?;
             let config = handler.on_set_push_notification_config(params).await?;
             serialize_success(&id, &config)
         }
-        "tasks/pushNotificationConfig/get" => {
-            let params = parse_params::<GetTaskPushNotificationConfigParams>(&request)?;
+        "tasks/PushConfig/get" => {
+            let params = parse_params::<GetTaskPushConfigParams>(&request)?;
             let config = handler.on_get_push_notification_config(params).await?;
             serialize_success(&id, &config)
         }
-        "tasks/pushNotificationConfig/list" => {
-            let params = parse_params::<ListTaskPushNotificationConfigParams>(&request)?;
+        "tasks/PushConfig/list" => {
+            let params = parse_params::<ListTaskPushConfigParams>(&request)?;
             let configs = handler.on_list_push_notification_config(params).await?;
             serialize_success(&id, &configs)
         }
-        "tasks/pushNotificationConfig/delete" => {
-            let params = parse_params::<DeleteTaskPushNotificationConfigParams>(&request)?;
+        "tasks/PushConfig/delete" => {
+            let params = parse_params::<DeleteTaskPushConfigParams>(&request)?;
             handler.on_delete_push_notification_config(params).await?;
             serialize_success(&id, &serde_json::Value::Null)
         }
         "agent/getAuthenticatedExtendedCard" => {
-            serialize_success(&id, &*state.agent_card)
+            let card = handler.on_get_extended_agent_card().await?;
+            serialize_success(&id, &card)
         }
         _ => Err(JsonRpcError::method_not_found(&request.method).into()),
     };

@@ -160,7 +160,6 @@ impl Default for MutualTLSSecurityScheme {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

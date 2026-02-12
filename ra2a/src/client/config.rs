@@ -1,6 +1,6 @@
 //! Client configuration types.
 
-use crate::types::{PushNotificationConfig, TransportProtocol};
+use crate::types::{PushConfig, TransportProtocol};
 
 /// Configuration for the A2A client.
 #[derive(Debug, Clone)]
@@ -16,7 +16,7 @@ pub struct ClientConfig {
     /// The set of accepted output modes for the client.
     pub accepted_output_modes: Vec<String>,
     /// Push notification callbacks to use for every request.
-    pub push_notification_configs: Vec<PushNotificationConfig>,
+    pub push_notification_configs: Vec<PushConfig>,
     /// A list of extension URIs the client supports.
     pub extensions: Vec<String>,
     /// Request timeout in seconds.
@@ -78,7 +78,7 @@ impl ClientConfig {
     }
 
     /// Adds a push notification configuration.
-    pub fn push_notification(mut self, config: PushNotificationConfig) -> Self {
+    pub fn push_notification(mut self, config: PushConfig) -> Self {
         self.push_notification_configs.push(config);
         self
     }
@@ -89,7 +89,6 @@ impl ClientConfig {
         self
     }
 }
-
 
 #[cfg(test)]
 mod tests {

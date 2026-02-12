@@ -2,8 +2,9 @@
 //!
 //! Parts are the building blocks of messages and artifacts in the A2A protocol.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// A discriminated union representing a part of a message or artifact.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -259,7 +260,6 @@ impl DataPart {
         self
     }
 }
-
 
 #[cfg(test)]
 mod tests {

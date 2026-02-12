@@ -2,8 +2,9 @@
 //!
 //! Messages represent the communication between users and agents.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 use super::Part;
 
@@ -157,7 +158,6 @@ impl Default for Message {
         Self::user(vec![])
     }
 }
-
 
 #[cfg(test)]
 mod tests {

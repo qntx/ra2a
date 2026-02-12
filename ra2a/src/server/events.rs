@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+
 use tokio::sync::{RwLock, broadcast};
 
 use crate::error::{A2AError, Result};
@@ -36,7 +37,7 @@ impl Event {
         }
     }
 
-    /// Returns true if this is a final event.
+    /// Returns true if this is a final event (status update with `final = true`).
     pub fn is_final(&self) -> bool {
         match self {
             Self::StatusUpdate(e) => e.r#final,
@@ -44,11 +45,29 @@ impl Event {
         }
     }
 
+    /// Returns true if this event represents a terminal condition that should
+    /// stop the non-streaming event collection loop. Aligned with Go's
+    /// `shouldInterruptNonStreaming` + final-event detection.
+    pub fn is_terminal(&self) -> bool {
+        match self {
+            Self::StatusUpdate(e) => e.r#final || e.status.state.is_terminal(),
+            Self::Task(t) => t.status.state.is_terminal(),
+            Self::Message(_) => true,
+            Self::ArtifactUpdate(_) => false,
+        }
+    }
+
     /// Returns the SSE event type string and JSON data for this event.
     pub fn to_sse_data(&self) -> (String, String) {
         let (event_type, data) = match self {
-            Self::StatusUpdate(e) => ("status_update", serde_json::to_string(e).unwrap_or_default()),
-            Self::ArtifactUpdate(e) => ("artifact_update", serde_json::to_string(e).unwrap_or_default()),
+            Self::StatusUpdate(e) => (
+                "status_update",
+                serde_json::to_string(e).unwrap_or_default(),
+            ),
+            Self::ArtifactUpdate(e) => (
+                "artifact_update",
+                serde_json::to_string(e).unwrap_or_default(),
+            ),
             Self::Task(t) => ("task", serde_json::to_string(t).unwrap_or_default()),
             Self::Message(m) => ("message", serde_json::to_string(m).unwrap_or_default()),
         };
@@ -232,7 +251,6 @@ impl QueueManager {
 
 /// Type alias for backward compatibility.
 pub type InMemoryQueueManager = QueueManager;
-
 
 #[cfg(test)]
 mod tests {

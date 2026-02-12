@@ -10,8 +10,9 @@
 //! - **Transport errors**: HTTP, JSON, URL parsing errors
 //! - **Infrastructure errors**: Database, I/O errors
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
+
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// A specialized Result type for A2A operations.
@@ -24,7 +25,6 @@ pub type Result<T> = std::result::Result<T, A2AError>;
 #[derive(Error, Debug)]
 pub enum A2AError {
     // === A2A Protocol Errors (aligned with Go sentinel errors) ===
-
     /// Server received payload that was not well-formed.
     #[error("parse error: {0}")]
     ParseError(String),
@@ -82,7 +82,6 @@ pub enum A2AError {
     Unauthorized(String),
 
     // === Transport Errors ===
-
     /// JSON-RPC protocol error received from remote.
     #[error("JSON-RPC error: {0}")]
     JsonRpc(#[from] JsonRpcError),
@@ -100,7 +99,6 @@ pub enum A2AError {
     InvalidUrl(#[from] url::ParseError),
 
     // === Infrastructure Errors ===
-
     /// Database error from SQL storage operations.
     #[error("database error: {0}")]
     Database(String),
@@ -130,9 +128,17 @@ impl A2AError {
         let (code, default_msg) = self.jsonrpc_error_code();
         let message = {
             let s = self.to_string();
-            if s.is_empty() { default_msg.to_string() } else { s }
+            if s.is_empty() {
+                default_msg.to_string()
+            } else {
+                s
+            }
         };
-        JsonRpcError { code: code as i32, message, data: None }
+        JsonRpcError {
+            code: code as i32,
+            message,
+            data: None,
+        }
     }
 
     /// Maps this error to its corresponding [`JsonRpcErrorCode`] and default message.
@@ -150,20 +156,24 @@ impl A2AError {
                 JsonRpcErrorCode::PushNotificationNotSupported,
                 "Push notification not supported",
             ),
-            Self::UnsupportedOperation(_) => {
-                (JsonRpcErrorCode::UnsupportedOperation, "Unsupported operation")
-            }
+            Self::UnsupportedOperation(_) => (
+                JsonRpcErrorCode::UnsupportedOperation,
+                "Unsupported operation",
+            ),
             Self::ContentTypeNotSupported(_) => (
                 JsonRpcErrorCode::ContentTypeNotSupported,
                 "Content type not supported",
             ),
-            Self::InvalidAgentResponse(_) => {
-                (JsonRpcErrorCode::InvalidAgentResponse, "Invalid agent response")
-            }
+            Self::InvalidAgentResponse(_) => (
+                JsonRpcErrorCode::InvalidAgentResponse,
+                "Invalid agent response",
+            ),
             Self::ExtendedCardNotConfigured => (
                 JsonRpcErrorCode::AuthenticatedExtendedCardNotConfigured,
                 "Extended card not configured",
             ),
+            Self::Unauthenticated(_) => (JsonRpcErrorCode::Unauthenticated, "Unauthenticated"),
+            Self::Unauthorized(_) => (JsonRpcErrorCode::Unauthorized, "Permission denied"),
             _ => (JsonRpcErrorCode::InternalError, "Internal error"),
         }
     }
@@ -185,6 +195,8 @@ pub enum JsonRpcErrorCode {
     InternalError = -32603,
 
     // A2A-specific error codes
+    /// Reserved for implementation-defined server errors.
+    ServerError = -32000,
     /// Task not found.
     TaskNotFound = -32001,
     /// Task cannot be canceled.
@@ -199,6 +211,10 @@ pub enum JsonRpcErrorCode {
     InvalidAgentResponse = -32006,
     /// Authenticated extended card not configured.
     AuthenticatedExtendedCardNotConfigured = -32007,
+    /// Request does not have valid authentication credentials.
+    Unauthenticated = -31401,
+    /// Caller does not have permission to execute the specified operation.
+    Unauthorized = -31403,
 }
 
 impl JsonRpcErrorCode {
@@ -210,6 +226,7 @@ impl JsonRpcErrorCode {
             Self::MethodNotFound => "Method not found",
             Self::InvalidParams => "Invalid parameters",
             Self::InternalError => "Internal error",
+            Self::ServerError => "Server error",
             Self::TaskNotFound => "Task not found",
             Self::TaskNotCancelable => "Task cannot be canceled",
             Self::PushNotificationNotSupported => "Push Notification is not supported",
@@ -219,6 +236,8 @@ impl JsonRpcErrorCode {
             Self::AuthenticatedExtendedCardNotConfigured => {
                 "Authenticated Extended Card is not configured"
             }
+            Self::Unauthenticated => "Unauthenticated",
+            Self::Unauthorized => "Permission denied",
         }
     }
 }
@@ -238,6 +257,8 @@ impl From<i32> for JsonRpcErrorCode {
             -32005 => Self::ContentTypeNotSupported,
             -32006 => Self::InvalidAgentResponse,
             -32007 => Self::AuthenticatedExtendedCardNotConfigured,
+            -31401 => Self::Unauthenticated,
+            -31403 => Self::Unauthorized,
             _ => Self::InternalError,
         }
     }
@@ -352,7 +373,6 @@ impl JsonRpcError {
         JsonRpcErrorCode::from(self.code)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

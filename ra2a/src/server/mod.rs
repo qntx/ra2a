@@ -15,14 +15,14 @@ mod events;
 mod handler;
 mod task_store;
 
+use std::sync::Arc;
+
 pub use app::*;
+use async_trait::async_trait;
 pub use default_handler::*;
 pub use events::*;
 pub use handler::*;
 pub use task_store::*;
-
-use async_trait::async_trait;
-use std::sync::Arc;
 
 use crate::error::Result;
 use crate::types::{AgentCard, Message, Task};
@@ -30,14 +30,39 @@ use crate::types::{AgentCard, Message, Task};
 /// Trait for implementing agent execution logic.
 ///
 /// Aligned with Go's `AgentExecutor` interface in `agentexec.go`.
-/// Implement this trait to define how your agent processes messages.
+/// The agent translates its outputs to A2A events and writes them to the
+/// provided [`EventQueue`]. The server stops processing after:
+/// - A [`Message`] event with any payload
+/// - A [`TaskStatusUpdateEvent`](crate::types::TaskStatusUpdateEvent) with `final = true`
+/// - A [`Task`] with a terminal [`TaskState`](crate::types::TaskState)
+///
+/// # Example (streaming)
+/// ```ignore
+/// async fn execute(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
+///     // Emit "working" status
+///     queue.send(Event::status_update(TaskStatusUpdateEvent::working(&ctx.task_id)))?;
+///     // ... do work, emit artifact updates ...
+///     // Emit final "completed" status
+///     let mut evt = TaskStatusUpdateEvent::completed(&ctx.task_id, response_message);
+///     evt.r#final = true;
+///     queue.send(Event::status_update(evt))?;
+///     Ok(())
+/// }
+/// ```
 #[async_trait]
 pub trait AgentExecutor: Send + Sync {
-    /// Processes an incoming message and returns the updated task.
-    async fn execute(&self, ctx: &RequestContext, message: &Message) -> Result<Task>;
+    /// Executes the agent for an incoming message.
+    ///
+    /// The triggering message is available via [`RequestContext::message`].
+    /// Write A2A events to `queue`; the server consumes them for streaming
+    /// and persistence.
+    async fn execute(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()>;
 
     /// Cancels an ongoing task.
-    async fn cancel(&self, ctx: &RequestContext, task_id: &str) -> Result<Task>;
+    ///
+    /// Write a cancellation event to `queue` (e.g. a [`Task`] with
+    /// [`TaskState::Canceled`](crate::types::TaskState::Canceled)).
+    async fn cancel(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()>;
 
     /// Returns the agent card describing this agent's capabilities.
     fn agent_card(&self) -> &AgentCard;
@@ -53,6 +78,8 @@ pub struct RequestContext {
     pub task_id: String,
     /// The context ID for maintaining session state.
     pub context_id: String,
+    /// The message that triggered this execution. `None` for cancel requests.
+    pub message: Option<Message>,
     /// The existing task if the message references one.
     pub stored_task: Option<Task>,
     /// Additional metadata from the request.
@@ -65,6 +92,7 @@ impl RequestContext {
         Self {
             task_id: task_id.into(),
             context_id: context_id.into(),
+            message: None,
             stored_task: None,
             metadata: None,
         }

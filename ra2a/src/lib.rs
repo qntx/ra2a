@@ -33,22 +33,20 @@ pub mod server;
 pub mod grpc;
 
 // Re-export commonly used types at crate root.
-pub use error::{A2AError, Result};
-pub use types::{
-    A2ARequest, A2AResponse, AgentCapabilities, AgentCard, AgentSkill, Artifact,
-    JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse, JsonRpcSuccessResponse, Message,
-    MessageSendParams, Part, PushNotificationConfig, RequestId, Role, SendMessageResult, Task,
-    TaskArtifactUpdateEvent, TaskIdParams, TaskPushNotificationConfig, TaskQueryParams, TaskState,
-    TaskStatus, TaskStatusUpdateEvent,
-};
-
 #[cfg(feature = "client")]
 pub use client::{Client, ClientEvent, Consumer, UpdateEvent};
-
+pub use error::{A2AError, Result};
 #[cfg(feature = "server")]
 pub use server::{
     AgentExecutor, DefaultRequestHandler, Event, EventQueue, QueueManager, RequestContext,
     RequestHandler, SendMessageResponse,
+};
+pub use types::{
+    A2ARequest, A2AResponse, AgentCapabilities, AgentCard, AgentSkill, Artifact,
+    JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse, JsonRpcSuccessResponse, Message,
+    MessageSendParams, Part, PushConfig, RequestId, Role, SendMessageResult, Task,
+    TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig, TaskQueryParams, TaskState, TaskStatus,
+    TaskStatusUpdateEvent,
 };
 
 /// Protocol version supported by this SDK

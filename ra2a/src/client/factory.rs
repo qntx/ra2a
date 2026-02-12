@@ -3,12 +3,11 @@
 //! The ClientFactory automatically selects the appropriate transport
 //! based on the agent's advertised capabilities in its AgentCard.
 
-use crate::error::{A2AError, Result};
-use crate::types::AgentCard;
-
 use super::transports::{
     ClientTransport, JsonRpcTransport, RestTransport, TransportOptions, TransportType,
 };
+use crate::error::{A2AError, Result};
+use crate::types::AgentCard;
 
 /// Factory for creating A2A client transports.
 ///
@@ -147,7 +146,6 @@ impl Default for ClientFactory {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

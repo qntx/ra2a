@@ -22,9 +22,9 @@ use super::proto::{
 };
 use crate::server::RequestHandler;
 use crate::types::{
-    AgentCard, DeleteTaskPushNotificationConfigParams, GetTaskPushNotificationConfigParams,
-    Message as NativeMessage, MessageSendConfiguration, MessageSendParams,
-    PushNotificationConfig as NativePushConfig, TaskIdParams, TaskQueryParams,
+    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, Message as NativeMessage,
+    MessageSendConfig, MessageSendParams, PushConfig as NativePushConfig, TaskIdParams,
+    TaskQueryParams,
 };
 
 /// Type alias for streaming response.
@@ -79,16 +79,14 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         // Apply configuration
         if let Some(config) = req.configuration {
-            let mut send_config = MessageSendConfiguration::default();
+            let mut send_config = MessageSendConfig::default();
             send_config.blocking = Some(config.blocking);
             if let Some(history_length) = config.history_length {
                 if history_length > 0 {
                     send_config.history_length = Some(history_length);
                 }
             }
-            if !config.accepted_output_modes.is_empty() {
-                send_config.accepted_output_modes = Some(config.accepted_output_modes);
-            }
+            send_config.accepted_output_modes = Some(config.accepted_output_modes.clone());
             if let Some(push_config) = config.push_notification_config {
                 send_config.push_notification_config = Some(NativePushConfig::from(push_config));
             }
@@ -103,7 +101,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         // Call handler
         let result = self
             .handler
-            .on_message_send(params, None)
+            .on_message_send(params)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -141,7 +139,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         // Apply configuration
         if let Some(config) = req.configuration {
-            let mut send_config = MessageSendConfiguration::default();
+            let mut send_config = MessageSendConfig::default();
             send_config.blocking = Some(config.blocking);
             if let Some(history_length) = config.history_length {
                 if history_length > 0 {
@@ -165,7 +163,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         // Get streaming response from handler
         let stream = self
             .handler
-            .on_message_stream(params, None)
+            .on_message_stream(params)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -214,7 +212,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         let task = self
             .handler
-            .on_get_task(params, None)
+            .on_get_task(params)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -238,7 +236,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         let task = self
             .handler
-            .on_cancel_task(params, None)
+            .on_cancel_task(params)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -255,7 +253,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         let stream = self
             .handler
-            .on_resubscribe(params, None)
+            .on_resubscribe(params)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -300,14 +298,14 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
             .map(|c| NativePushConfig::from(c))
             .ok_or_else(|| Status::invalid_argument("config is required"))?;
 
-        let params = crate::types::TaskPushNotificationConfig {
+        let params = crate::types::TaskPushConfig {
             task_id: req.task_id.clone(),
             push_notification_config: config,
         };
 
         let result = self
             .handler
-            .on_set_push_notification_config(params, None)
+            .on_set_push_notification_config(params)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -331,7 +329,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
     ) -> Result<Response<TaskPushNotificationConfig>, Status> {
         let req = request.into_inner();
 
-        let params = GetTaskPushNotificationConfigParams {
+        let params = GetTaskPushConfigParams {
             id: req.task_id.clone(),
             push_notification_config_id: if req.id.is_empty() {
                 None
@@ -343,7 +341,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         let result = self
             .handler
-            .on_get_push_notification_config(params, None)
+            .on_get_push_notification_config(params)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -400,14 +398,14 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
 
-        let params = DeleteTaskPushNotificationConfigParams {
+        let params = DeleteTaskPushConfigParams {
             id: req.task_id,
             push_notification_config_id: req.id,
             metadata: None,
         };
 
         self.handler
-            .on_delete_push_notification_config(params, None)
+            .on_delete_push_notification_config(params)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 

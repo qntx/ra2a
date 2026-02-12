@@ -81,7 +81,10 @@ async fn send_message(
 fn print_response(response: &serde_json::Value) {
     if let Some(result) = response.get("result") {
         if let Some(status) = result.get("status") {
-            let state = status.get("state").and_then(|s| s.as_str()).unwrap_or("unknown");
+            let state = status
+                .get("state")
+                .and_then(|s| s.as_str())
+                .unwrap_or("unknown");
             println!("   Status: {}", state);
 
             if let Some(msg) = status.get("message") {
