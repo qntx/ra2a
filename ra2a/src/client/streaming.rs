@@ -181,7 +181,7 @@ impl StreamingClient {
         let result: SendMessageResult = self.send_request(request).await?;
 
         let event = match result {
-            SendMessageResult::Task(task) => ClientEvent::TaskUpdate { task, update: None },
+            SendMessageResult::Task(task) => ClientEvent::TaskUpdate { task: Box::new(task), update: None },
             SendMessageResult::Message(msg) => ClientEvent::Message(msg),
         };
 
@@ -265,7 +265,7 @@ impl Client for StreamingClient {
         if !self.supports_streaming() {
             // Fall back to getting current task state
             let task = self.get_task(TaskQueryParams::new(&params.id)).await?;
-            let event = ClientEvent::TaskUpdate { task, update: None };
+            let event = ClientEvent::TaskUpdate { task: Box::new(task), update: None };
             return Ok(Box::pin(stream::once(async move { Ok(event) })));
         }
 

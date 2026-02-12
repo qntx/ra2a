@@ -17,7 +17,7 @@ pub enum SecurityScheme {
     Http(HTTPAuthSecurityScheme),
     /// OAuth 2.0 security scheme.
     #[serde(rename = "oauth2")]
-    OAuth2(OAuth2SecurityScheme),
+    OAuth2(Box<OAuth2SecurityScheme>),
     /// `OpenID` Connect security scheme.
     OpenIdConnect(OpenIdConnectSecurityScheme),
     /// Mutual TLS security scheme.

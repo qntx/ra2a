@@ -327,6 +327,7 @@ pub struct ConcurrencyConfig {
     ///
     /// When set, returns the maximum number of concurrent executions for a
     /// given scope string. Only enforced when the returned value is > 0.
+    #[allow(clippy::type_complexity)]
     pub get_max_executions: Option<Arc<dyn Fn(&str) -> usize + Send + Sync>>,
 }
 

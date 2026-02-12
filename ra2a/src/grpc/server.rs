@@ -79,13 +79,15 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         // Apply configuration
         if let Some(config) = req.configuration {
-            let mut send_config = MessageSendConfig::default();
-            send_config.blocking = Some(config.blocking);
+            let mut send_config = MessageSendConfig {
+                blocking: Some(config.blocking),
+                accepted_output_modes: Some(config.accepted_output_modes.clone()),
+                ..Default::default()
+            };
             if let Some(history_length) = config.history_length
                 && history_length > 0 {
                     send_config.history_length = Some(history_length);
                 }
-            send_config.accepted_output_modes = Some(config.accepted_output_modes.clone());
             if let Some(push_config) = config.push_notification_config {
                 send_config.push_notification_config = Some(NativePushConfig::from(push_config));
             }
@@ -138,8 +140,10 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         // Apply configuration
         if let Some(config) = req.configuration {
-            let mut send_config = MessageSendConfig::default();
-            send_config.blocking = Some(config.blocking);
+            let mut send_config = MessageSendConfig {
+                blocking: Some(config.blocking),
+                ..Default::default()
+            };
             if let Some(history_length) = config.history_length
                 && history_length > 0 {
                     send_config.history_length = Some(history_length);

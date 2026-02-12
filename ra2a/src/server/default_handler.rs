@@ -301,29 +301,32 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                     // If we have a last event that is a SendMessageResult, use it
-                    if let Some(event) = last_event {
-                        return match event {
-                            Event::Task(t) => Ok(SendMessageResponse::Task(t)),
-                            Event::Message(m) => Ok(SendMessageResponse::Message(m)),
-                            _ => {
-                                if let Some(tid) = event.task_id() {
-                                    let t = self
-                                        .get_task_internal(tid)
-                                        .await
-                                        .unwrap_or_else(|| Task::new(tid, ""));
-                                    Ok(SendMessageResponse::Task(t))
-                                } else {
-                                    Err(A2AError::Other("Event queue closed unexpectedly".into()))
-                                }
-                            }
-                        };
-                    }
-                    return Err(A2AError::Other("Event queue closed unexpectedly".into()));
+                    let Some(event) = last_event else {
+                        return Err(A2AError::Other("Event queue closed unexpectedly".into()));
+                    };
+                    return match event {
+                        Event::Task(t) => Ok(SendMessageResponse::Task(t)),
+                        Event::Message(m) => Ok(SendMessageResponse::Message(m)),
+                        _ => self.resolve_task_from_event(&event).await,
+                    };
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     warn!("Event stream lagged by {} messages", n);
                 }
             }
+        }
+    }
+
+    /// Resolves a task from an event by looking up or creating a fallback task.
+    async fn resolve_task_from_event(&self, event: &Event) -> Result<SendMessageResponse> {
+        if let Some(tid) = event.task_id() {
+            let t = self
+                .get_task_internal(tid)
+                .await
+                .unwrap_or_else(|| Task::new(tid, ""));
+            Ok(SendMessageResponse::Task(t))
+        } else {
+            Err(A2AError::Other("Event queue closed unexpectedly".into()))
         }
     }
 

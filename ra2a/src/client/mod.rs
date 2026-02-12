@@ -59,7 +59,7 @@ pub enum ClientEvent {
     /// A task with optional update event.
     TaskUpdate {
         /// The current task state.
-        task: Task,
+        task: Box<Task>,
         /// Optional update event.
         update: Option<UpdateEvent>,
     },
@@ -155,7 +155,7 @@ impl CollectingConsumer {
     pub async fn final_task(&self) -> Option<Task> {
         let events = self.events.read().await;
         events.iter().rev().find_map(|e| match e {
-            ClientEvent::TaskUpdate { task, .. } => Some(task.clone()),
+            ClientEvent::TaskUpdate { task, .. } => Some((**task).clone()),
             _ => None,
         })
     }

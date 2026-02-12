@@ -150,7 +150,7 @@ impl GrpcTransport {
                 push_notification_config: config
                     .push_notification_config
                     .map(proto::PushNotificationConfig::from),
-                history_length: config.history_length.map(|h| h),
+                history_length: config.history_length,
                 blocking: config.blocking.unwrap_or(false),
             });
         let metadata = params.metadata.and_then(hashmap_to_struct);

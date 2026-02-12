@@ -65,14 +65,14 @@ impl A2ASseEvent {
             }
             SseEventType::Task => {
                 let task: Task = serde_json::from_str(&self.data)?;
-                Ok(ClientEvent::TaskUpdate { task, update: None })
+                Ok(ClientEvent::TaskUpdate { task: Box::new(task), update: None })
             }
             SseEventType::StatusUpdate => {
                 let event: TaskStatusUpdateEvent = serde_json::from_str(&self.data)?;
                 let task =
                     Task::new(&event.task_id, &event.context_id).with_status(event.status.clone());
                 Ok(ClientEvent::TaskUpdate {
-                    task,
+                    task: Box::new(task),
                     update: Some(UpdateEvent::Status(event)),
                 })
             }
@@ -80,7 +80,7 @@ impl A2ASseEvent {
                 let event: TaskArtifactUpdateEvent = serde_json::from_str(&self.data)?;
                 let task = Task::new(&event.task_id, &event.context_id);
                 Ok(ClientEvent::TaskUpdate {
-                    task,
+                    task: Box::new(task),
                     update: Some(UpdateEvent::Artifact(event)),
                 })
             }
@@ -92,7 +92,7 @@ impl A2ASseEvent {
                     match v.get("kind").and_then(|k| k.as_str()) {
                         Some("task") => {
                             let task: Task = serde_json::from_value(v)?;
-                            Ok(ClientEvent::TaskUpdate { task, update: None })
+                            Ok(ClientEvent::TaskUpdate { task: Box::new(task), update: None })
                         }
                         Some("message") => {
                             let msg: Message = serde_json::from_value(v)?;
@@ -103,7 +103,7 @@ impl A2ASseEvent {
                             let task = Task::new(&event.task_id, &event.context_id)
                                 .with_status(event.status.clone());
                             Ok(ClientEvent::TaskUpdate {
-                                task,
+                                task: Box::new(task),
                                 update: Some(UpdateEvent::Status(event)),
                             })
                         }
@@ -111,7 +111,7 @@ impl A2ASseEvent {
                             let event: TaskArtifactUpdateEvent = serde_json::from_value(v)?;
                             let task = Task::new(&event.task_id, &event.context_id);
                             Ok(ClientEvent::TaskUpdate {
-                                task,
+                                task: Box::new(task),
                                 update: Some(UpdateEvent::Artifact(event)),
                             })
                         }

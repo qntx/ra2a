@@ -82,8 +82,7 @@ impl From<NativePart> for proto::Part {
     fn from(part: NativePart) -> Self {
         match part {
             NativePart::Text(text_part) => {
-                let mut proto_part = Self::default();
-                proto_part.content = Some(proto::part::Content::Text(text_part.text));
+                let mut proto_part = Self { content: Some(proto::part::Content::Text(text_part.text)), ..Default::default() };
                 if let Some(metadata) = text_part.metadata {
                     proto_part.metadata = hashmap_to_struct(metadata);
                 }
@@ -184,12 +183,8 @@ impl From<proto::Part> for NativePart {
             }
             Some(proto::part::Content::Data(value)) => {
                 // Convert prost Value to HashMap
-                let data = if let Some(json) = prost_value_to_json(value) {
-                    if let serde_json::Value::Object(map) = json {
-                        map.into_iter().collect()
-                    } else {
-                        HashMap::new()
-                    }
+                let data = if let Some(serde_json::Value::Object(map)) = prost_value_to_json(value) {
+                    map.into_iter().collect()
                 } else {
                     HashMap::new()
                 };

@@ -153,7 +153,7 @@ impl Client for A2AClient {
 
         // Convert the result to a stream of events
         let event = match result {
-            SendMessageResult::Task(task) => ClientEvent::TaskUpdate { task, update: None },
+            SendMessageResult::Task(task) => ClientEvent::TaskUpdate { task: Box::new(task), update: None },
             SendMessageResult::Message(msg) => ClientEvent::Message(msg),
         };
 
@@ -186,7 +186,7 @@ impl Client for A2AClient {
     async fn resubscribe(&self, params: TaskIdParams) -> Result<EventStream> {
         // For non-streaming client, we just get the current task state
         let task = self.get_task(TaskQueryParams::new(&params.id)).await?;
-        let event = ClientEvent::TaskUpdate { task, update: None };
+        let event = ClientEvent::TaskUpdate { task: Box::new(task), update: None };
         let stream = stream::once(async move { Ok(event) });
         Ok(Box::pin(stream))
     }

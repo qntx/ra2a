@@ -164,7 +164,7 @@ impl CompositeCredential {
     }
 
     /// Adds a credential provider.
-    pub fn add<C: CredentialProvider + 'static>(mut self, provider: C) -> Self {
+    pub fn with<C: CredentialProvider + 'static>(mut self, provider: C) -> Self {
         self.providers.push(Box::new(provider));
         self
     }
@@ -649,8 +649,8 @@ mod tests {
     #[tokio::test]
     async fn test_composite_credential() {
         let cred = CompositeCredential::new()
-            .add(ApiKeyCredential::x_api_key("key1"))
-            .add(BearerTokenCredential::new("token1"));
+            .with(ApiKeyCredential::x_api_key("key1"))
+            .with(BearerTokenCredential::new("token1"));
 
         let headers = cred.get_headers().await.unwrap();
         assert!(headers.contains_key("X-API-Key"));
