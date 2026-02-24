@@ -64,5 +64,5 @@ path = "examples/server.rs"
 required-features = ["server"]
 
 [package.metadata.docs.rs]
-all-features = true
+features = ["server", "client", "telemetry", "sql"]
 rustdoc-args = ["--cfg", "docsrs"]
