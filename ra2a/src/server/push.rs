@@ -10,10 +10,6 @@ use async_trait::async_trait;
 use crate::error::{A2AError, Result};
 use crate::types::{PushConfig, Task};
 
-// ---------------------------------------------------------------------------
-// PushConfigStore — persistence for push notification configs
-// ---------------------------------------------------------------------------
-
 /// Stores push notification configurations per task.
 ///
 /// Aligned with Go's `PushConfigStore` interface in `tasks.go`.
@@ -134,10 +130,6 @@ fn validate_push_config(config: &PushConfig) -> Result<()> {
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// PushSender — delivers push notifications (Go: push/sender.go)
-// ---------------------------------------------------------------------------
 
 /// Sends push notifications about task state changes.
 ///
