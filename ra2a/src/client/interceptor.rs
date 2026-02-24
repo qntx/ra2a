@@ -112,8 +112,8 @@ pub struct Response {
 
 /// Middleware for intercepting client calls.
 ///
-/// Aligned with Go's `CallInterceptor` interface. Interceptors are invoked
-/// in order for `before`, and in reverse order for `after`.
+/// Aligned with Go's `CallInterceptor` interface. Both `before` and `after`
+/// are invoked in the order interceptors were attached.
 #[async_trait]
 pub trait CallInterceptor: Send + Sync {
     /// Called before the transport call. May modify outgoing metadata and payload.

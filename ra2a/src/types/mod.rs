@@ -12,7 +12,6 @@ mod part;
 mod push;
 mod task;
 
-// -- Agent card, capabilities & security (merged from agent.rs + security.rs + oauth.rs) --
 pub use agent::{
     AgentCapabilities, AgentCard, AgentCardSignature, AgentExtension, AgentInterface,
     AgentProvider, AgentSkill, ApiKeyLocation, ApiKeySecurityScheme, AuthorizationCodeOAuthFlow,
@@ -20,21 +19,16 @@ pub use agent::{
     OAuth2SecurityScheme, OAuthFlows, OpenIdConnectSecurityScheme, PasswordOAuthFlow,
     SecurityScheme, TransportProtocol,
 };
-// -- Message --
 pub use message::{Message, Role};
-// -- Request parameter types --
 pub use params::{
     ListTasksRequest, ListTasksResponse, MessageSendConfig, MessageSendParams, TaskIdParams,
     TaskQueryParams,
 };
-// -- Content parts --
 pub use part::{DataPart, FileBytes, FileContent, FilePart, FileUri, Part, TextPart};
-// -- Push notification types (aligned with Go's push.go) --
 pub use push::{
     DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams, PushAuthInfo,
     PushConfig, TaskPushConfig,
 };
-// -- Task & events --
 pub use task::{
     Artifact, Event, SendMessageResult, Task, TaskArtifactUpdateEvent, TaskState, TaskStatus,
     TaskStatusUpdateEvent, TaskVersion,

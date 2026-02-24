@@ -7,12 +7,18 @@
 mod interceptor;
 mod jsonrpc;
 
+#[cfg(feature = "grpc")]
+mod grpc;
+
 use std::any::Any;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
+#[cfg(feature = "grpc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "grpc")))]
+pub use grpc::GrpcTransport;
 pub use interceptor::{
     CALL_META, CallInterceptor, CallMeta, PassthroughInterceptor, Request, Response,
     StaticCallMetaInjector, call_meta,
@@ -139,6 +145,15 @@ impl Client {
         let mut client = Self::new(Box::new(transport));
         client.base_url = url;
         Ok(client)
+    }
+
+    /// Sets the base URL exposed to interceptors via [`Request::base_url`].
+    ///
+    /// This is set automatically by [`from_url`](Self::from_url). Only needed
+    /// when constructing a client with [`new`](Self::new) and a custom transport.
+    pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
+        self.base_url = url.into();
+        self
     }
 
     /// Sets client configuration.

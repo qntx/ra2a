@@ -1,7 +1,8 @@
-//! gRPC transport — implements [`client::Transport`](crate::client::Transport) over gRPC.
+//! gRPC transport — implements [`Transport`] over gRPC.
 //!
 //! Provides [`GrpcTransport`] as a first-class alternative to
-//! [`JsonRpcTransport`](crate::client::JsonRpcTransport).
+//! [`JsonRpcTransport`](super::JsonRpcTransport). Lives in the `client` module
+//! alongside other transport implementations.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -12,13 +13,13 @@ use futures::Stream;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
 
-use super::convert::{hashmap_to_struct, struct_to_hashmap};
-use super::proto::{
+use super::{EventStream, Transport};
+use crate::error::{A2AError, Result};
+use crate::grpc::convert::{hashmap_to_struct, struct_to_hashmap};
+use crate::grpc::proto::{
     self, CancelTaskRequest, GetTaskRequest, SendMessageRequest, SubscribeToTaskRequest,
     a2a_service_client::A2aServiceClient,
 };
-use crate::client::{EventStream, Transport};
-use crate::error::{A2AError, Result};
 use crate::types::{
     AgentCard, Artifact, DeleteTaskPushConfigParams, Event, GetTaskPushConfigParams,
     ListTaskPushConfigParams, ListTasksRequest, ListTasksResponse, Message, MessageSendParams,
@@ -29,13 +30,12 @@ use crate::types::{
 /// gRPC transport for A2A client operations.
 ///
 /// Implements [`Transport`] so it can be used interchangeably with
-/// [`JsonRpcTransport`](crate::client::JsonRpcTransport) via [`Client`](crate::client::Client).
+/// [`JsonRpcTransport`](super::JsonRpcTransport) via [`Client`](super::Client).
 ///
 /// # Example
 ///
 /// ```no_run
-/// use ra2a::client::Client;
-/// use ra2a::grpc::GrpcTransport;
+/// use ra2a::client::{Client, GrpcTransport};
 ///
 /// # async fn example() -> ra2a::error::Result<()> {
 /// let transport = GrpcTransport::connect("http://localhost:50051").await?;
