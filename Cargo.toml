@@ -4,51 +4,37 @@ default-members = ["ra2a"]
 resolver = "3"
 
 [workspace.package]
-version = "0.7.3"
+version = "0.8.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/qntx/ra2a"
 description = "Comprehensive Rust SDK for the Agent2Agent (A2A) Protocol"
 
 [workspace.dependencies]
-async-stream = "0.3"
-async-trait = "0.1"
 axum = "0.8"
 base64 = "0.22"
-bytes = "1.11"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
-hex = "0.4"
-hmac = "0.12"
-http-body = "1.0"
-http-body-util = "0.1"
 mockito = "1.7"
 opentelemetry = "0.31"
-pin-project-lite = "0.2"
 pretty_assertions = "1.4"
 prost = "0.14"
 prost-types = "0.14"
-tonic-build = "0.14"
 tonic-prost-build = "0.14"
 tonic-prost = "0.14"
 google-api-proto = { version = "1", default-features = false, features = ["google-api"] }
 reqwest = { version = "0.13", features = ["json", "stream", "multipart"] }
-reqwest-eventsource = "0.6.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha2 = "0.10"
 sqlx = { version = "0.8", features = ["runtime-tokio", "json"] }
 thiserror = "2.0"
 tokio = { version = "1.49", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-test = "0.4"
 tonic = "0.14"
-tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-opentelemetry = "0.32"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-url = { version = "2.5", features = ["serde"] }
 uuid = { version = "1.11", features = ["v4", "serde"] }
 
 [profile.release]

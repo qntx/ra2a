@@ -5,9 +5,10 @@
 //! optional push notification components — aligned with Go's `handler.go`.
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
@@ -36,6 +37,7 @@ pub struct DefaultRequestHandler {
     push_sender: Option<Arc<dyn PushSender>>,
     req_context_interceptors: Vec<Arc<dyn RequestContextInterceptor>>,
     running_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
+    authenticated_card_producer: Option<Arc<dyn crate::server::AgentCardProducer>>,
 }
 
 impl DefaultRequestHandler {
@@ -64,6 +66,7 @@ impl DefaultRequestHandler {
             push_sender: None,
             req_context_interceptors: Vec::new(),
             running_tasks: Arc::new(RwLock::new(HashMap::new())),
+            authenticated_card_producer: None,
         }
     }
 
@@ -104,6 +107,25 @@ impl DefaultRequestHandler {
         interceptor: Arc<dyn RequestContextInterceptor>,
     ) -> Self {
         self.req_context_interceptors.push(interceptor);
+        self
+    }
+
+    /// Sets a static extended authenticated agent card.
+    ///
+    /// Aligned with Go's `WithExtendedAgentCard`.
+    pub fn with_extended_agent_card(mut self, card: crate::types::AgentCard) -> Self {
+        self.authenticated_card_producer = Some(Arc::new(card));
+        self
+    }
+
+    /// Sets a dynamic extended authenticated agent card producer.
+    ///
+    /// Aligned with Go's `WithExtendedAgentCardProducer`.
+    pub fn with_extended_agent_card_producer(
+        mut self,
+        producer: Arc<dyn crate::server::AgentCardProducer>,
+    ) -> Self {
+        self.authenticated_card_producer = Some(producer);
         self
     }
 
@@ -415,241 +437,289 @@ impl DefaultRequestHandler {
     }
 }
 
-#[async_trait]
 impl RequestHandler for DefaultRequestHandler {
-    async fn on_message_send(&self, params: MessageSendParams) -> Result<SendMessageResult> {
-        let (ctx, queue) = self.build_request_context(&params).await?;
-        let task_id = ctx.task_id.clone();
+    fn on_message_send(
+        &self,
+        params: MessageSendParams,
+    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResult>> + Send + '_>> {
+        Box::pin(async move {
+            let (ctx, queue) = self.build_request_context(&params).await?;
+            let task_id = ctx.task_id.clone();
 
-        // Subscribe BEFORE spawning so we don't miss any events
-        let rx = queue.subscribe();
-        self.spawn_execution(ctx, Arc::clone(&queue));
+            // Subscribe BEFORE spawning so we don't miss any events
+            let rx = queue.subscribe();
+            self.spawn_execution(ctx, Arc::clone(&queue));
 
-        // Collect events until terminal
-        let is_non_blocking = params
-            .configuration
-            .as_ref()
-            .and_then(|c| c.blocking)
-            .is_some_and(|b| !b);
-        let mut result = self.collect_result(rx, is_non_blocking).await?;
+            // Collect events until terminal
+            let is_non_blocking = params
+                .configuration
+                .as_ref()
+                .and_then(|c| c.blocking)
+                .is_some_and(|b| !b);
+            let mut result = self.collect_result(rx, is_non_blocking).await?;
 
-        // Apply history length
-        if let SendMessageResult::Task(ref mut t) = result
-            && let Some(ref config) = params.configuration
-        {
-            Self::apply_history_length(t, config.history_length);
-        }
+            // Apply history length
+            if let SendMessageResult::Task(ref mut t) = result
+                && let Some(ref config) = params.configuration
+            {
+                Self::apply_history_length(t, config.history_length);
+            }
 
-        self.queue_manager.remove_queue(&task_id).await;
-        info!(task_id = %task_id, "Message send completed");
-        Ok(result)
+            self.queue_manager.remove_queue(&task_id).await;
+            info!(task_id = %task_id, "Message send completed");
+            Ok(result)
+        })
     }
 
-    async fn on_message_stream(&self, params: MessageSendParams) -> Result<EventStream> {
-        let (ctx, queue) = self.build_request_context(&params).await?;
-        let task_id = ctx.task_id.clone();
+    fn on_message_stream(
+        &self,
+        params: MessageSendParams,
+    ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + '_>> {
+        Box::pin(async move {
+            let (ctx, queue) = self.build_request_context(&params).await?;
+            let task_id = ctx.task_id.clone();
 
-        // Subscribe BEFORE spawning so we don't miss any events
-        let receiver = queue.subscribe();
-        self.spawn_execution(ctx, Arc::clone(&queue));
-        let stream = futures::stream::unfold(receiver, |mut rx| async move {
-            match rx.recv().await {
-                Ok(event) => Some((Ok(event), rx)),
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    warn!("Event stream lagged by {} messages", n);
-                    Some((Err(A2AError::Other(format!("Lagged by {n} events"))), rx))
+            // Subscribe BEFORE spawning so we don't miss any events
+            let receiver = queue.subscribe();
+            self.spawn_execution(ctx, Arc::clone(&queue));
+            let stream = futures::stream::unfold(receiver, |mut rx| async move {
+                match rx.recv().await {
+                    Ok(event) => Some((Ok(event), rx)),
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        warn!("Event stream lagged by {} messages", n);
+                        Some((Err(A2AError::Other(format!("Lagged by {n} events"))), rx))
+                    }
+                }
+            });
+
+            info!(task_id = %task_id, "Started streaming message");
+            Ok(Box::pin(stream) as EventStream)
+        })
+    }
+
+    fn on_list_tasks(
+        &self,
+        params: ListTasksRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + '_>> {
+        Box::pin(async move { self.task_store.list(&params).await })
+    }
+
+    fn on_get_task(
+        &self,
+        params: TaskQueryParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + '_>> {
+        Box::pin(async move {
+            let mut task = self
+                .get_task_internal(&params.id)
+                .await
+                .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
+
+            Self::apply_history_length(&mut task, params.history_length);
+            Ok(task)
+        })
+    }
+
+    fn on_cancel_task(
+        &self,
+        params: TaskIdParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + '_>> {
+        Box::pin(async move {
+            let task = self
+                .get_task_internal(&params.id)
+                .await
+                .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
+
+            if task.status.state.is_terminal() {
+                return Err(A2AError::TaskNotCancelable(params.id.clone()));
+            }
+
+            // Abort the running task if exists
+            {
+                let mut running = self.running_tasks.write().await;
+                if let Some(handle) = running.remove(&params.id) {
+                    handle.abort();
                 }
             }
-        });
 
-        info!(task_id = %task_id, "Started streaming message");
-        Ok(Box::pin(stream))
-    }
+            // Execute cancel via event queue (aligned with Go)
+            let queue = self.queue_manager.get_or_create_queue(&params.id).await;
+            let mut ctx = RequestContext::new(&task.id, &task.context_id);
+            ctx.stored_task = Some(task);
+            ctx.metadata = params.metadata.clone();
 
-    async fn on_list_tasks(&self, params: ListTasksRequest) -> Result<ListTasksResponse> {
-        self.task_store.list(&params).await
-    }
+            // Subscribe BEFORE spawning so we don't miss any events
+            let rx = queue.subscribe();
 
-    async fn on_get_task(&self, params: TaskQueryParams) -> Result<Task> {
-        let mut task = self
-            .get_task_internal(&params.id)
-            .await
-            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
+            let executor = Arc::clone(&self.executor);
+            let q = Arc::clone(&queue);
+            let task_store = Arc::clone(&self.task_store);
+            let tid = params.id.clone();
+            tokio::spawn(async move {
+                if let Err(e) = executor.cancel(&ctx, &q).await {
+                    error!(error = %e, task_id = %tid, "Cancel execution failed");
+                    let mut t = Task::new(&tid, &ctx.context_id);
+                    t.status = TaskStatus::failed(e.to_string());
+                    let _ = task_store
+                        .save(&t, None, crate::types::TaskVersion::MISSING)
+                        .await;
+                    let _ = q.send(Event::Task(t));
+                }
+            });
 
-        Self::apply_history_length(&mut task, params.history_length);
-        Ok(task)
-    }
+            // Cancel always blocks until completion
+            let result = self.collect_result(rx, false).await?;
+            self.queue_manager.remove_queue(&params.id).await;
 
-    async fn on_cancel_task(&self, params: TaskIdParams) -> Result<Task> {
-        let task = self
-            .get_task_internal(&params.id)
-            .await
-            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
-
-        if task.status.state.is_terminal() {
-            return Err(A2AError::TaskNotCancelable(params.id.clone()));
-        }
-
-        // Abort the running task if exists
-        {
-            let mut running = self.running_tasks.write().await;
-            if let Some(handle) = running.remove(&params.id) {
-                handle.abort();
+            match result {
+                SendMessageResult::Task(t) => {
+                    info!(task_id = %params.id, "Task canceled");
+                    Ok(t)
+                }
+                _ => Err(A2AError::Other("Cancel did not produce a Task".into())),
             }
-        }
-
-        // Execute cancel via event queue (aligned with Go)
-        let queue = self.queue_manager.get_or_create_queue(&params.id).await;
-        let mut ctx = RequestContext::new(&task.id, &task.context_id);
-        ctx.stored_task = Some(task);
-        ctx.metadata = params.metadata.clone();
-
-        // Subscribe BEFORE spawning so we don't miss any events
-        let rx = queue.subscribe();
-
-        let executor = Arc::clone(&self.executor);
-        let q = Arc::clone(&queue);
-        let task_store = Arc::clone(&self.task_store);
-        let tid = params.id.clone();
-        tokio::spawn(async move {
-            if let Err(e) = executor.cancel(&ctx, &q).await {
-                error!(error = %e, task_id = %tid, "Cancel execution failed");
-                let mut t = Task::new(&tid, &ctx.context_id);
-                t.status = TaskStatus::failed(e.to_string());
-                let _ = task_store
-                    .save(&t, None, crate::types::TaskVersion::MISSING)
-                    .await;
-                let _ = q.send(Event::Task(t));
-            }
-        });
-
-        // Cancel always blocks until completion
-        let result = self.collect_result(rx, false).await?;
-        self.queue_manager.remove_queue(&params.id).await;
-
-        match result {
-            SendMessageResult::Task(t) => {
-                info!(task_id = %params.id, "Task canceled");
-                Ok(t)
-            }
-            _ => Err(A2AError::Other("Cancel did not produce a Task".into())),
-        }
-    }
-
-    async fn on_resubscribe(&self, params: TaskIdParams) -> Result<EventStream> {
-        let task = self
-            .get_task_internal(&params.id)
-            .await
-            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
-
-        if task.status.state.is_terminal() {
-            return Err(A2AError::InvalidParams(format!(
-                "Task {} is in terminal state: {:?}",
-                params.id, task.status.state
-            )));
-        }
-
-        let queue = self
-            .queue_manager
-            .get_queue(&params.id)
-            .await
-            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
-
-        let receiver = queue.subscribe();
-        let stream = futures::stream::unfold(receiver, |mut rx| async move {
-            match rx.recv().await {
-                Ok(event) => Some((Ok(event), rx)),
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => None,
-            }
-        });
-
-        info!(task_id = %params.id, "Resubscribed to task");
-        Ok(Box::pin(stream))
-    }
-
-    async fn on_set_task_push_config(&self, params: TaskPushConfig) -> Result<TaskPushConfig> {
-        let card = &self.agent_card;
-        if !card.capabilities.push_notifications {
-            return Err(A2AError::PushNotificationNotSupported);
-        }
-        self.get_task_internal(&params.task_id)
-            .await
-            .ok_or_else(|| A2AError::TaskNotFound(params.task_id.clone()))?;
-
-        let saved = self
-            .push_config_store
-            .save(&params.task_id, &params.push_notification_config)
-            .await?;
-        Ok(TaskPushConfig {
-            task_id: params.task_id,
-            push_notification_config: saved,
         })
     }
 
-    async fn on_get_task_push_config(
+    fn on_resubscribe(
+        &self,
+        params: TaskIdParams,
+    ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + '_>> {
+        Box::pin(async move {
+            let task = self
+                .get_task_internal(&params.id)
+                .await
+                .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
+
+            if task.status.state.is_terminal() {
+                return Err(A2AError::InvalidParams(format!(
+                    "Task {} is in terminal state: {:?}",
+                    params.id, task.status.state
+                )));
+            }
+
+            let queue = self
+                .queue_manager
+                .get_queue(&params.id)
+                .await
+                .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
+
+            let receiver = queue.subscribe();
+            let stream = futures::stream::unfold(receiver, |mut rx| async move {
+                match rx.recv().await {
+                    Ok(event) => Some((Ok(event), rx)),
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => None,
+                }
+            });
+
+            info!(task_id = %params.id, "Resubscribed to task");
+            Ok(Box::pin(stream) as EventStream)
+        })
+    }
+
+    fn on_set_task_push_config(
+        &self,
+        params: TaskPushConfig,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + '_>> {
+        Box::pin(async move {
+            let card = &self.agent_card;
+            if !card.capabilities.push_notifications {
+                return Err(A2AError::PushNotificationNotSupported);
+            }
+            self.get_task_internal(&params.task_id)
+                .await
+                .ok_or_else(|| A2AError::TaskNotFound(params.task_id.clone()))?;
+
+            let saved = self
+                .push_config_store
+                .save(&params.task_id, &params.push_notification_config)
+                .await?;
+            Ok(TaskPushConfig {
+                task_id: params.task_id,
+                push_notification_config: saved,
+            })
+        })
+    }
+
+    fn on_get_task_push_config(
         &self,
         params: GetTaskPushConfigParams,
-    ) -> Result<TaskPushConfig> {
-        let card = &self.agent_card;
-        if !card.capabilities.push_notifications {
-            return Err(A2AError::PushNotificationNotSupported);
-        }
-        self.get_task_internal(&params.id)
-            .await
-            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + '_>> {
+        Box::pin(async move {
+            let card = &self.agent_card;
+            if !card.capabilities.push_notifications {
+                return Err(A2AError::PushNotificationNotSupported);
+            }
+            self.get_task_internal(&params.id)
+                .await
+                .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
 
-        let config_id = if params.push_notification_config_id.is_empty() {
-            ""
-        } else {
-            &params.push_notification_config_id
-        };
-        let config = self.push_config_store.get(&params.id, config_id).await?;
-        Ok(TaskPushConfig {
-            task_id: params.id,
-            push_notification_config: config,
+            let config_id = if params.push_notification_config_id.is_empty() {
+                ""
+            } else {
+                &params.push_notification_config_id
+            };
+            let config = self.push_config_store.get(&params.id, config_id).await?;
+            Ok(TaskPushConfig {
+                task_id: params.id,
+                push_notification_config: config,
+            })
         })
     }
 
-    async fn on_list_task_push_config(
+    fn on_list_task_push_config(
         &self,
         params: ListTaskPushConfigParams,
-    ) -> Result<Vec<TaskPushConfig>> {
-        let card = &self.agent_card;
-        if !card.capabilities.push_notifications {
-            return Err(A2AError::PushNotificationNotSupported);
-        }
-        self.get_task_internal(&params.id)
-            .await
-            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<TaskPushConfig>>> + Send + '_>> {
+        Box::pin(async move {
+            let card = &self.agent_card;
+            if !card.capabilities.push_notifications {
+                return Err(A2AError::PushNotificationNotSupported);
+            }
+            self.get_task_internal(&params.id)
+                .await
+                .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
 
-        let configs = self.push_config_store.list(&params.id).await?;
-        Ok(configs
-            .into_iter()
-            .map(|c| TaskPushConfig {
-                task_id: params.id.clone(),
-                push_notification_config: c,
-            })
-            .collect())
+            let configs = self.push_config_store.list(&params.id).await?;
+            Ok(configs
+                .into_iter()
+                .map(|c| TaskPushConfig {
+                    task_id: params.id.clone(),
+                    push_notification_config: c,
+                })
+                .collect())
+        })
     }
 
-    async fn on_delete_task_push_config(&self, params: DeleteTaskPushConfigParams) -> Result<()> {
-        let card = &self.agent_card;
-        if !card.capabilities.push_notifications {
-            return Err(A2AError::PushNotificationNotSupported);
-        }
-        self.get_task_internal(&params.id)
-            .await
-            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
+    fn on_delete_task_push_config(
+        &self,
+        params: DeleteTaskPushConfigParams,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+        Box::pin(async move {
+            let card = &self.agent_card;
+            if !card.capabilities.push_notifications {
+                return Err(A2AError::PushNotificationNotSupported);
+            }
+            self.get_task_internal(&params.id)
+                .await
+                .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
 
-        self.push_config_store
-            .delete(&params.id, &params.push_notification_config_id)
-            .await
+            self.push_config_store
+                .delete(&params.id, &params.push_notification_config_id)
+                .await
+        })
     }
 
-    async fn on_get_extended_agent_card(&self) -> Result<crate::types::AgentCard> {
-        Ok(self.agent_card.clone())
+    fn on_get_extended_agent_card(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<crate::types::AgentCard>> + Send + '_>> {
+        Box::pin(async move {
+            match &self.authenticated_card_producer {
+                Some(producer) => producer.card().await,
+                None => Err(A2AError::ExtendedCardNotConfigured),
+            }
+        })
     }
 }
 
@@ -664,6 +734,7 @@ impl Clone for DefaultRequestHandler {
             push_sender: self.push_sender.clone(),
             req_context_interceptors: self.req_context_interceptors.clone(),
             running_tasks: Arc::clone(&self.running_tasks),
+            authenticated_card_producer: self.authenticated_card_producer.clone(),
         }
     }
 }

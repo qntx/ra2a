@@ -4,9 +4,9 @@
 //! - [`RequestContext`] — context passed to the executor during processing
 //! - [`RequestContextInterceptor`] — extension point for modifying context pre-execution
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
-
-use async_trait::async_trait;
 
 use super::event::EventQueue;
 use super::task_store::TaskStore;
@@ -20,20 +20,27 @@ use crate::types::{Message, Task};
 /// - A [`Message`] event with any payload
 /// - A [`TaskStatusUpdateEvent`](crate::types::TaskStatusUpdateEvent) with `final = true`
 /// - A [`Task`] with a terminal [`TaskState`](crate::types::TaskState)
-#[async_trait]
 pub trait AgentExecutor: Send + Sync {
     /// Executes the agent for an incoming message.
     ///
     /// The triggering message is available via [`RequestContext::message`].
     /// Write A2A events to `queue`; the server consumes them for streaming
     /// and persistence.
-    async fn execute(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()>;
+    fn execute<'a>(
+        &'a self,
+        ctx: &'a RequestContext,
+        queue: &'a EventQueue,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
     /// Cancels an ongoing task.
     ///
     /// Write a cancellation event to `queue` (e.g. a [`Task`] with
     /// [`TaskState::Canceled`](crate::types::TaskState::Canceled)).
-    async fn cancel(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()>;
+    fn cancel<'a>(
+        &'a self,
+        ctx: &'a RequestContext,
+        queue: &'a EventQueue,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 }
 
 /// Request context passed to the executor during message processing.
@@ -81,10 +88,12 @@ impl RequestContext {
 /// Extension point for modifying [`RequestContext`] before it reaches [`AgentExecutor`].
 ///
 /// Multiple interceptors are applied in order of registration.
-#[async_trait]
 pub trait RequestContextInterceptor: Send + Sync {
     /// Intercept and optionally modify the request context before execution.
-    async fn intercept(&self, ctx: &mut RequestContext) -> Result<()>;
+    fn intercept<'a>(
+        &'a self,
+        ctx: &'a mut RequestContext,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 }
 
 /// Loads tasks referenced by [`Message::reference_task_ids`](crate::types::Message)
@@ -100,30 +109,34 @@ impl ReferencedTasksLoader {
     }
 }
 
-#[async_trait]
 impl RequestContextInterceptor for ReferencedTasksLoader {
-    async fn intercept(&self, ctx: &mut RequestContext) -> Result<()> {
-        let reference_ids = match ctx.message.as_ref() {
-            Some(m) if !m.reference_task_ids.is_empty() => m.reference_task_ids.clone(),
-            _ => return Ok(()),
-        };
+    fn intercept<'a>(
+        &'a self,
+        ctx: &'a mut RequestContext,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            let reference_ids = match ctx.message.as_ref() {
+                Some(m) if !m.reference_task_ids.is_empty() => m.reference_task_ids.clone(),
+                _ => return Ok(()),
+            };
 
-        let mut tasks = Vec::new();
-        for task_id in &reference_ids {
-            match self.store.get(task_id).await {
-                Ok(Some((t, _version))) => tasks.push(t),
-                Ok(None) => {
-                    tracing::info!(referenced_task_id = %task_id, "Referenced task not found");
-                }
-                Err(e) => {
-                    tracing::info!(error = %e, referenced_task_id = %task_id, "Failed to load referenced task");
+            let mut tasks = Vec::new();
+            for task_id in &reference_ids {
+                match self.store.get(task_id).await {
+                    Ok(Some((t, _version))) => tasks.push(t),
+                    Ok(None) => {
+                        tracing::info!(referenced_task_id = %task_id, "Referenced task not found");
+                    }
+                    Err(e) => {
+                        tracing::info!(error = %e, referenced_task_id = %task_id, "Failed to load referenced task");
+                    }
                 }
             }
-        }
 
-        if !tasks.is_empty() {
-            ctx.related_tasks = tasks;
-        }
-        Ok(())
+            if !tasks.is_empty() {
+                ctx.related_tasks = tasks;
+            }
+            Ok(())
+        })
     }
 }

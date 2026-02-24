@@ -15,9 +15,10 @@ mod middleware;
 mod push;
 mod task_store;
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 pub use event::{Event, EventQueue, QueueManager};
 pub use executor::{
     AgentExecutor, ReferencedTasksLoader, RequestContext, RequestContextInterceptor,
@@ -27,8 +28,8 @@ pub use handler::{
 };
 pub use http::{a2a_router, handle_agent_card, handle_jsonrpc, handle_sse};
 pub use middleware::{
-    AuthenticatedUser, CallContext, CallInterceptor, PassthroughInterceptor, Request, RequestMeta,
-    Response, UnauthenticatedUser, User,
+    AuthenticatedUser, CallContext, CallInterceptor, PassthroughInterceptor, REQUEST_META, Request,
+    RequestMeta, Response, UnauthenticatedUser, User, request_meta,
 };
 pub use push::{
     HttpPushSender, HttpPushSenderConfig, InMemoryPushConfigStore, PushConfigStore, PushSender,
@@ -42,16 +43,14 @@ use crate::types::AgentCard;
 ///
 /// Allows agent cards to vary based on request context (e.g. authentication).
 /// For static cards, [`AgentCard`] itself implements this trait.
-#[async_trait]
 pub trait AgentCardProducer: Send + Sync {
     /// Returns the public agent card.
-    async fn card(&self) -> Result<AgentCard>;
+    fn card(&self) -> Pin<Box<dyn Future<Output = Result<AgentCard>> + Send + '_>>;
 }
 
-#[async_trait]
 impl AgentCardProducer for AgentCard {
-    async fn card(&self) -> Result<Self> {
-        Ok(self.clone())
+    fn card(&self) -> Pin<Box<dyn Future<Output = Result<Self>> + Send + '_>> {
+        Box::pin(async { Ok(self.clone()) })
     }
 }
 
@@ -73,6 +72,7 @@ pub struct HandlerBuilder {
     push_sender: Option<Arc<dyn PushSender>>,
     req_context_interceptors: Vec<Arc<dyn RequestContextInterceptor>>,
     call_interceptors: Vec<Arc<dyn CallInterceptor>>,
+    extended_card_producer: Option<Arc<dyn AgentCardProducer>>,
 }
 
 impl HandlerBuilder {
@@ -87,6 +87,7 @@ impl HandlerBuilder {
             push_sender: None,
             req_context_interceptors: Vec::new(),
             call_interceptors: Vec::new(),
+            extended_card_producer: None,
         }
     }
 
@@ -128,6 +129,25 @@ impl HandlerBuilder {
         self
     }
 
+    /// Sets a static extended authenticated agent card.
+    ///
+    /// Aligned with Go's `WithExtendedAgentCard`.
+    pub fn with_extended_agent_card(mut self, card: AgentCard) -> Self {
+        self.extended_card_producer = Some(Arc::new(card));
+        self
+    }
+
+    /// Sets a dynamic extended authenticated agent card producer.
+    ///
+    /// Aligned with Go's `WithExtendedAgentCardProducer`.
+    pub fn with_extended_agent_card_producer(
+        mut self,
+        producer: Arc<dyn AgentCardProducer>,
+    ) -> Self {
+        self.extended_card_producer = Some(producer);
+        self
+    }
+
     /// Builds the final [`InterceptedHandler`] wrapping a [`DefaultRequestHandler`].
     pub fn build(self) -> InterceptedHandler {
         let mut handler = DefaultRequestHandler::new_from_boxed(self.executor, self.agent_card);
@@ -146,6 +166,9 @@ impl HandlerBuilder {
         }
         for interceptor in self.req_context_interceptors {
             handler = handler.with_request_context_interceptor(interceptor);
+        }
+        if let Some(producer) = self.extended_card_producer {
+            handler = handler.with_extended_agent_card_producer(producer);
         }
 
         let mut ih = InterceptedHandler::new(Arc::new(handler));

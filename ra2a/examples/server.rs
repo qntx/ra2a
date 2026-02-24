@@ -5,7 +5,9 @@
 //!
 //! Run: `cargo run --example server --features server`
 
-use async_trait::async_trait;
+use std::future::Future;
+use std::pin::Pin;
+
 use ra2a::{
     error::Result,
     server::{AgentExecutor, Event, EventQueue, RequestContext, ServerState, a2a_router},
@@ -14,29 +16,40 @@ use ra2a::{
 
 struct EchoAgent;
 
-#[async_trait]
 impl AgentExecutor for EchoAgent {
-    async fn execute(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
-        let input = ctx
-            .message
-            .as_ref()
-            .and_then(ra2a::Message::text_content)
-            .unwrap_or_default();
+    fn execute<'a>(
+        &'a self,
+        ctx: &'a RequestContext,
+        queue: &'a EventQueue,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            let input = ctx
+                .message
+                .as_ref()
+                .and_then(ra2a::Message::text_content)
+                .unwrap_or_default();
 
-        let mut task = Task::new(&ctx.task_id, &ctx.context_id);
-        task.status = TaskStatus::with_message(
-            TaskState::Completed,
-            Message::agent(vec![Part::text(format!("Echo: {input}"))]),
-        );
-        queue.send(Event::Task(task))?;
-        Ok(())
+            let mut task = Task::new(&ctx.task_id, &ctx.context_id);
+            task.status = TaskStatus::with_message(
+                TaskState::Completed,
+                Message::agent(vec![Part::text(format!("Echo: {input}"))]),
+            );
+            queue.send(Event::Task(task))?;
+            Ok(())
+        })
     }
 
-    async fn cancel(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
-        let mut task = Task::new(&ctx.task_id, &ctx.context_id);
-        task.status = TaskStatus::new(TaskState::Canceled);
-        queue.send(Event::Task(task))?;
-        Ok(())
+    fn cancel<'a>(
+        &'a self,
+        ctx: &'a RequestContext,
+        queue: &'a EventQueue,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut task = Task::new(&ctx.task_id, &ctx.context_id);
+            task.status = TaskStatus::new(TaskState::Canceled);
+            queue.send(Event::Task(task))?;
+            Ok(())
+        })
     }
 }
 

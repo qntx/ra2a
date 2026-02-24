@@ -3,8 +3,9 @@
 //! Aligned with Go's `a2asrv/push/store.go` and `a2asrv/push/sender.go`.
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 
-use async_trait::async_trait;
 use tokio::sync::RwLock;
 
 use crate::error::{A2AError, Result};
@@ -13,22 +14,39 @@ use crate::types::{PushConfig, Task};
 /// Stores push notification configurations per task.
 ///
 /// Aligned with Go's `PushConfigStore` interface in `tasks.go`.
-#[async_trait]
 pub trait PushConfigStore: Send + Sync {
     /// Saves a push config for a task. Returns the saved config (with generated ID if empty).
-    async fn save(&self, task_id: &str, config: &PushConfig) -> Result<PushConfig>;
+    fn save<'a>(
+        &'a self,
+        task_id: &'a str,
+        config: &'a PushConfig,
+    ) -> Pin<Box<dyn Future<Output = Result<PushConfig>> + Send + 'a>>;
 
     /// Retrieves a specific push config by task ID and config ID.
-    async fn get(&self, task_id: &str, config_id: &str) -> Result<PushConfig>;
+    fn get<'a>(
+        &'a self,
+        task_id: &'a str,
+        config_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<PushConfig>> + Send + 'a>>;
 
     /// Lists all push configs for a task.
-    async fn list(&self, task_id: &str) -> Result<Vec<PushConfig>>;
+    fn list<'a>(
+        &'a self,
+        task_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<PushConfig>>> + Send + 'a>>;
 
     /// Deletes a specific push config.
-    async fn delete(&self, task_id: &str, config_id: &str) -> Result<()>;
+    fn delete<'a>(
+        &'a self,
+        task_id: &'a str,
+        config_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
     /// Deletes all push configs for a task.
-    async fn delete_all(&self, task_id: &str) -> Result<()>;
+    fn delete_all<'a>(
+        &'a self,
+        task_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 }
 
 /// In-memory implementation of [`PushConfigStore`].
@@ -48,55 +66,90 @@ impl InMemoryPushConfigStore {
     }
 }
 
-#[async_trait]
 impl PushConfigStore for InMemoryPushConfigStore {
-    async fn save(&self, task_id: &str, config: &PushConfig) -> Result<PushConfig> {
-        validate_push_config(config)?;
+    fn save<'a>(
+        &'a self,
+        task_id: &'a str,
+        config: &'a PushConfig,
+    ) -> Pin<Box<dyn Future<Output = Result<PushConfig>> + Send + 'a>> {
+        let task_id = task_id.to_string();
+        let config = config.clone();
+        Box::pin(async move {
+            validate_push_config(&config)?;
 
-        let mut to_save = config.clone();
-        if to_save.id.is_empty() {
-            to_save.id = uuid::Uuid::new_v4().to_string();
-        }
+            let mut to_save = config;
+            if to_save.id.is_empty() {
+                to_save.id = uuid::Uuid::new_v4().to_string();
+            }
 
-        let config_id = to_save.id.clone();
-        let mut store = self.configs.write().await;
-        store
-            .entry(task_id.to_string())
-            .or_default()
-            .insert(config_id, to_save.clone());
+            let config_id = to_save.id.clone();
+            let mut store = self.configs.write().await;
+            store
+                .entry(task_id)
+                .or_default()
+                .insert(config_id, to_save.clone());
 
-        Ok(to_save)
+            Ok(to_save)
+        })
     }
 
-    async fn get(&self, task_id: &str, config_id: &str) -> Result<PushConfig> {
-        let store = self.configs.read().await;
-        store
-            .get(task_id)
-            .and_then(|m| m.get(config_id))
-            .cloned()
-            .ok_or_else(|| A2AError::InvalidParams("push config not found".into()))
+    fn get<'a>(
+        &'a self,
+        task_id: &'a str,
+        config_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<PushConfig>> + Send + 'a>> {
+        let task_id = task_id.to_string();
+        let config_id = config_id.to_string();
+        Box::pin(async move {
+            let store = self.configs.read().await;
+            store
+                .get(&task_id)
+                .and_then(|m| m.get(&config_id))
+                .cloned()
+                .ok_or_else(|| A2AError::InvalidParams("push config not found".into()))
+        })
     }
 
-    async fn list(&self, task_id: &str) -> Result<Vec<PushConfig>> {
-        let store = self.configs.read().await;
-        Ok(store
-            .get(task_id)
-            .map(|m| m.values().cloned().collect())
-            .unwrap_or_default())
+    fn list<'a>(
+        &'a self,
+        task_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<PushConfig>>> + Send + 'a>> {
+        let task_id = task_id.to_string();
+        Box::pin(async move {
+            let store = self.configs.read().await;
+            Ok(store
+                .get(&task_id)
+                .map(|m| m.values().cloned().collect())
+                .unwrap_or_default())
+        })
     }
 
-    async fn delete(&self, task_id: &str, config_id: &str) -> Result<()> {
-        let mut store = self.configs.write().await;
-        if let Some(m) = store.get_mut(task_id) {
-            m.remove(config_id);
-        }
-        Ok(())
+    fn delete<'a>(
+        &'a self,
+        task_id: &'a str,
+        config_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        let task_id = task_id.to_string();
+        let config_id = config_id.to_string();
+        Box::pin(async move {
+            let mut store = self.configs.write().await;
+            if let Some(m) = store.get_mut(&task_id) {
+                m.remove(&config_id);
+            }
+            Ok(())
+        })
     }
 
-    async fn delete_all(&self, task_id: &str) -> Result<()> {
-        let mut store = self.configs.write().await;
-        store.remove(task_id);
-        Ok(())
+    fn delete_all<'a>(
+        &'a self,
+        task_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        let task_id = task_id.to_string();
+        Box::pin(async move {
+            let mut store = self.configs.write().await;
+            store.remove(&task_id);
+            Ok(())
+        })
     }
 }
 
@@ -119,10 +172,13 @@ fn validate_push_config(config: &PushConfig) -> Result<()> {
 /// Sends push notifications about task state changes.
 ///
 /// Aligned with Go's `PushSender` interface in `tasks.go`.
-#[async_trait]
 pub trait PushSender: Send + Sync {
     /// Sends a push notification with the task state to the configured endpoint.
-    async fn send_push(&self, config: &PushConfig, task: &Task) -> Result<()>;
+    fn send_push<'a>(
+        &'a self,
+        config: &'a PushConfig,
+        task: &'a Task,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 }
 
 /// HTTP-based push notification sender.
@@ -178,66 +234,71 @@ impl Default for HttpPushSender {
     }
 }
 
-#[async_trait]
 impl PushSender for HttpPushSender {
-    async fn send_push(&self, config: &PushConfig, task: &Task) -> Result<()> {
-        let json_data = serde_json::to_vec(task)
-            .map_err(|e| A2AError::ServerError(format!("failed to serialize task: {e}")))?;
+    fn send_push<'a>(
+        &'a self,
+        config: &'a PushConfig,
+        task: &'a Task,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            let json_data = serde_json::to_vec(task)
+                .map_err(|e| A2AError::ServerError(format!("failed to serialize task: {e}")))?;
 
-        let mut req = self
-            .client
-            .post(&config.url)
-            .header("Content-Type", "application/json")
-            .body(json_data);
+            let mut req = self
+                .client
+                .post(&config.url)
+                .header("Content-Type", "application/json")
+                .body(json_data);
 
-        // Attach verification token header (Go: X-A2A-Notification-Token)
-        if !config.token.is_empty() {
-            req = req.header("X-A2A-Notification-Token", &config.token);
-        }
+            // Attach verification token header (Go: X-A2A-Notification-Token)
+            if !config.token.is_empty() {
+                req = req.header("X-A2A-Notification-Token", &config.token);
+            }
 
-        // Apply authentication from push config
-        if let Some(ref auth) = config.authentication
-            && !auth.credentials.is_empty()
-        {
-            let credentials = &auth.credentials;
-            for scheme in &auth.schemes {
-                match scheme.to_lowercase().as_str() {
-                    "bearer" => {
-                        req = req.header("Authorization", format!("Bearer {credentials}"));
-                        break;
+            // Apply authentication from push config
+            if let Some(ref auth) = config.authentication
+                && !auth.credentials.is_empty()
+            {
+                let credentials = &auth.credentials;
+                for scheme in &auth.schemes {
+                    match scheme.to_lowercase().as_str() {
+                        "bearer" => {
+                            req = req.header("Authorization", format!("Bearer {credentials}"));
+                            break;
+                        }
+                        "basic" => {
+                            req = req.header("Authorization", format!("Basic {credentials}"));
+                            break;
+                        }
+                        _ => {}
                     }
-                    "basic" => {
-                        req = req.header("Authorization", format!("Basic {credentials}"));
-                        break;
-                    }
-                    _ => {}
                 }
             }
-        }
 
-        match req.send().await {
-            Ok(resp) => {
-                if !resp.status().is_success() {
-                    let msg = format!(
-                        "push notification endpoint returned non-success status: {}",
-                        resp.status()
-                    );
-                    if self.fail_on_error {
-                        return Err(A2AError::ServerError(msg));
+            match req.send().await {
+                Ok(resp) => {
+                    if !resp.status().is_success() {
+                        let msg = format!(
+                            "push notification endpoint returned non-success status: {}",
+                            resp.status()
+                        );
+                        if self.fail_on_error {
+                            return Err(A2AError::ServerError(msg));
+                        }
+                        tracing::error!("{msg}");
                     }
-                    tracing::error!("{msg}");
-                }
-                Ok(())
-            }
-            Err(e) => {
-                let msg = format!("failed to send push notification: {e}");
-                if self.fail_on_error {
-                    Err(A2AError::ServerError(msg))
-                } else {
-                    tracing::error!("{msg}");
                     Ok(())
                 }
+                Err(e) => {
+                    let msg = format!("failed to send push notification: {e}");
+                    if self.fail_on_error {
+                        Err(A2AError::ServerError(msg))
+                    } else {
+                        tracing::error!("{msg}");
+                        Ok(())
+                    }
+                }
             }
-        }
+        })
     }
 }

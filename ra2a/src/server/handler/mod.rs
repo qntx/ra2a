@@ -7,9 +7,9 @@
 mod default;
 mod intercepted;
 
+use std::future::Future;
 use std::pin::Pin;
 
-use async_trait::async_trait;
 pub use default::DefaultRequestHandler;
 use futures::Stream;
 pub use intercepted::InterceptedHandler;
@@ -32,71 +32,96 @@ pub type EventStream = Pin<Box<dyn Stream<Item = Result<Event>> + Send>>;
 /// Implement this trait to customize how your server handles incoming requests.
 /// The `DefaultRequestHandler` provides a standard implementation that coordinates
 /// between the `AgentExecutor`, `TaskStore`, and `QueueManager`.
-#[async_trait]
 pub trait RequestHandler: Send + Sync {
     /// Handles the `message/send` request (non-streaming).
-    async fn on_message_send(&self, params: MessageSendParams) -> Result<SendMessageResult>;
+    fn on_message_send(
+        &self,
+        params: MessageSendParams,
+    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResult>> + Send + '_>>;
 
     /// Handles the `message/stream` request (streaming).
-    async fn on_message_stream(&self, params: MessageSendParams) -> Result<EventStream>;
+    fn on_message_stream(
+        &self,
+        params: MessageSendParams,
+    ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + '_>>;
 
     /// Handles the `tasks/get` request.
-    async fn on_get_task(&self, params: TaskQueryParams) -> Result<Task>;
+    fn on_get_task(
+        &self,
+        params: TaskQueryParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + '_>>;
 
     /// Handles the `tasks/cancel` request.
-    async fn on_cancel_task(&self, params: TaskIdParams) -> Result<Task>;
+    fn on_cancel_task(
+        &self,
+        params: TaskIdParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + '_>>;
 
     /// Handles the `tasks/resubscribe` request.
-    async fn on_resubscribe(&self, params: TaskIdParams) -> Result<EventStream>;
+    fn on_resubscribe(
+        &self,
+        params: TaskIdParams,
+    ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + '_>>;
 
     /// Handles the `tasks/pushNotificationConfig/set` request.
     ///
     /// Default returns [`A2AError::PushNotificationNotSupported`](crate::error::A2AError::PushNotificationNotSupported).
-    async fn on_set_task_push_config(&self, _params: TaskPushConfig) -> Result<TaskPushConfig> {
-        Err(crate::error::A2AError::PushNotificationNotSupported)
+    fn on_set_task_push_config(
+        &self,
+        _params: TaskPushConfig,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + '_>> {
+        Box::pin(async { Err(crate::error::A2AError::PushNotificationNotSupported) })
     }
 
     /// Handles the `tasks/pushNotificationConfig/get` request.
     ///
     /// Default returns [`A2AError::PushNotificationNotSupported`](crate::error::A2AError::PushNotificationNotSupported).
-    async fn on_get_task_push_config(
+    fn on_get_task_push_config(
         &self,
         _params: GetTaskPushConfigParams,
-    ) -> Result<TaskPushConfig> {
-        Err(crate::error::A2AError::PushNotificationNotSupported)
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + '_>> {
+        Box::pin(async { Err(crate::error::A2AError::PushNotificationNotSupported) })
     }
 
     /// Handles the `tasks/pushNotificationConfig/list` request.
     ///
     /// Default returns [`A2AError::PushNotificationNotSupported`](crate::error::A2AError::PushNotificationNotSupported).
-    async fn on_list_task_push_config(
+    fn on_list_task_push_config(
         &self,
         _params: ListTaskPushConfigParams,
-    ) -> Result<Vec<TaskPushConfig>> {
-        Err(crate::error::A2AError::PushNotificationNotSupported)
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<TaskPushConfig>>> + Send + '_>> {
+        Box::pin(async { Err(crate::error::A2AError::PushNotificationNotSupported) })
     }
 
     /// Handles the `tasks/pushNotificationConfig/delete` request.
     ///
     /// Default returns [`A2AError::PushNotificationNotSupported`](crate::error::A2AError::PushNotificationNotSupported).
-    async fn on_delete_task_push_config(&self, _params: DeleteTaskPushConfigParams) -> Result<()> {
-        Err(crate::error::A2AError::PushNotificationNotSupported)
+    fn on_delete_task_push_config(
+        &self,
+        _params: DeleteTaskPushConfigParams,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+        Box::pin(async { Err(crate::error::A2AError::PushNotificationNotSupported) })
     }
 
     /// Handles the `tasks/list` request.
     ///
     /// Default implementation returns an empty list. Override to provide
     /// filtering/pagination backed by your [`TaskStore`](super::TaskStore).
-    async fn on_list_tasks(&self, _params: ListTasksRequest) -> Result<ListTasksResponse> {
-        Ok(ListTasksResponse::default())
+    fn on_list_tasks(
+        &self,
+        _params: ListTasksRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + '_>> {
+        Box::pin(async { Ok(ListTasksResponse::default()) })
     }
 
     /// Returns the authenticated extended agent card.
     ///
     /// Aligned with Go's `OnGetExtendedAgentCard`. The default implementation
     /// returns [`A2AError::ExtendedCardNotConfigured`](crate::error::A2AError::ExtendedCardNotConfigured).
-    async fn on_get_extended_agent_card(&self) -> Result<AgentCard> {
-        Err(crate::error::A2AError::ExtendedCardNotConfigured)
+    fn on_get_extended_agent_card(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<AgentCard>> + Send + '_>> {
+        Box::pin(async { Err(crate::error::A2AError::ExtendedCardNotConfigured) })
     }
 }
 

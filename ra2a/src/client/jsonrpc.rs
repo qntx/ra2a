@@ -2,9 +2,10 @@
 //!
 //! Aligned with Go's `jsonrpcTransport` in `a2aclient/jsonrpc.go`.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use futures::stream;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap};
 
@@ -159,65 +160,98 @@ impl JsonRpcTransport {
     }
 }
 
-#[async_trait]
 impl Transport for JsonRpcTransport {
-    async fn send_message(&self, params: &MessageSendParams) -> Result<SendMessageResult> {
-        self.rpc_call(jsonrpc::METHOD_MESSAGE_SEND, params).await
+    fn send_message<'a>(
+        &'a self,
+        params: &'a MessageSendParams,
+    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResult>> + Send + 'a>> {
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_MESSAGE_SEND, params).await })
     }
 
-    async fn send_message_stream(&self, params: &MessageSendParams) -> Result<EventStream> {
-        self.rpc_stream(jsonrpc::METHOD_MESSAGE_STREAM, params)
-            .await
+    fn send_message_stream<'a>(
+        &'a self,
+        params: &'a MessageSendParams,
+    ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + 'a>> {
+        Box::pin(async move {
+            self.rpc_stream(jsonrpc::METHOD_MESSAGE_STREAM, params)
+                .await
+        })
     }
 
-    async fn get_task(&self, params: &TaskQueryParams) -> Result<Task> {
-        self.rpc_call(jsonrpc::METHOD_TASKS_GET, params).await
+    fn get_task<'a>(
+        &'a self,
+        params: &'a TaskQueryParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + 'a>> {
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_TASKS_GET, params).await })
     }
 
-    async fn list_tasks(&self, params: &ListTasksRequest) -> Result<ListTasksResponse> {
-        self.rpc_call(jsonrpc::METHOD_TASKS_LIST, params).await
+    fn list_tasks<'a>(
+        &'a self,
+        params: &'a ListTasksRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + 'a>> {
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_TASKS_LIST, params).await })
     }
 
-    async fn cancel_task(&self, params: &TaskIdParams) -> Result<Task> {
-        self.rpc_call(jsonrpc::METHOD_TASKS_CANCEL, params).await
+    fn cancel_task<'a>(
+        &'a self,
+        params: &'a TaskIdParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + 'a>> {
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_TASKS_CANCEL, params).await })
     }
 
-    async fn resubscribe(&self, params: &TaskIdParams) -> Result<EventStream> {
-        self.rpc_stream(jsonrpc::METHOD_TASKS_RESUBSCRIBE, params)
-            .await
+    fn resubscribe<'a>(
+        &'a self,
+        params: &'a TaskIdParams,
+    ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + 'a>> {
+        Box::pin(async move {
+            self.rpc_stream(jsonrpc::METHOD_TASKS_RESUBSCRIBE, params)
+                .await
+        })
     }
 
-    async fn set_task_push_config(&self, params: &TaskPushConfig) -> Result<TaskPushConfig> {
-        self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_SET, params).await
+    fn set_task_push_config<'a>(
+        &'a self,
+        params: &'a TaskPushConfig,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + 'a>> {
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_SET, params).await })
     }
 
-    async fn get_task_push_config(
-        &self,
-        params: &GetTaskPushConfigParams,
-    ) -> Result<TaskPushConfig> {
-        self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_GET, params).await
+    fn get_task_push_config<'a>(
+        &'a self,
+        params: &'a GetTaskPushConfigParams,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + 'a>> {
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_GET, params).await })
     }
 
-    async fn list_task_push_config(
-        &self,
-        params: &ListTaskPushConfigParams,
-    ) -> Result<Vec<TaskPushConfig>> {
-        self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_LIST, params)
-            .await
+    fn list_task_push_config<'a>(
+        &'a self,
+        params: &'a ListTaskPushConfigParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<TaskPushConfig>>> + Send + 'a>> {
+        Box::pin(async move {
+            self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_LIST, params)
+                .await
+        })
     }
 
-    async fn delete_task_push_config(&self, params: &DeleteTaskPushConfigParams) -> Result<()> {
-        self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_DELETE, params)
-            .await
+    fn delete_task_push_config<'a>(
+        &'a self,
+        params: &'a DeleteTaskPushConfigParams,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_DELETE, params)
+                .await
+        })
     }
 
-    async fn get_agent_card(&self) -> Result<AgentCard> {
-        let builder = self.client.get(&self.card_url);
-        let resp = Self::apply_call_meta(builder).send().await?;
-        if !resp.status().is_success() {
-            return Err(A2AError::Http(resp.error_for_status().unwrap_err()));
-        }
-        resp.json().await.map_err(Into::into)
+    fn get_agent_card(&self) -> Pin<Box<dyn Future<Output = Result<AgentCard>> + Send + '_>> {
+        Box::pin(async move {
+            let builder = self.client.get(&self.card_url);
+            let resp = Self::apply_call_meta(builder).send().await?;
+            if !resp.status().is_success() {
+                return Err(A2AError::Http(resp.error_for_status().unwrap_err()));
+            }
+            resp.json().await.map_err(Into::into)
+        })
     }
 }
 

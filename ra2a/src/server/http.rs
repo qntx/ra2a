@@ -72,8 +72,20 @@ pub async fn handle_agent_card(
 /// Dispatches all non-streaming A2A methods through the
 /// [`RequestHandler`](super::RequestHandler).
 /// Equivalent to Go SDK's `NewJSONRPCHandler`.
-pub async fn handle_jsonrpc(State(state): State<ServerState>, body: String) -> Response {
-    match handle_request(&state, &body).await {
+///
+/// Propagates HTTP request headers to [`InterceptedHandler`](super::InterceptedHandler)
+/// via [`REQUEST_META`](super::REQUEST_META) task-local, matching Go's
+/// `WithCallContext(ctx, NewRequestMeta(req.Header))`.
+pub async fn handle_jsonrpc(
+    State(state): State<ServerState>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
+    let meta = super::RequestMeta::from_header_map(&headers);
+    match super::REQUEST_META
+        .scope(meta, handle_request(&state, &body))
+        .await
+    {
         Ok(response) => Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "application/json")
@@ -102,7 +114,11 @@ pub async fn handle_jsonrpc(State(state): State<ServerState>, body: String) -> R
 /// Dispatches `message/stream` and `tasks/resubscribe` through the
 /// [`RequestHandler`](super::RequestHandler), wrapping each event in a JSON-RPC
 /// response envelope — aligned with Go's `handleStreamingRequest`.
-pub async fn handle_sse(State(state): State<ServerState>, body: String) -> Response {
+pub async fn handle_sse(
+    State(state): State<ServerState>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
     use axum::response::IntoResponse;
     use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
     use futures::StreamExt;
@@ -111,6 +127,8 @@ pub async fn handle_sse(State(state): State<ServerState>, body: String) -> Respo
     use crate::error::JsonRpcError;
     use crate::jsonrpc::{self, JsonRpcRequest};
     use crate::types::{MessageSendParams, TaskIdParams};
+
+    let meta = super::RequestMeta::from_header_map(&headers);
 
     let request: JsonRpcRequest<serde_json::Value> = match serde_json::from_str(&body) {
         Ok(req) => req,
@@ -122,26 +140,24 @@ pub async fn handle_sse(State(state): State<ServerState>, body: String) -> Respo
     let request_id = request.id.clone();
     let handler = &state.handler;
 
-    let event_stream = match request.method.as_str() {
-        jsonrpc::METHOD_MESSAGE_STREAM => match parse_params::<MessageSendParams>(&request) {
-            Ok(p) => handler.on_message_stream(p).await,
-            Err(e) => {
-                return sse_error_response(Some(&request_id), e.to_jsonrpc_error());
+    // Wrap handler calls in REQUEST_META scope so InterceptedHandler sees headers
+    let event_stream = super::REQUEST_META
+        .scope(meta, async {
+            match request.method.as_str() {
+                jsonrpc::METHOD_MESSAGE_STREAM => {
+                    match parse_params::<MessageSendParams>(&request) {
+                        Ok(p) => handler.on_message_stream(p).await,
+                        Err(e) => Err(e),
+                    }
+                }
+                jsonrpc::METHOD_TASKS_RESUBSCRIBE => match parse_params::<TaskIdParams>(&request) {
+                    Ok(p) => handler.on_resubscribe(p).await,
+                    Err(e) => Err(e),
+                },
+                _ => Err(JsonRpcError::method_not_found(&request.method).into()),
             }
-        },
-        jsonrpc::METHOD_TASKS_RESUBSCRIBE => match parse_params::<TaskIdParams>(&request) {
-            Ok(p) => handler.on_resubscribe(p).await,
-            Err(e) => {
-                return sse_error_response(Some(&request_id), e.to_jsonrpc_error());
-            }
-        },
-        _ => {
-            return sse_error_response(
-                Some(&request_id),
-                JsonRpcError::method_not_found(&request.method),
-            );
-        }
-    };
+        })
+        .await;
 
     let event_stream = match event_stream {
         Ok(s) => s,

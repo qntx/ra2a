@@ -2,7 +2,8 @@
 //!
 //! Defines the interface for persisting and retrieving Task objects.
 
-use async_trait::async_trait;
+use std::future::Future;
+use std::pin::Pin;
 
 use crate::error::Result;
 use crate::server::event::Event;
@@ -12,30 +13,39 @@ use crate::types::{ListTasksRequest, ListTasksResponse, Task, TaskVersion};
 ///
 /// Aligned with Go's `TaskStore` in `tasks.go`. Implementations may use
 /// the `prev` version for optimistic concurrency control during updates.
-#[async_trait]
 pub trait TaskStore: Send + Sync {
     /// Saves or updates a task in the store.
     ///
     /// `event` is the event that triggered this save (for audit / event-sourced stores).
     /// `prev` is the previous version for optimistic concurrency control.
     /// Returns the new version after saving.
-    async fn save(
-        &self,
-        task: &Task,
-        event: Option<&Event>,
+    fn save<'a>(
+        &'a self,
+        task: &'a Task,
+        event: Option<&'a Event>,
         prev: TaskVersion,
-    ) -> Result<TaskVersion>;
+    ) -> Pin<Box<dyn Future<Output = Result<TaskVersion>> + Send + 'a>>;
 
     /// Retrieves a task and its version from the store by ID.
     ///
     /// Returns `None` if the task does not exist.
-    async fn get(&self, task_id: &str) -> Result<Option<(Task, TaskVersion)>>;
+    #[allow(clippy::type_complexity)]
+    fn get<'a>(
+        &'a self,
+        task_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<(Task, TaskVersion)>>> + Send + 'a>>;
 
     /// Deletes a task from the store by ID.
-    async fn delete(&self, task_id: &str) -> Result<()>;
+    fn delete<'a>(
+        &'a self,
+        task_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
     /// Lists tasks matching the given query parameters.
-    async fn list(&self, req: &ListTasksRequest) -> Result<ListTasksResponse>;
+    fn list<'a>(
+        &'a self,
+        req: &'a ListTasksRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + 'a>>;
 }
 
 /// A versioned task entry for in-memory storage.
@@ -65,77 +75,93 @@ impl InMemoryTaskStore {
     }
 }
 
-#[async_trait]
 impl TaskStore for InMemoryTaskStore {
-    async fn save(
-        &self,
-        task: &Task,
-        _event: Option<&Event>,
+    fn save<'a>(
+        &'a self,
+        task: &'a Task,
+        _event: Option<&'a Event>,
         _prev: TaskVersion,
-    ) -> Result<TaskVersion> {
-        let ver = TaskVersion(
-            self.next_version
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        );
-        let mut tasks = self.tasks.write().await;
-        tasks.insert(
-            task.id.clone(),
-            VersionedTask {
-                task: task.clone(),
-                version: ver,
-            },
-        );
-        Ok(ver)
+    ) -> Pin<Box<dyn Future<Output = Result<TaskVersion>> + Send + 'a>> {
+        Box::pin(async move {
+            let ver = TaskVersion(
+                self.next_version
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            );
+            let mut tasks = self.tasks.write().await;
+            tasks.insert(
+                task.id.clone(),
+                VersionedTask {
+                    task: task.clone(),
+                    version: ver,
+                },
+            );
+            Ok(ver)
+        })
     }
 
-    async fn get(&self, task_id: &str) -> Result<Option<(Task, TaskVersion)>> {
-        let tasks = self.tasks.read().await;
-        Ok(tasks.get(task_id).map(|vt| (vt.task.clone(), vt.version)))
+    fn get<'a>(
+        &'a self,
+        task_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<(Task, TaskVersion)>>> + Send + 'a>> {
+        Box::pin(async move {
+            let tasks = self.tasks.read().await;
+            Ok(tasks.get(task_id).map(|vt| (vt.task.clone(), vt.version)))
+        })
     }
 
-    async fn delete(&self, task_id: &str) -> Result<()> {
-        let mut tasks = self.tasks.write().await;
-        tasks.remove(task_id);
-        Ok(())
+    fn delete<'a>(
+        &'a self,
+        task_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut tasks = self.tasks.write().await;
+            tasks.remove(task_id);
+            Ok(())
+        })
     }
 
-    async fn list(&self, req: &ListTasksRequest) -> Result<ListTasksResponse> {
-        let tasks = self.tasks.read().await;
-        let mut result: Vec<Task> = tasks.values().map(|vt| vt.task.clone()).collect();
+    fn list<'a>(
+        &'a self,
+        req: &'a ListTasksRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + 'a>> {
+        Box::pin(async move {
+            let tasks = self.tasks.read().await;
+            let mut result: Vec<Task> = tasks.values().map(|vt| vt.task.clone()).collect();
 
-        // Apply context_id filter
-        if let Some(ref ctx_id) = req.context_id {
-            result.retain(|t| t.context_id == *ctx_id);
-        }
+            // Apply context_id filter
+            if let Some(ref ctx_id) = req.context_id {
+                result.retain(|t| t.context_id == *ctx_id);
+            }
 
-        // Apply status filter
-        if let Some(ref state) = req.status {
-            result.retain(|t| t.status.state == *state);
-        }
+            // Apply status filter
+            if let Some(ref state) = req.status {
+                result.retain(|t| t.status.state == *state);
+            }
 
-        let total_size = result.len() as i32;
-        let page_size = req.page_size.unwrap_or(50).min(100) as usize;
+            let total_size = result.len() as i32;
+            let page_size = req.page_size.unwrap_or(50).min(100) as usize;
 
-        // Simple offset-based pagination using page_token as numeric offset
-        let offset: usize = req
-            .page_token
-            .as_deref()
-            .and_then(|t| t.parse().ok())
-            .unwrap_or(0);
+            // Simple offset-based pagination using page_token as numeric offset
+            let offset: usize = req
+                .page_token
+                .as_deref()
+                .and_then(|t| t.parse().ok())
+                .unwrap_or(0);
 
-        let paged: Vec<Task> = result.into_iter().skip(offset).take(page_size).collect();
-        let next_offset = offset + paged.len();
-        let next_page_token = if (next_offset as i32) < total_size {
-            Some(next_offset.to_string())
-        } else {
-            None
-        };
+            let paged: Vec<Task> = result.into_iter().skip(offset).take(page_size).collect();
+            let next_offset = offset + paged.len();
+            let next_page_token = if (next_offset as i32) < total_size {
+                Some(next_offset.to_string())
+            } else {
+                None
+            };
 
-        Ok(ListTasksResponse {
-            tasks: paged,
-            total_size: Some(total_size),
-            page_size: Some(page_size as i32),
-            next_page_token,
+            Ok(ListTasksResponse {
+                tasks: paged,
+                total_size: Some(total_size),
+                page_size: Some(page_size as i32),
+                next_page_token,
+            })
         })
     }
 }
@@ -147,12 +173,11 @@ impl TaskStore for InMemoryTaskStore {
 #[allow(dead_code)] // Helpers are used inside the impl_sql_task_store! macro expansion
 #[cfg(any(feature = "sqlite", feature = "postgresql", feature = "mysql"))]
 pub mod sql {
+    use std::future::Future;
+    use std::pin::Pin;
     use std::sync::atomic::{AtomicI64, Ordering};
 
-    use super::{
-        Event, ListTasksRequest, ListTasksResponse, Result, Task, TaskStore, TaskVersion,
-        async_trait,
-    };
+    use super::{Event, ListTasksRequest, ListTasksResponse, Result, Task, TaskStore, TaskVersion};
     use crate::types::{TaskState, TaskStatus};
 
     /// SQL table schema for tasks (`SQLite` compatible).
@@ -350,93 +375,109 @@ pub mod sql {
                     }
                 }
 
-                #[async_trait]
                 impl TaskStore for $TaskStore {
-                    async fn save(
-                        &self,
-                        task: &Task,
-                        _event: Option<&Event>,
+                    fn save<'a>(
+                        &'a self,
+                        task: &'a Task,
+                        _event: Option<&'a Event>,
                         _prev: TaskVersion,
-                    ) -> Result<TaskVersion> {
-                        let row = TaskRow::from_task(task);
-                        sqlx::query($task_save)
-                            .bind(&row.id)
-                            .bind(&row.context_id)
-                            .bind(&row.status_state)
-                            .bind(&row.status_message)
-                            .bind(&row.status_timestamp)
-                            .bind(&row.history)
-                            .bind(&row.artifacts)
-                            .bind(&row.metadata)
-                            .execute(&self.pool)
-                            .await
-                            .map_err(db_err)?;
-                        let ver = TaskVersion(self.next_version.fetch_add(1, Ordering::Relaxed));
-                        Ok(ver)
+                    ) -> Pin<Box<dyn Future<Output = Result<TaskVersion>> + Send + 'a>> {
+                        Box::pin(async move {
+                            let row = TaskRow::from_task(task);
+                            sqlx::query($task_save)
+                                .bind(&row.id)
+                                .bind(&row.context_id)
+                                .bind(&row.status_state)
+                                .bind(&row.status_message)
+                                .bind(&row.status_timestamp)
+                                .bind(&row.history)
+                                .bind(&row.artifacts)
+                                .bind(&row.metadata)
+                                .execute(&self.pool)
+                                .await
+                                .map_err(db_err)?;
+                            let ver = TaskVersion(self.next_version.fetch_add(1, Ordering::Relaxed));
+                            Ok(ver)
+                        })
                     }
 
-                    async fn get(&self, task_id: &str) -> Result<Option<(Task, TaskVersion)>> {
-                        let row = sqlx::query($task_get)
-                            .bind(task_id)
-                            .fetch_optional(&self.pool)
-                            .await
-                            .map_err(db_err)?;
+                    fn get<'a>(
+                        &'a self,
+                        task_id: &'a str,
+                    ) -> Pin<Box<dyn Future<Output = Result<Option<(Task, TaskVersion)>>> + Send + 'a>> {
+                        Box::pin(async move {
+                            let row = sqlx::query($task_get)
+                                .bind(task_id)
+                                .fetch_optional(&self.pool)
+                                .await
+                                .map_err(db_err)?;
 
-                        match row {
-                            Some(r) => {
-                                let task_row = TaskRow {
-                                    id: r.get("id"),
-                                    context_id: r.get("context_id"),
-                                    status_state: r.get("status_state"),
-                                    status_message: r.get("status_message"),
-                                    status_timestamp: r.get("status_timestamp"),
-                                    history: r.get("history"),
-                                    artifacts: r.get("artifacts"),
-                                    metadata: r.get("metadata"),
-                                };
-                                Ok(Some((task_row.to_task()?, TaskVersion::MISSING)))
+                            match row {
+                                Some(r) => {
+                                    let task_row = TaskRow {
+                                        id: r.get("id"),
+                                        context_id: r.get("context_id"),
+                                        status_state: r.get("status_state"),
+                                        status_message: r.get("status_message"),
+                                        status_timestamp: r.get("status_timestamp"),
+                                        history: r.get("history"),
+                                        artifacts: r.get("artifacts"),
+                                        metadata: r.get("metadata"),
+                                    };
+                                    Ok(Some((task_row.to_task()?, TaskVersion::MISSING)))
+                                }
+                                None => Ok(None),
                             }
-                            None => Ok(None),
-                        }
+                        })
                     }
 
-                    async fn delete(&self, task_id: &str) -> Result<()> {
-                        sqlx::query($task_del)
-                            .bind(task_id)
-                            .execute(&self.pool)
-                            .await
-                            .map_err(db_err)?;
-                        Ok(())
+                    fn delete<'a>(
+                        &'a self,
+                        task_id: &'a str,
+                    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+                        Box::pin(async move {
+                            sqlx::query($task_del)
+                                .bind(task_id)
+                                .execute(&self.pool)
+                                .await
+                                .map_err(db_err)?;
+                            Ok(())
+                        })
                     }
 
-                    async fn list(&self, _req: &ListTasksRequest) -> Result<ListTasksResponse> {
-                        // Basic implementation: return all tasks without filtering
-                        let rows = sqlx::query("SELECT id, context_id, status_state, status_message, status_timestamp, history, artifacts, metadata FROM a2a_tasks")
-                            .fetch_all(&self.pool)
-                            .await
-                            .map_err(db_err)?;
-                        let tasks: Vec<Task> = rows
-                            .iter()
-                            .filter_map(|r| {
-                                let task_row = TaskRow {
-                                    id: r.get("id"),
-                                    context_id: r.get("context_id"),
-                                    status_state: r.get("status_state"),
-                                    status_message: r.get("status_message"),
-                                    status_timestamp: r.get("status_timestamp"),
-                                    history: r.get("history"),
-                                    artifacts: r.get("artifacts"),
-                                    metadata: r.get("metadata"),
-                                };
-                                task_row.to_task().ok()
+                    fn list<'a>(
+                        &'a self,
+                        _req: &'a ListTasksRequest,
+                    ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + 'a>> {
+                        Box::pin(async move {
+                            // Basic implementation: return all tasks without filtering
+                            let rows = sqlx::query("SELECT id, context_id, status_state, status_message, status_timestamp, history, artifacts, metadata FROM a2a_tasks")
+                                .fetch_all(&self.pool)
+                                .await
+                                .map_err(db_err)?;
+                            let tasks: Vec<Task> = rows
+                                .iter()
+                                .filter_map(|r| {
+                                    let task_row = TaskRow {
+                                        id: r.get("id"),
+                                        context_id: r.get("context_id"),
+                                        status_state: r.get("status_state"),
+                                        status_message: r.get("status_message"),
+                                        status_timestamp: r.get("status_timestamp"),
+                                        history: r.get("history"),
+                                        artifacts: r.get("artifacts"),
+                                        metadata: r.get("metadata"),
+                                    };
+                                    task_row.to_task().ok()
+                                })
+                                .collect();
+                            let total = tasks.len() as i32;
+                            Ok(ListTasksResponse {
+                                tasks,
+                                total_size: Some(total),
+                                page_size: Some(total),
+                                next_page_token: None,
                             })
-                            .collect();
-                        let total = tasks.len() as i32;
-                        Ok(ListTasksResponse {
-                            tasks,
-                            total_size: Some(total),
-                            page_size: Some(total),
-                            next_page_token: None,
                         })
                     }
                 }

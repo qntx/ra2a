@@ -4,9 +4,25 @@
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
-use async_trait::async_trait;
+tokio::task_local! {
+    /// Per-request metadata propagated from the transport layer to interceptors.
+    ///
+    /// Set by HTTP/gRPC handlers before calling [`RequestHandler`] methods so
+    /// that [`InterceptedHandler`] can build a [`CallContext`] carrying the
+    /// original request headers — matching Go's `WithCallContext(ctx, NewRequestMeta(req.Header))`.
+    pub static REQUEST_META: RequestMeta;
+}
+
+/// Returns a clone of the current request's [`RequestMeta`], if set.
+///
+/// Used by [`InterceptedHandler`] to populate [`CallContext`] with transport-set headers.
+pub fn request_meta() -> RequestMeta {
+    REQUEST_META.try_with(|m| m.clone()).unwrap_or_default()
+}
 
 /// Holds metadata associated with a request (e.g. HTTP headers, gRPC metadata).
 ///
@@ -28,6 +44,24 @@ impl RequestMeta {
             .into_iter()
             .map(|(k, v)| (k.to_lowercase(), v))
             .collect();
+        Self { kv }
+    }
+
+    /// Creates a `RequestMeta` from an Axum [`HeaderMap`](axum::http::HeaderMap).
+    ///
+    /// Extracts all headers, normalizing keys to lower-case. Multi-valued
+    /// headers produce multiple entries. Mirrors Go's `NewRequestMeta(req.Header)`.
+    #[cfg(feature = "server")]
+    #[must_use]
+    pub fn from_header_map(headers: &axum::http::HeaderMap) -> Self {
+        let mut kv: HashMap<String, Vec<String>> = HashMap::new();
+        for (name, value) in headers {
+            if let Ok(v) = value.to_str() {
+                kv.entry(name.as_str().to_owned())
+                    .or_default()
+                    .push(v.to_owned());
+            }
+        }
         Self { kv }
     }
 
@@ -274,21 +308,20 @@ impl std::fmt::Debug for Response {
 /// Aligned with Go's `CallInterceptor`. If multiple interceptors are added:
 /// - `before` is executed in attachment order.
 /// - `after` is executed in reverse order.
-#[async_trait]
 pub trait CallInterceptor: Send + Sync {
     /// Called before the handler method. Can observe, modify, or reject a request.
-    async fn before(
-        &self,
-        ctx: &mut CallContext,
-        req: &mut Request,
-    ) -> Result<(), crate::error::A2AError>;
+    fn before<'a>(
+        &'a self,
+        ctx: &'a mut CallContext,
+        req: &'a mut Request,
+    ) -> Pin<Box<dyn Future<Output = Result<(), crate::error::A2AError>> + Send + 'a>>;
 
     /// Called after the handler method. Can observe, modify, or override a response.
-    async fn after(
-        &self,
-        ctx: &CallContext,
-        resp: &mut Response,
-    ) -> Result<(), crate::error::A2AError>;
+    fn after<'a>(
+        &'a self,
+        ctx: &'a CallContext,
+        resp: &'a mut Response,
+    ) -> Pin<Box<dyn Future<Output = Result<(), crate::error::A2AError>> + Send + 'a>>;
 }
 
 /// A no-op interceptor that passes everything through unchanged.
@@ -296,21 +329,20 @@ pub trait CallInterceptor: Send + Sync {
 /// Embed this in your interceptor if you only need one of `before`/`after`.
 pub struct PassthroughInterceptor;
 
-#[async_trait]
 impl CallInterceptor for PassthroughInterceptor {
-    async fn before(
-        &self,
-        _ctx: &mut CallContext,
-        _req: &mut Request,
-    ) -> Result<(), crate::error::A2AError> {
-        Ok(())
+    fn before<'a>(
+        &'a self,
+        _ctx: &'a mut CallContext,
+        _req: &'a mut Request,
+    ) -> Pin<Box<dyn Future<Output = Result<(), crate::error::A2AError>> + Send + 'a>> {
+        Box::pin(async { Ok(()) })
     }
 
-    async fn after(
-        &self,
-        _ctx: &CallContext,
-        _resp: &mut Response,
-    ) -> Result<(), crate::error::A2AError> {
-        Ok(())
+    fn after<'a>(
+        &'a self,
+        _ctx: &'a CallContext,
+        _resp: &'a mut Response,
+    ) -> Pin<Box<dyn Future<Output = Result<(), crate::error::A2AError>> + Send + 'a>> {
+        Box::pin(async { Ok(()) })
     }
 }

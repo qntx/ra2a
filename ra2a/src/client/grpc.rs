@@ -4,11 +4,11 @@
 //! [`JsonRpcTransport`](super::JsonRpcTransport). Lives in the `client` module
 //! alongside other transport implementations.
 
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use async_trait::async_trait;
 use futures::Stream;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
@@ -100,134 +100,179 @@ impl GrpcTransport {
     }
 }
 
-#[async_trait]
 impl Transport for GrpcTransport {
-    async fn send_message(&self, params: &MessageSendParams) -> Result<SendMessageResult> {
-        let request = Self::build_send_request(params);
-        let response = self
-            .client
-            .lock()
-            .await
-            .send_message(request)
-            .await
-            .map_err(|e| A2AError::Other(e.to_string()))?;
+    fn send_message<'a>(
+        &'a self,
+        params: &'a MessageSendParams,
+    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResult>> + Send + 'a>> {
+        Box::pin(async move {
+            let request = Self::build_send_request(params);
+            let response = self
+                .client
+                .lock()
+                .await
+                .send_message(request)
+                .await
+                .map_err(|e| A2AError::Other(e.to_string()))?;
 
-        match response.into_inner().payload {
-            Some(proto::send_message_response::Payload::Task(task)) => {
-                Ok(SendMessageResult::Task(Task::from(task)))
+            match response.into_inner().payload {
+                Some(proto::send_message_response::Payload::Task(task)) => {
+                    Ok(SendMessageResult::Task(Task::from(task)))
+                }
+                Some(proto::send_message_response::Payload::Message(msg)) => {
+                    Ok(SendMessageResult::Message(Message::from(msg)))
+                }
+                None => Err(A2AError::InternalError("empty gRPC response".into())),
             }
-            Some(proto::send_message_response::Payload::Message(msg)) => {
-                Ok(SendMessageResult::Message(Message::from(msg)))
-            }
-            None => Err(A2AError::InternalError("empty gRPC response".into())),
-        }
+        })
     }
 
-    async fn send_message_stream(&self, params: &MessageSendParams) -> Result<EventStream> {
-        let request = Self::build_send_request(params);
-        let response = self
-            .client
-            .lock()
-            .await
-            .send_streaming_message(request)
-            .await
-            .map_err(|e| A2AError::Other(e.to_string()))?;
+    fn send_message_stream<'a>(
+        &'a self,
+        params: &'a MessageSendParams,
+    ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + 'a>> {
+        Box::pin(async move {
+            let request = Self::build_send_request(params);
+            let response = self
+                .client
+                .lock()
+                .await
+                .send_streaming_message(request)
+                .await
+                .map_err(|e| A2AError::Other(e.to_string()))?;
 
-        Ok(Box::pin(GrpcEventStream {
-            inner: response.into_inner(),
-        }))
+            Ok(Box::pin(GrpcEventStream {
+                inner: response.into_inner(),
+            }) as EventStream)
+        })
     }
 
-    async fn get_task(&self, params: &TaskQueryParams) -> Result<Task> {
-        let request = GetTaskRequest {
-            tenant: String::new(),
-            id: params.id.clone(),
-            history_length: params.history_length,
-        };
-        let response = self
-            .client
-            .lock()
-            .await
-            .get_task(request)
-            .await
-            .map_err(|e| A2AError::Other(e.to_string()))?;
-        Ok(Task::from(response.into_inner()))
+    fn get_task<'a>(
+        &'a self,
+        params: &'a TaskQueryParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + 'a>> {
+        Box::pin(async move {
+            let request = GetTaskRequest {
+                tenant: String::new(),
+                id: params.id.clone(),
+                history_length: params.history_length,
+            };
+            let response = self
+                .client
+                .lock()
+                .await
+                .get_task(request)
+                .await
+                .map_err(|e| A2AError::Other(e.to_string()))?;
+            Ok(Task::from(response.into_inner()))
+        })
     }
 
-    async fn list_tasks(&self, _params: &ListTasksRequest) -> Result<ListTasksResponse> {
-        // gRPC proto does not define a ListTasks RPC yet
-        Err(A2AError::UnsupportedOperation(
-            "list_tasks not available over gRPC".into(),
-        ))
+    fn list_tasks<'a>(
+        &'a self,
+        _params: &'a ListTasksRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + 'a>> {
+        Box::pin(async move {
+            // gRPC proto does not define a ListTasks RPC yet
+            Err(A2AError::UnsupportedOperation(
+                "list_tasks not available over gRPC".into(),
+            ))
+        })
     }
 
-    async fn cancel_task(&self, params: &TaskIdParams) -> Result<Task> {
-        let request = CancelTaskRequest {
-            tenant: String::new(),
-            id: params.id.clone(),
-        };
-        let response = self
-            .client
-            .lock()
-            .await
-            .cancel_task(request)
-            .await
-            .map_err(|e| A2AError::Other(e.to_string()))?;
-        Ok(Task::from(response.into_inner()))
+    fn cancel_task<'a>(
+        &'a self,
+        params: &'a TaskIdParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + 'a>> {
+        Box::pin(async move {
+            let request = CancelTaskRequest {
+                tenant: String::new(),
+                id: params.id.clone(),
+            };
+            let response = self
+                .client
+                .lock()
+                .await
+                .cancel_task(request)
+                .await
+                .map_err(|e| A2AError::Other(e.to_string()))?;
+            Ok(Task::from(response.into_inner()))
+        })
     }
 
-    async fn resubscribe(&self, params: &TaskIdParams) -> Result<EventStream> {
-        let request = SubscribeToTaskRequest {
-            tenant: String::new(),
-            id: params.id.clone(),
-        };
-        let response = self
-            .client
-            .lock()
-            .await
-            .subscribe_to_task(request)
-            .await
-            .map_err(|e| A2AError::Other(e.to_string()))?;
+    fn resubscribe<'a>(
+        &'a self,
+        params: &'a TaskIdParams,
+    ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + 'a>> {
+        Box::pin(async move {
+            let request = SubscribeToTaskRequest {
+                tenant: String::new(),
+                id: params.id.clone(),
+            };
+            let response = self
+                .client
+                .lock()
+                .await
+                .subscribe_to_task(request)
+                .await
+                .map_err(|e| A2AError::Other(e.to_string()))?;
 
-        Ok(Box::pin(GrpcEventStream {
-            inner: response.into_inner(),
-        }))
+            Ok(Box::pin(GrpcEventStream {
+                inner: response.into_inner(),
+            }) as EventStream)
+        })
     }
 
-    async fn set_task_push_config(&self, _params: &TaskPushConfig) -> Result<TaskPushConfig> {
-        Err(A2AError::UnsupportedOperation(
-            "push config not available over gRPC".into(),
-        ))
+    fn set_task_push_config<'a>(
+        &'a self,
+        _params: &'a TaskPushConfig,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + 'a>> {
+        Box::pin(async move {
+            Err(A2AError::UnsupportedOperation(
+                "push config not available over gRPC".into(),
+            ))
+        })
     }
 
-    async fn get_task_push_config(
-        &self,
-        _params: &GetTaskPushConfigParams,
-    ) -> Result<TaskPushConfig> {
-        Err(A2AError::UnsupportedOperation(
-            "push config not available over gRPC".into(),
-        ))
+    fn get_task_push_config<'a>(
+        &'a self,
+        _params: &'a GetTaskPushConfigParams,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + 'a>> {
+        Box::pin(async move {
+            Err(A2AError::UnsupportedOperation(
+                "push config not available over gRPC".into(),
+            ))
+        })
     }
 
-    async fn list_task_push_config(
-        &self,
-        _params: &ListTaskPushConfigParams,
-    ) -> Result<Vec<TaskPushConfig>> {
-        Err(A2AError::UnsupportedOperation(
-            "push config not available over gRPC".into(),
-        ))
+    fn list_task_push_config<'a>(
+        &'a self,
+        _params: &'a ListTaskPushConfigParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<TaskPushConfig>>> + Send + 'a>> {
+        Box::pin(async move {
+            Err(A2AError::UnsupportedOperation(
+                "push config not available over gRPC".into(),
+            ))
+        })
     }
 
-    async fn delete_task_push_config(&self, _params: &DeleteTaskPushConfigParams) -> Result<()> {
-        Err(A2AError::UnsupportedOperation(
-            "push config not available over gRPC".into(),
-        ))
+    fn delete_task_push_config<'a>(
+        &'a self,
+        _params: &'a DeleteTaskPushConfigParams,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            Err(A2AError::UnsupportedOperation(
+                "push config not available over gRPC".into(),
+            ))
+        })
     }
 
-    async fn get_agent_card(&self) -> Result<AgentCard> {
-        Err(A2AError::UnsupportedOperation(
-            "agent card discovery not available over gRPC".into(),
-        ))
+    fn get_agent_card(&self) -> Pin<Box<dyn Future<Output = Result<AgentCard>> + Send + '_>> {
+        Box::pin(async move {
+            Err(A2AError::UnsupportedOperation(
+                "agent card discovery not available over gRPC".into(),
+            ))
+        })
     }
 }
 

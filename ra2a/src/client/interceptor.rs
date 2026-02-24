@@ -7,8 +7,8 @@
 
 use std::any::Any;
 use std::collections::HashMap;
-
-use async_trait::async_trait;
+use std::future::Future;
+use std::pin::Pin;
 
 use crate::error::{A2AError, Result};
 
@@ -114,25 +114,29 @@ pub struct Response {
 ///
 /// Aligned with Go's `CallInterceptor` interface. Both `before` and `after`
 /// are invoked in the order interceptors were attached.
-#[async_trait]
 pub trait CallInterceptor: Send + Sync {
     /// Called before the transport call. May modify outgoing metadata and payload.
-    async fn before(&self, req: &mut Request) -> Result<()> {
+    fn before<'a>(
+        &'a self,
+        req: &'a mut Request,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
         let _ = req;
-        Ok(())
+        Box::pin(async { Ok(()) })
     }
 
     /// Called after the transport call. May inspect/modify response or error.
-    async fn after(&self, resp: &mut Response) -> Result<()> {
+    fn after<'a>(
+        &'a self,
+        resp: &'a mut Response,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
         let _ = resp;
-        Ok(())
+        Box::pin(async { Ok(()) })
     }
 }
 
 /// No-op interceptor for embedding in custom implementations.
 pub struct PassthroughInterceptor;
 
-#[async_trait]
 impl CallInterceptor for PassthroughInterceptor {}
 
 /// A [`CallInterceptor`] that attaches static metadata to all outgoing requests.
@@ -160,14 +164,18 @@ impl StaticCallMetaInjector {
     }
 }
 
-#[async_trait]
 impl CallInterceptor for StaticCallMetaInjector {
-    async fn before(&self, req: &mut Request) -> Result<()> {
-        for (key, values) in self.inject.iter() {
-            for value in values {
-                req.meta.append(key, value);
+    fn before<'a>(
+        &'a self,
+        req: &'a mut Request,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            for (key, values) in self.inject.iter() {
+                for value in values {
+                    req.meta.append(key, value);
+                }
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 }

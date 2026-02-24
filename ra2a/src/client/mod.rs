@@ -12,10 +12,10 @@ mod jsonrpc;
 mod grpc;
 
 use std::any::Any;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 #[cfg(feature = "grpc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "grpc")))]
@@ -40,49 +40,74 @@ pub type EventStream = Pin<Box<dyn Stream<Item = Result<Event>> + Send>>;
 ///
 /// Each method corresponds to a single A2A protocol method. The transport
 /// handles serialization, HTTP/gRPC details, and SSE parsing internally.
-#[async_trait]
 pub trait Transport: Send + Sync {
     /// Sends a message (non-streaming). Corresponds to `message/send`.
-    async fn send_message(&self, params: &MessageSendParams) -> Result<SendMessageResult>;
+    fn send_message<'a>(
+        &'a self,
+        params: &'a MessageSendParams,
+    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResult>> + Send + 'a>>;
 
     /// Sends a message with streaming response. Corresponds to `message/stream`.
-    async fn send_message_stream(&self, params: &MessageSendParams) -> Result<EventStream>;
+    fn send_message_stream<'a>(
+        &'a self,
+        params: &'a MessageSendParams,
+    ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + 'a>>;
 
     /// Retrieves a task. Corresponds to `tasks/get`.
-    async fn get_task(&self, params: &TaskQueryParams) -> Result<Task>;
+    fn get_task<'a>(
+        &'a self,
+        params: &'a TaskQueryParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + 'a>>;
 
     /// Lists tasks. Corresponds to `tasks/list`.
-    async fn list_tasks(&self, params: &ListTasksRequest) -> Result<ListTasksResponse>;
+    fn list_tasks<'a>(
+        &'a self,
+        params: &'a ListTasksRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + 'a>>;
 
     /// Cancels a task. Corresponds to `tasks/cancel`.
-    async fn cancel_task(&self, params: &TaskIdParams) -> Result<Task>;
+    fn cancel_task<'a>(
+        &'a self,
+        params: &'a TaskIdParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + 'a>>;
 
     /// Resubscribes to a task's event stream. Corresponds to `tasks/resubscribe`.
-    async fn resubscribe(&self, params: &TaskIdParams) -> Result<EventStream>;
+    fn resubscribe<'a>(
+        &'a self,
+        params: &'a TaskIdParams,
+    ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + 'a>>;
 
     /// Sets push notification config for a task.
-    async fn set_task_push_config(&self, params: &TaskPushConfig) -> Result<TaskPushConfig>;
+    fn set_task_push_config<'a>(
+        &'a self,
+        params: &'a TaskPushConfig,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + 'a>>;
 
     /// Gets push notification config for a task.
-    async fn get_task_push_config(
-        &self,
-        params: &GetTaskPushConfigParams,
-    ) -> Result<TaskPushConfig>;
+    fn get_task_push_config<'a>(
+        &'a self,
+        params: &'a GetTaskPushConfigParams,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + 'a>>;
 
     /// Lists push notification configs for a task.
-    async fn list_task_push_config(
-        &self,
-        params: &ListTaskPushConfigParams,
-    ) -> Result<Vec<TaskPushConfig>>;
+    fn list_task_push_config<'a>(
+        &'a self,
+        params: &'a ListTaskPushConfigParams,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<TaskPushConfig>>> + Send + 'a>>;
 
     /// Deletes push notification config for a task.
-    async fn delete_task_push_config(&self, params: &DeleteTaskPushConfigParams) -> Result<()>;
+    fn delete_task_push_config<'a>(
+        &'a self,
+        params: &'a DeleteTaskPushConfigParams,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
     /// Retrieves the agent card.
-    async fn get_agent_card(&self) -> Result<AgentCard>;
+    fn get_agent_card(&self) -> Pin<Box<dyn Future<Output = Result<AgentCard>> + Send + '_>>;
 
     /// Releases any resources held by the transport.
-    async fn destroy(&self) {}
+    fn destroy(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async {})
+    }
 }
 
 /// Configuration options for [`Client`] behavior.
