@@ -27,8 +27,8 @@ pub use events::{Event, EventQueue, QueueManager};
 pub use handler::{EventStream, RequestHandler, handle_request};
 pub use intercepted_handler::InterceptedHandler;
 pub use middleware::{
-    AuthenticatedUser, CallContext, CallInterceptor, InterceptorRequest, InterceptorResponse,
-    PassthroughInterceptor, RequestMeta, UnauthenticatedUser, User,
+    AuthenticatedUser, CallContext, CallInterceptor, PassthroughInterceptor, Request, RequestMeta,
+    Response, UnauthenticatedUser, User,
 };
 pub use push::{
     HttpPushSender, HttpPushSenderConfig, InMemoryPushConfigStore, PushConfigStore, PushSender,
@@ -102,7 +102,7 @@ pub struct RequestContext {
     /// Tasks referenced by `Message.reference_task_ids`, loaded by interceptors.
     pub related_tasks: Vec<Task>,
     /// Additional metadata from the request.
-    pub metadata: std::collections::HashMap<String, serde_json::Value>,
+    pub metadata: crate::types::Metadata,
 }
 
 impl RequestContext {
@@ -202,8 +202,8 @@ impl RequestContextInterceptor for ReferencedTasksLoader {
 ///     .with_call_interceptor(Arc::new(my_interceptor))
 ///     .build();
 /// ```
-pub struct HandlerBuilder<E: AgentExecutor + 'static> {
-    executor: E,
+pub struct HandlerBuilder {
+    executor: Box<dyn AgentExecutor>,
     agent_card: AgentCard,
     task_store: Option<Arc<dyn TaskStore>>,
     queue_manager: Option<Arc<QueueManager>>,
@@ -213,13 +213,13 @@ pub struct HandlerBuilder<E: AgentExecutor + 'static> {
     call_interceptors: Vec<Arc<dyn CallInterceptor>>,
 }
 
-impl<E: AgentExecutor + 'static> HandlerBuilder<E> {
+impl HandlerBuilder {
     /// Creates a new builder with the given agent executor and agent card.
     ///
     /// Aligned with Go's `NewHandler(executor, ...RequestHandlerOption)`.
-    pub fn new(executor: E, agent_card: AgentCard) -> Self {
+    pub fn new(executor: impl AgentExecutor + 'static, agent_card: AgentCard) -> Self {
         Self {
-            executor,
+            executor: Box::new(executor),
             agent_card,
             task_store: None,
             queue_manager: None,
@@ -280,7 +280,7 @@ impl<E: AgentExecutor + 'static> HandlerBuilder<E> {
 
     /// Builds the final [`InterceptedHandler`] wrapping a [`DefaultRequestHandler`].
     pub fn build(self) -> InterceptedHandler {
-        let mut handler = DefaultRequestHandler::new(self.executor, self.agent_card);
+        let mut handler = DefaultRequestHandler::new_from_boxed(self.executor, self.agent_card);
 
         if let Some(manager) = self.queue_manager {
             handler = handler.with_queue_manager(manager);
@@ -340,7 +340,7 @@ impl ServerState {
 
     /// Convenience constructor: wraps an [`AgentExecutor`] in a
     /// [`DefaultRequestHandler`] automatically.
-    pub fn from_executor<E: AgentExecutor + 'static>(executor: E, agent_card: AgentCard) -> Self {
+    pub fn from_executor(executor: impl AgentExecutor + 'static, agent_card: AgentCard) -> Self {
         let card_producer: Arc<dyn AgentCardProducer> = Arc::new(agent_card.clone());
         let handler = Arc::new(DefaultRequestHandler::new(executor, agent_card));
         Self {

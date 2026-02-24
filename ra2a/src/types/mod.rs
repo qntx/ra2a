@@ -41,6 +41,11 @@ pub use task::{
     TaskStatusUpdateEvent, TaskVersion,
 };
 
+/// Extension metadata map used throughout the A2A protocol.
+///
+/// Aligned with Go's `map[string]any` used for metadata fields.
+pub type Metadata = std::collections::HashMap<String, serde_json::Value>;
+
 /// Helper for serde: skip serializing boolean fields when false.
 pub(crate) fn is_false(v: &bool) -> bool {
     !v

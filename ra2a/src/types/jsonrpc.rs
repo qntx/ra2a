@@ -2,11 +2,9 @@
 //!
 //! Defines the request and response structures for JSON-RPC communication.
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
-use super::{Message, PushConfig, Task};
+use super::{Message, Metadata, PushConfig, Task};
 use crate::error::JsonRpcError;
 
 /// The JSON-RPC protocol version.
@@ -138,8 +136,8 @@ pub struct MessageSendParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub configuration: Option<MessageSendConfig>,
     /// Metadata for extensions.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 impl MessageSendParams {
@@ -149,7 +147,7 @@ impl MessageSendParams {
         Self {
             message,
             configuration: None,
-            metadata: HashMap::new(),
+            metadata: Metadata::new(),
         }
     }
 
@@ -189,8 +187,8 @@ pub struct TaskQueryParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_length: Option<i32>,
     /// Metadata associated with the request.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 impl TaskQueryParams {
@@ -199,7 +197,7 @@ impl TaskQueryParams {
         Self {
             id: id.into(),
             history_length: None,
-            metadata: HashMap::new(),
+            metadata: Metadata::new(),
         }
     }
 }
@@ -210,8 +208,8 @@ pub struct TaskIdParams {
     /// The unique identifier of the task.
     pub id: String,
     /// Metadata associated with the request.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 impl TaskIdParams {
@@ -219,7 +217,7 @@ impl TaskIdParams {
     pub fn new(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
-            metadata: HashMap::new(),
+            metadata: Metadata::new(),
         }
     }
 }
@@ -228,8 +226,8 @@ impl TaskIdParams {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GetAuthenticatedExtendedCardParams {
     /// Metadata associated with the request.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 /// Parameters for listing tasks (aligned with Go's `ListTasksRequest`).

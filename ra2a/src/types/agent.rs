@@ -6,6 +6,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use super::Metadata;
+
 // ---------------------------------------------------------------------------
 // Transport protocol
 // ---------------------------------------------------------------------------
@@ -321,8 +323,8 @@ pub struct AgentExtension {
     #[serde(default, skip_serializing_if = "crate::types::is_false")]
     pub required: bool,
     /// Extension-specific configuration parameters.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub params: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub params: Metadata,
 }
 
 // ---------------------------------------------------------------------------
@@ -375,8 +377,8 @@ pub struct AgentCardSignature {
     /// The computed signature (Base64url-encoded).
     pub signature: String,
     /// The unprotected JWS header values.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub header: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub header: Metadata,
 }
 
 // ---------------------------------------------------------------------------

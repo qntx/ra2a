@@ -2,6 +2,7 @@
 //!
 //! Aligned with Go's `middleware.go`, `reqmeta.go`, and `auth.go` in `a2asrv`.
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -202,20 +203,86 @@ impl CallContext {
 // CallInterceptor (Go: middleware.go CallInterceptor)
 // ---------------------------------------------------------------------------
 
-/// Transport-agnostic request payload passed to interceptors.
-#[derive(Debug)]
-pub struct InterceptorRequest {
-    /// The request payload (one of the A2A param types), serialized as JSON.
-    pub payload: Option<serde_json::Value>,
+/// Transport-agnostic request wrapper passed to interceptors.
+///
+/// Aligned with Go's `Request` in `middleware.go`. The payload is type-erased
+/// via `Box<dyn Any>` to avoid JSON serialization round-trips.
+pub struct Request {
+    /// The request payload (one of the A2A param types), type-erased.
+    pub payload: Box<dyn Any + Send>,
 }
 
-/// Transport-agnostic response payload passed to interceptors.
-#[derive(Debug)]
-pub struct InterceptorResponse {
-    /// The response payload, serialized as JSON. `None` when `error` is set.
-    pub payload: Option<serde_json::Value>,
+impl Request {
+    /// Creates a new request wrapping the given payload.
+    pub fn new<T: Send + 'static>(payload: T) -> Self {
+        Self {
+            payload: Box::new(payload),
+        }
+    }
+
+    /// Attempts to downcast the payload to a concrete type.
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
+        self.payload.downcast_ref()
+    }
+
+    /// Attempts to downcast and take ownership of the payload.
+    pub fn downcast<T: 'static>(self) -> Result<T, Self> {
+        match self.payload.downcast::<T>() {
+            Ok(t) => Ok(*t),
+            Err(payload) => Err(Self { payload }),
+        }
+    }
+}
+
+impl std::fmt::Debug for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Request")
+            .field("payload_type", &self.payload.type_id())
+            .finish()
+    }
+}
+
+/// Transport-agnostic response wrapper passed to interceptors.
+///
+/// Aligned with Go's `Response` in `middleware.go`. The payload is type-erased
+/// via `Box<dyn Any>` to avoid JSON serialization round-trips.
+pub struct Response {
+    /// The response payload, type-erased. `None` when `err` is set.
+    pub payload: Option<Box<dyn Any + Send>>,
     /// Set when request processing failed.
-    pub error: Option<crate::error::A2AError>,
+    pub err: Option<crate::error::A2AError>,
+}
+
+impl Response {
+    /// Creates a successful response wrapping the given payload.
+    pub fn ok<T: Send + 'static>(payload: T) -> Self {
+        Self {
+            payload: Some(Box::new(payload)),
+            err: None,
+        }
+    }
+
+    /// Creates an error response.
+    pub fn error(err: crate::error::A2AError) -> Self {
+        Self {
+            payload: None,
+            err: Some(err),
+        }
+    }
+
+    /// Attempts to downcast the payload to a concrete type.
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
+        self.payload.as_ref()?.downcast_ref()
+    }
+}
+
+impl std::fmt::Debug for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Response")
+            .field("has_payload", &self.payload.is_some())
+            .field("has_error", &self.err.is_some())
+            .finish()
+    }
 }
 
 /// Server-side call interceptor, applied before and after every handler method.
@@ -229,14 +296,14 @@ pub trait CallInterceptor: Send + Sync {
     async fn before(
         &self,
         ctx: &mut CallContext,
-        req: &mut InterceptorRequest,
+        req: &mut Request,
     ) -> Result<(), crate::error::A2AError>;
 
     /// Called after the handler method. Can observe, modify, or override a response.
     async fn after(
         &self,
         ctx: &CallContext,
-        resp: &mut InterceptorResponse,
+        resp: &mut Response,
     ) -> Result<(), crate::error::A2AError>;
 }
 
@@ -250,7 +317,7 @@ impl CallInterceptor for PassthroughInterceptor {
     async fn before(
         &self,
         _ctx: &mut CallContext,
-        _req: &mut InterceptorRequest,
+        _req: &mut Request,
     ) -> Result<(), crate::error::A2AError> {
         Ok(())
     }
@@ -258,7 +325,7 @@ impl CallInterceptor for PassthroughInterceptor {
     async fn after(
         &self,
         _ctx: &CallContext,
-        _resp: &mut InterceptorResponse,
+        _resp: &mut Response,
     ) -> Result<(), crate::error::A2AError> {
         Ok(())
     }

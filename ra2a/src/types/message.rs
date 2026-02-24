@@ -3,11 +3,9 @@
 //! Aligned with Go's `Message` struct — the `kind` discriminator is injected
 //! during serialization via a custom `Serialize` impl.
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
-use super::Part;
+use super::{Metadata, Part};
 
 /// Identifies the sender of the message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -46,8 +44,8 @@ pub struct Message {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<String>,
     /// Extension metadata.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 /// Custom `Serialize` to inject `"kind": "message"` (aligned with Go's `MarshalJSON`).
@@ -89,7 +87,7 @@ impl Message {
             context_id: None,
             reference_task_ids: Vec::new(),
             extensions: Vec::new(),
-            metadata: HashMap::new(),
+            metadata: Metadata::new(),
         }
     }
 

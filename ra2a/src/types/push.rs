@@ -2,9 +2,9 @@
 //!
 //! Aligned with Go's `push.go` in the `a2a` package.
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
+
+use super::Metadata;
 
 // ---------------------------------------------------------------------------
 // PushConfig
@@ -80,8 +80,8 @@ pub struct GetTaskPushConfigParams {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub push_notification_config_id: String,
     /// Optional metadata associated with the request.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 impl GetTaskPushConfigParams {
@@ -90,7 +90,7 @@ impl GetTaskPushConfigParams {
         Self {
             id: id.into(),
             push_notification_config_id: String::new(),
-            metadata: HashMap::new(),
+            metadata: Metadata::new(),
         }
     }
 }
@@ -101,8 +101,8 @@ pub struct ListTaskPushConfigParams {
     /// The unique identifier of the task.
     pub id: String,
     /// Optional metadata associated with the request.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 impl ListTaskPushConfigParams {
@@ -110,7 +110,7 @@ impl ListTaskPushConfigParams {
     pub fn new(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
-            metadata: HashMap::new(),
+            metadata: Metadata::new(),
         }
     }
 }
@@ -124,8 +124,8 @@ pub struct DeleteTaskPushConfigParams {
     /// The ID of the config to delete.
     pub push_notification_config_id: String,
     /// Optional metadata associated with the request.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 impl DeleteTaskPushConfigParams {
@@ -134,7 +134,7 @@ impl DeleteTaskPushConfigParams {
         Self {
             id: id.into(),
             push_notification_config_id: config_id.into(),
-            metadata: HashMap::new(),
+            metadata: Metadata::new(),
         }
     }
 }

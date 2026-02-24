@@ -10,29 +10,18 @@ use async_trait::async_trait;
 use futures::StreamExt;
 
 use super::handler::{EventStream, RequestHandler};
-use super::middleware::{
-    CallContext, CallInterceptor, InterceptorRequest, InterceptorResponse, RequestMeta,
-};
+use super::middleware::{CallContext, CallInterceptor, Request, RequestMeta, Response};
 use crate::error::{A2AError, Result};
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
-    MessageSendParams, SendMessageResult, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
+    ListTasksRequest, ListTasksResponse, MessageSendParams, SendMessageResult, Task, TaskIdParams,
+    TaskPushConfig, TaskQueryParams,
 };
 
 /// A [`RequestHandler`] wrapper that applies [`CallInterceptor`]s before and after
 /// every handler method call.
 ///
 /// Aligned with Go's `InterceptedHandler` in `intercepted_handler.go`.
-///
-/// # Example
-/// ```ignore
-/// use std::sync::Arc;
-/// use ra2a::server::{InterceptedHandler, DefaultRequestHandler, PassthroughInterceptor};
-///
-/// let inner = Arc::new(DefaultRequestHandler::new(my_executor));
-/// let handler = InterceptedHandler::new(inner)
-///     .with_interceptor(Arc::new(MyAuthInterceptor));
-/// ```
 pub struct InterceptedHandler {
     inner: Arc<dyn RequestHandler>,
     interceptors: Vec<Arc<dyn CallInterceptor>>,
@@ -58,7 +47,7 @@ impl InterceptedHandler {
     async fn run_before(
         &self,
         ctx: &mut CallContext,
-        req: &mut InterceptorRequest,
+        req: &mut Request,
     ) -> std::result::Result<(), A2AError> {
         for interceptor in &self.interceptors {
             interceptor.before(ctx, req).await?;
@@ -70,7 +59,7 @@ impl InterceptedHandler {
     async fn run_after(
         &self,
         ctx: &CallContext,
-        resp: &mut InterceptorResponse,
+        resp: &mut Response,
     ) -> std::result::Result<(), A2AError> {
         for interceptor in self.interceptors.iter().rev() {
             interceptor.after(ctx, resp).await?;
@@ -78,49 +67,70 @@ impl InterceptedHandler {
         Ok(())
     }
 
-    /// Executes a unary (non-streaming) handler method with interception.
+    /// Runs before-interceptors with a typed payload, then executes `handler_fn`,
+    /// then runs after-interceptors. No JSON serialization involved.
     async fn intercept_unary<P, R, F>(&self, method: &str, params: P, handler_fn: F) -> Result<R>
     where
-        P: serde::Serialize + serde::de::DeserializeOwned,
-        R: serde::Serialize + serde::de::DeserializeOwned,
+        P: Send + 'static,
+        R: Send + 'static,
         F: std::future::Future<Output = Result<R>>,
     {
         let mut ctx = CallContext::new(method, RequestMeta::empty());
-        let mut req = InterceptorRequest {
-            payload: Some(serde_json::to_value(&params)?),
-        };
-
-        // Before interceptors
+        let mut req = Request::new(params);
         self.run_before(&mut ctx, &mut req).await?;
 
-        // Execute inner handler
         let result = handler_fn.await;
 
-        // After interceptors
-        let mut resp = match &result {
-            Ok(r) => InterceptorResponse {
-                payload: Some(serde_json::to_value(r)?),
-                error: None,
-            },
-            Err(e) => InterceptorResponse {
-                payload: None,
-                error: Some(A2AError::Other(e.to_string())),
-            },
+        let mut resp = match result {
+            Ok(r) => Response::ok(r),
+            Err(e) => Response::error(e),
         };
-
         self.run_after(&ctx, &mut resp).await?;
 
-        // If after-interceptor set an error, return it
-        if let Some(err) = resp.error {
+        if let Some(err) = resp.err {
             return Err(err);
         }
-
-        // If after-interceptor modified the payload, deserialize it
-        if let Some(payload) = resp.payload {
-            Ok(serde_json::from_value(payload)?)
-        } else {
-            result
+        // Try to extract the response payload (may have been replaced by interceptor)
+        match resp.payload {
+            Some(p) => match p.downcast::<R>() {
+                Ok(r) => Ok(*r),
+                Err(_) => Err(A2AError::Other(
+                    "interceptor changed response payload type".into(),
+                )),
+            },
+            None => Err(A2AError::Other("no response payload".into())),
         }
+    }
+
+    /// Wraps a streaming response to apply after-interceptors on each event.
+    fn wrap_stream(&self, method: &'static str, stream: EventStream) -> EventStream {
+        let interceptors = self.interceptors.clone();
+        let wrapped = stream.then(move |event_result| {
+            let interceptors = interceptors.clone();
+            async move {
+                match event_result {
+                    Ok(event) => {
+                        let mut resp = Response::ok(event);
+                        let ctx = CallContext::new(method, RequestMeta::empty());
+                        for interceptor in interceptors.iter().rev() {
+                            interceptor.after(&ctx, &mut resp).await?;
+                        }
+                        if let Some(err) = resp.err {
+                            return Err(err);
+                        }
+                        match resp
+                            .payload
+                            .and_then(|p| p.downcast::<super::events::Event>().ok())
+                        {
+                            Some(e) => Ok(*e),
+                            None => Err(A2AError::Other("missing event after interceptor".into())),
+                        }
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        });
+        Box::pin(wrapped)
     }
 }
 
@@ -137,39 +147,11 @@ impl RequestHandler for InterceptedHandler {
 
     async fn on_message_stream(&self, params: MessageSendParams) -> Result<EventStream> {
         let mut ctx = CallContext::new("message/stream", RequestMeta::empty());
-        let mut req = InterceptorRequest {
-            payload: Some(serde_json::to_value(&params)?),
-        };
+        let mut req = Request::new(params.clone());
         self.run_before(&mut ctx, &mut req).await?;
 
         let stream = self.inner.on_message_stream(params).await?;
-
-        // Wrap stream to apply after-interceptors on each event
-        let interceptors = self.interceptors.clone();
-        let wrapped = stream.then(move |event_result| {
-            let interceptors = interceptors.clone();
-            async move {
-                match event_result {
-                    Ok(event) => {
-                        let mut resp = InterceptorResponse {
-                            payload: serde_json::to_value(&event).ok(),
-                            error: None,
-                        };
-                        let ctx = CallContext::new("message/stream", RequestMeta::empty());
-                        for interceptor in interceptors.iter().rev() {
-                            interceptor.after(&ctx, &mut resp).await?;
-                        }
-                        if let Some(err) = resp.error {
-                            return Err(err);
-                        }
-                        Ok(event)
-                    }
-                    Err(e) => Err(e),
-                }
-            }
-        });
-
-        Ok(Box::pin(wrapped))
+        Ok(self.wrap_stream("message/stream", stream))
     }
 
     async fn on_get_task(&self, params: TaskQueryParams) -> Result<Task> {
@@ -194,38 +176,11 @@ impl RequestHandler for InterceptedHandler {
 
     async fn on_resubscribe(&self, params: TaskIdParams) -> Result<EventStream> {
         let mut ctx = CallContext::new("tasks/resubscribe", RequestMeta::empty());
-        let mut req = InterceptorRequest {
-            payload: Some(serde_json::to_value(&params)?),
-        };
+        let mut req = Request::new(params.clone());
         self.run_before(&mut ctx, &mut req).await?;
 
         let stream = self.inner.on_resubscribe(params).await?;
-
-        let interceptors = self.interceptors.clone();
-        let wrapped = stream.then(move |event_result| {
-            let interceptors = interceptors.clone();
-            async move {
-                match event_result {
-                    Ok(event) => {
-                        let mut resp = InterceptorResponse {
-                            payload: serde_json::to_value(&event).ok(),
-                            error: None,
-                        };
-                        let ctx = CallContext::new("tasks/resubscribe", RequestMeta::empty());
-                        for interceptor in interceptors.iter().rev() {
-                            interceptor.after(&ctx, &mut resp).await?;
-                        }
-                        if let Some(err) = resp.error {
-                            return Err(err);
-                        }
-                        Ok(event)
-                    }
-                    Err(e) => Err(e),
-                }
-            }
-        });
-
-        Ok(Box::pin(wrapped))
+        Ok(self.wrap_stream("tasks/resubscribe", stream))
     }
 
     async fn on_set_task_push_config(&self, params: TaskPushConfig) -> Result<TaskPushConfig> {
@@ -270,32 +225,38 @@ impl RequestHandler for InterceptedHandler {
         .await
     }
 
+    async fn on_list_tasks(&self, params: ListTasksRequest) -> Result<ListTasksResponse> {
+        let inner = Arc::clone(&self.inner);
+        let p = params.clone();
+        self.intercept_unary(
+            "tasks/list",
+            params,
+            async move { inner.on_list_tasks(p).await },
+        )
+        .await
+    }
+
     async fn on_get_extended_agent_card(&self) -> Result<AgentCard> {
         let mut ctx = CallContext::new("agent/getAuthenticatedExtendedCard", RequestMeta::empty());
-        let mut req = InterceptorRequest { payload: None };
+        let mut req = Request::new(());
         self.run_before(&mut ctx, &mut req).await?;
 
         let result = self.inner.on_get_extended_agent_card().await;
 
-        let mut resp = match &result {
-            Ok(card) => InterceptorResponse {
-                payload: serde_json::to_value(card).ok(),
-                error: None,
-            },
-            Err(e) => InterceptorResponse {
-                payload: None,
-                error: Some(A2AError::Other(e.to_string())),
-            },
+        let mut resp = match result {
+            Ok(card) => Response::ok(card),
+            Err(e) => Response::error(e),
         };
         self.run_after(&ctx, &mut resp).await?;
 
-        if let Some(err) = resp.error {
+        if let Some(err) = resp.err {
             return Err(err);
         }
-        if let Some(payload) = resp.payload {
-            Ok(serde_json::from_value(payload)?)
-        } else {
-            result
+        match resp.payload.and_then(|p| p.downcast::<AgentCard>().ok()) {
+            Some(card) => Ok(*card),
+            None => Err(A2AError::Other(
+                "missing agent card after interceptor".into(),
+            )),
         }
     }
 }
@@ -330,7 +291,7 @@ mod tests {
         async fn before(
             &self,
             _ctx: &mut CallContext,
-            _req: &mut InterceptorRequest,
+            _req: &mut Request,
         ) -> std::result::Result<(), A2AError> {
             self.before_count.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -339,7 +300,7 @@ mod tests {
         async fn after(
             &self,
             _ctx: &CallContext,
-            _resp: &mut InterceptorResponse,
+            _resp: &mut Response,
         ) -> std::result::Result<(), A2AError> {
             self.after_count.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -354,7 +315,7 @@ mod tests {
         async fn before(
             &self,
             _ctx: &mut CallContext,
-            _req: &mut InterceptorRequest,
+            _req: &mut Request,
         ) -> std::result::Result<(), A2AError> {
             Err(A2AError::Unauthenticated("rejected by interceptor".into()))
         }
@@ -362,7 +323,7 @@ mod tests {
         async fn after(
             &self,
             _ctx: &CallContext,
-            _resp: &mut InterceptorResponse,
+            _resp: &mut Response,
         ) -> std::result::Result<(), A2AError> {
             Ok(())
         }
@@ -399,7 +360,7 @@ mod tests {
         }
     }
 
-    fn create_test_handler() -> Arc<crate::server::DefaultRequestHandler<TestAgent>> {
+    fn create_test_handler() -> Arc<crate::server::DefaultRequestHandler> {
         let card = AgentCard::builder("Test Agent", "http://localhost:8080")
             .capabilities(AgentCapabilities {
                 streaming: true,
@@ -463,7 +424,6 @@ mod tests {
         let params = MessageSendParams::new(message);
         handler.on_message_send(params).await.unwrap();
 
-        // Both interceptors should have been called
         assert_eq!(c1.before_count.load(Ordering::SeqCst), 1);
         assert_eq!(c2.before_count.load(Ordering::SeqCst), 1);
         assert_eq!(c1.after_count.load(Ordering::SeqCst), 1);

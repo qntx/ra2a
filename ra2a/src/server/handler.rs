@@ -178,7 +178,7 @@ pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<S
 }
 
 /// Extracts and deserializes params from a JSON-RPC request.
-fn parse_params<T: serde::de::DeserializeOwned>(
+pub(crate) fn parse_params<T: serde::de::DeserializeOwned>(
     request: &JsonRpcRequest<serde_json::Value>,
 ) -> Result<T> {
     match &request.params {

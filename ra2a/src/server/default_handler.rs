@@ -27,8 +27,8 @@ use crate::types::{
 ///
 /// Coordinates between `AgentExecutor`, task storage, `QueueManager`,
 /// and optional push notification components — event-driven, aligned with Go.
-pub struct DefaultRequestHandler<E: AgentExecutor> {
-    executor: Arc<E>,
+pub struct DefaultRequestHandler {
+    executor: Arc<dyn AgentExecutor>,
     agent_card: crate::types::AgentCard,
     task_store: Arc<dyn TaskStore>,
     queue_manager: Arc<QueueManager>,
@@ -38,11 +38,25 @@ pub struct DefaultRequestHandler<E: AgentExecutor> {
     running_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
 
-impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
+impl DefaultRequestHandler {
     /// Creates a new default request handler with the given executor and agent card.
-    pub fn new(executor: E, agent_card: crate::types::AgentCard) -> Self {
+    pub fn new(
+        executor: impl AgentExecutor + 'static,
+        agent_card: crate::types::AgentCard,
+    ) -> Self {
+        Self::new_from_boxed(Box::new(executor), agent_card)
+    }
+
+    /// Creates a new default request handler from a boxed executor.
+    ///
+    /// Used by [`HandlerBuilder`](super::HandlerBuilder) which stores
+    /// the executor as `Box<dyn AgentExecutor>`.
+    pub fn new_from_boxed(
+        executor: Box<dyn AgentExecutor>,
+        agent_card: crate::types::AgentCard,
+    ) -> Self {
         Self {
-            executor: Arc::new(executor),
+            executor: Arc::from(executor),
             agent_card,
             task_store: Arc::new(InMemoryTaskStore::new()),
             queue_manager: Arc::new(QueueManager::new()),
@@ -401,7 +415,7 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
 }
 
 #[async_trait]
-impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
+impl RequestHandler for DefaultRequestHandler {
     async fn on_message_send(&self, params: MessageSendParams) -> Result<SendMessageResult> {
         let (ctx, queue) = self.build_request_context(&params).await?;
         let task_id = ctx.task_id.clone();
@@ -631,7 +645,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     }
 }
 
-impl<E: AgentExecutor> Clone for DefaultRequestHandler<E> {
+impl Clone for DefaultRequestHandler {
     fn clone(&self) -> Self {
         Self {
             executor: Arc::clone(&self.executor),

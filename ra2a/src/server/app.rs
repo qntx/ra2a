@@ -216,6 +216,7 @@ async fn handle_sse_stream(State(state): State<ServerState>, body: String) -> Re
     use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
     use futures::StreamExt;
 
+    use super::handler::parse_params;
     use crate::error::JsonRpcError;
     use crate::types::{JsonRpcRequest, MessageSendParams, TaskIdParams};
 
@@ -232,34 +233,18 @@ async fn handle_sse_stream(State(state): State<ServerState>, body: String) -> Re
 
     // Dispatch to the appropriate streaming method (Go: handleStreamingRequest)
     let event_stream = match request.method.as_str() {
-        "message/stream" => {
-            let params: MessageSendParams = match request
-                .params
-                .as_ref()
-                .ok_or_else(|| JsonRpcError::invalid_params("Missing params"))
-                .and_then(|p| {
-                    serde_json::from_value(p.clone())
-                        .map_err(|e| JsonRpcError::invalid_params(e.to_string()))
-                }) {
-                Ok(p) => p,
-                Err(e) => return sse_jsonrpc_error_response(Some(&request_id), e),
-            };
-            handler.on_message_stream(params).await
-        }
-        "tasks/resubscribe" => {
-            let params: TaskIdParams = match request
-                .params
-                .as_ref()
-                .ok_or_else(|| JsonRpcError::invalid_params("Missing params"))
-                .and_then(|p| {
-                    serde_json::from_value(p.clone())
-                        .map_err(|e| JsonRpcError::invalid_params(e.to_string()))
-                }) {
-                Ok(p) => p,
-                Err(e) => return sse_jsonrpc_error_response(Some(&request_id), e),
-            };
-            handler.on_resubscribe(params).await
-        }
+        "message/stream" => match parse_params::<MessageSendParams>(&request) {
+            Ok(p) => handler.on_message_stream(p).await,
+            Err(e) => {
+                return sse_jsonrpc_error_response(Some(&request_id), e.to_jsonrpc_error());
+            }
+        },
+        "tasks/resubscribe" => match parse_params::<TaskIdParams>(&request) {
+            Ok(p) => handler.on_resubscribe(p).await,
+            Err(e) => {
+                return sse_jsonrpc_error_response(Some(&request_id), e.to_jsonrpc_error());
+            }
+        },
         _ => {
             return sse_jsonrpc_error_response(
                 Some(&request_id),

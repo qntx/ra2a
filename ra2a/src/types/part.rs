@@ -2,9 +2,9 @@
 //!
 //! Aligned with Go's `Part` interface — a tagged union of `TextPart`, `FilePart`, `DataPart`.
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
+
+use super::Metadata;
 
 /// A discriminated union representing a content part.
 ///
@@ -54,7 +54,7 @@ impl Part {
     }
 
     /// Creates a structured data part.
-    pub fn data(data: HashMap<String, serde_json::Value>) -> Self {
+    pub fn data(data: Metadata) -> Self {
         Self::Data(DataPart {
             data,
             metadata: Default::default(),
@@ -80,8 +80,8 @@ pub struct TextPart {
     /// The string content.
     pub text: String,
     /// Optional extension metadata.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 /// A file segment within a message or artifact.
@@ -90,18 +90,18 @@ pub struct FilePart {
     /// The file content — either inline bytes or a URI reference.
     pub file: FileContent,
     /// Optional extension metadata.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 /// A structured data segment (e.g. JSON object) within a message or artifact.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DataPart {
     /// The structured data content.
-    pub data: HashMap<String, serde_json::Value>,
+    pub data: Metadata,
     /// Optional extension metadata.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 // ---------------------------------------------------------------------------
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_data_part() {
-        let mut data = HashMap::new();
+        let mut data = Metadata::new();
         data.insert("key".into(), serde_json::json!("value"));
         let part = Part::data(data);
         let json = serde_json::to_string(&part).unwrap();

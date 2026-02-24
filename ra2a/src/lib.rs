@@ -36,9 +36,10 @@ pub mod grpc;
 // For client/server specific types, import from `ra2a::client` or `ra2a::server`.
 pub use error::{A2AError, Result};
 pub use types::{
-    AgentCapabilities, AgentCard, AgentSkill, Artifact, Event, Message, MessageSendParams, Part,
-    PushConfig, Role, SendMessageResult, Task, TaskArtifactUpdateEvent, TaskIdParams,
-    TaskPushConfig, TaskQueryParams, TaskState, TaskStatus, TaskStatusUpdateEvent, TaskVersion,
+    AgentCapabilities, AgentCard, AgentSkill, Artifact, Event, Message, MessageSendParams,
+    Metadata, Part, PushConfig, Role, SendMessageResult, Task, TaskArtifactUpdateEvent,
+    TaskIdParams, TaskPushConfig, TaskQueryParams, TaskState, TaskStatus, TaskStatusUpdateEvent,
+    TaskVersion,
 };
 
 /// Protocol version supported by this SDK.

@@ -2,11 +2,9 @@
 //!
 //! Aligned with Go's `Task`, `TaskStatus`, `Artifact`, and event types.
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
-use super::{Message, Part};
+use super::{Message, Metadata, Part};
 
 // ---------------------------------------------------------------------------
 // TaskVersion (aligned with Go's task_version.go)
@@ -164,8 +162,8 @@ pub struct Task {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<Artifact>,
     /// Extension metadata.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 impl Serialize for Task {
@@ -198,7 +196,7 @@ impl Task {
             status: TaskStatus::submitted(),
             history: Vec::new(),
             artifacts: Vec::new(),
-            metadata: HashMap::new(),
+            metadata: Metadata::new(),
         }
     }
 
@@ -222,7 +220,7 @@ impl Task {
             status: TaskStatus::new(TaskState::Submitted),
             history: vec![initial_message],
             artifacts: Vec::new(),
-            metadata: HashMap::new(),
+            metadata: Metadata::new(),
         }
     }
 
@@ -299,8 +297,8 @@ pub struct Artifact {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<String>,
     /// Extension metadata.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 impl Artifact {
@@ -312,7 +310,7 @@ impl Artifact {
             name: None,
             description: None,
             extensions: Vec::new(),
-            metadata: HashMap::new(),
+            metadata: Metadata::new(),
         }
     }
 
@@ -347,8 +345,8 @@ pub struct TaskStatusUpdateEvent {
     #[serde(default)]
     pub r#final: bool,
     /// Extension metadata.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 impl Serialize for TaskStatusUpdateEvent {
@@ -380,7 +378,7 @@ impl TaskStatusUpdateEvent {
             context_id: context_id.into(),
             status,
             r#final,
-            metadata: HashMap::new(),
+            metadata: Metadata::new(),
         }
     }
 }
@@ -404,8 +402,8 @@ pub struct TaskArtifactUpdateEvent {
     #[serde(default)]
     pub last_chunk: bool,
     /// Extension metadata.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
 }
 
 impl Serialize for TaskArtifactUpdateEvent {
@@ -442,7 +440,7 @@ impl TaskArtifactUpdateEvent {
             artifact,
             append: false,
             last_chunk: false,
-            metadata: HashMap::new(),
+            metadata: Metadata::new(),
         }
     }
 }
