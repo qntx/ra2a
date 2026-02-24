@@ -1,15 +1,17 @@
 //! Example: A2A Server
 //!
+//! Mount A2A routes on your own Axum router — the SDK provides composable
+//! handlers, not a managed server.
+//!
 //! Run: `cargo run --example server --features server`
 
 use async_trait::async_trait;
 use ra2a::{
     error::Result,
-    server::{A2AServerBuilder, AgentExecutor, Event, EventQueue, RequestContext},
+    server::{AgentExecutor, Event, EventQueue, RequestContext, ServerState, a2a_router},
     types::{AgentCard, AgentSkill, Message, Part, Task, TaskState, TaskStatus},
 };
 
-/// A simple echo agent that responds to greetings.
 struct EchoAgent;
 
 #[async_trait]
@@ -21,13 +23,11 @@ impl AgentExecutor for EchoAgent {
             .and_then(ra2a::Message::text_content)
             .unwrap_or_default();
 
-        let reply = format!("Echo: {input}");
         let mut task = Task::new(&ctx.task_id, &ctx.context_id);
         task.status = TaskStatus::with_message(
             TaskState::Completed,
-            Message::agent(vec![Part::text(reply)]),
+            Message::agent(vec![Part::text(format!("Echo: {input}"))]),
         );
-
         queue.send(Event::Task(task))?;
         Ok(())
     }
@@ -40,7 +40,10 @@ impl AgentExecutor for EchoAgent {
     }
 }
 
-fn echo_agent_card() -> AgentCard {
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    tracing_subscriber::fmt::init();
+
     let mut card = AgentCard::new("Echo Agent", "http://localhost:8080");
     card.description = "A simple echo agent for demonstration.".into();
     card.skills.push(AgentSkill::new(
@@ -49,23 +52,18 @@ fn echo_agent_card() -> AgentCard {
         "Echoes user messages with a greeting",
         vec!["echo".into(), "hello".into()],
     ));
-    card
-}
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    tracing_subscriber::fmt::init();
-
-    let server = A2AServerBuilder::new()
-        .executor(EchoAgent, echo_agent_card())
-        .port(8080)
-        .build();
+    let state = ServerState::from_executor(EchoAgent, card);
+    let app = axum::Router::new()
+        .merge(a2a_router(state))
+        .route("/health", axum::routing::get(|| async { "OK" }));
 
     println!("A2A server listening on http://localhost:8080");
     println!("Agent card: http://localhost:8080/.well-known/agent-card.json");
 
-    server
-        .serve_with_shutdown(async {
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async {
             tokio::signal::ctrl_c().await.ok();
         })
         .await

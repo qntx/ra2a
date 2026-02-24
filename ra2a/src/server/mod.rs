@@ -1,10 +1,10 @@
 //! A2A Server module.
 //!
+//! - [`a2a_router`] — composable Axum router with all A2A endpoints
 //! - [`AgentExecutor`] — trait for implementing agent business logic
 //! - [`RequestHandler`] — trait defining all A2A JSON-RPC method handlers
 //! - [`DefaultRequestHandler`] — standard implementation coordinating executor, stores, queues
 //! - [`InterceptedHandler`] — decorator applying [`CallInterceptor`]s
-//! - [`A2AServer`] / [`A2AServerBuilder`] — Axum HTTP/SSE server
 //! - [`TaskStore`] / [`EventQueue`] / [`PushConfigStore`] — storage and eventing
 
 mod event;
@@ -25,7 +25,7 @@ pub use executor::{
 pub use handler::{
     DefaultRequestHandler, EventStream, InterceptedHandler, RequestHandler, handle_request,
 };
-pub use http::{A2AServer, A2AServerBuilder, ServerConfig};
+pub use http::{a2a_router, handle_agent_card, handle_jsonrpc, handle_sse};
 pub use middleware::{
     AuthenticatedUser, CallContext, CallInterceptor, PassthroughInterceptor, Request, RequestMeta,
     Response, UnauthenticatedUser, User,

@@ -158,28 +158,38 @@ impl Client {
         self.card.read().unwrap().clone()
     }
 
-    // -- Interceptor helpers --------------------------------------------------
-
     /// Runs all `before` interceptors for the given method.
-    async fn intercept_before(&self, method: &str, req: &mut Request) -> Result<()> {
+    async fn run_before(&self, method: &str) -> Result<()> {
+        if self.interceptors.is_empty() {
+            return Ok(());
+        }
         let ctx = CallContext {
             method: method.to_string(),
             agent_card: self.card(),
         };
+        let mut req = Request {
+            meta: CallMeta::default(),
+        };
         for interceptor in &self.interceptors {
-            interceptor.before(&ctx, req).await?;
+            interceptor.before(&ctx, &mut req).await?;
         }
         Ok(())
     }
 
     /// Runs all `after` interceptors for the given method.
-    async fn intercept_after(&self, method: &str, resp: &mut Response) -> Result<()> {
+    async fn run_after(&self, method: &str) -> Result<()> {
+        if self.interceptors.is_empty() {
+            return Ok(());
+        }
         let ctx = CallContext {
             method: method.to_string(),
             agent_card: self.card(),
         };
+        let mut resp = Response {
+            meta: CallMeta::default(),
+        };
         for interceptor in &self.interceptors {
-            interceptor.after(&ctx, resp).await?;
+            interceptor.after(&ctx, &mut resp).await?;
         }
         Ok(())
     }
@@ -204,27 +214,20 @@ impl Client {
             config.push_notification_config = self.config.push_config.clone();
         }
         if config.accepted_output_modes.is_empty()
-            && let Some(ref modes) = self.config.accepted_output_modes {
-                config.accepted_output_modes = modes.clone();
-            }
+            && let Some(ref modes) = self.config.accepted_output_modes
+        {
+            config.accepted_output_modes = modes.clone();
+        }
         config.blocking = Some(blocking);
         result
     }
 
-    // ----- A2A protocol methods (delegate to transport with interceptors) ----
-
     /// Sends a message (non-streaming). Corresponds to `message/send`.
     pub async fn send_message(&self, params: &MessageSendParams) -> Result<SendMessageResult> {
         let params = self.with_default_send_config(params, !self.config.polling);
-        let mut req = Request {
-            meta: CallMeta::default(),
-        };
-        self.intercept_before("SendMessage", &mut req).await?;
+        self.run_before("SendMessage").await?;
         let result = self.transport.send_message(&params).await;
-        let mut resp = Response {
-            meta: CallMeta::default(),
-        };
-        self.intercept_after("SendMessage", &mut resp).await?;
+        self.run_after("SendMessage").await?;
         result
     }
 
@@ -235,105 +238,63 @@ impl Client {
     /// single-element stream.
     pub async fn send_message_stream(&self, params: &MessageSendParams) -> Result<EventStream> {
         let params = self.with_default_send_config(params, true);
-        let mut req = Request {
-            meta: CallMeta::default(),
-        };
-        self.intercept_before("SendStreamingMessage", &mut req)
-            .await?;
+        self.run_before("SendStreamingMessage").await?;
 
         // Fallback: if agent doesn't support streaming, use non-streaming call
         if let Some(ref card) = self.card()
-            && !card.supports_streaming() {
-                let result = self.transport.send_message(&params).await?;
-                let mut resp = Response {
-                    meta: CallMeta::default(),
-                };
-                self.intercept_after("SendStreamingMessage", &mut resp)
-                    .await?;
-                let event = match result {
-                    SendMessageResult::Task(t) => Event::Task(t),
-                    SendMessageResult::Message(m) => Event::Message(m),
-                };
-                let stream: EventStream = Box::pin(futures::stream::once(async move { Ok(event) }));
-                return Ok(stream);
-            }
+            && !card.supports_streaming()
+        {
+            let result = self.transport.send_message(&params).await?;
+            self.run_after("SendStreamingMessage").await?;
+            let event = match result {
+                SendMessageResult::Task(t) => Event::Task(t),
+                SendMessageResult::Message(m) => Event::Message(m),
+            };
+            return Ok(Box::pin(futures::stream::once(async move { Ok(event) })));
+        }
 
         let result = self.transport.send_message_stream(&params).await;
-        let mut resp = Response {
-            meta: CallMeta::default(),
-        };
-        self.intercept_after("SendStreamingMessage", &mut resp)
-            .await?;
+        self.run_after("SendStreamingMessage").await?;
         result
     }
 
     /// Retrieves a task. Corresponds to `tasks/get`.
     pub async fn get_task(&self, params: &TaskQueryParams) -> Result<Task> {
-        let mut req = Request {
-            meta: CallMeta::default(),
-        };
-        self.intercept_before("GetTask", &mut req).await?;
+        self.run_before("GetTask").await?;
         let result = self.transport.get_task(params).await;
-        let mut resp = Response {
-            meta: CallMeta::default(),
-        };
-        self.intercept_after("GetTask", &mut resp).await?;
+        self.run_after("GetTask").await?;
         result
     }
 
     /// Lists tasks. Corresponds to `tasks/list`.
     pub async fn list_tasks(&self, params: &ListTasksRequest) -> Result<ListTasksResponse> {
-        let mut req = Request {
-            meta: CallMeta::default(),
-        };
-        self.intercept_before("ListTasks", &mut req).await?;
+        self.run_before("ListTasks").await?;
         let result = self.transport.list_tasks(params).await;
-        let mut resp = Response {
-            meta: CallMeta::default(),
-        };
-        self.intercept_after("ListTasks", &mut resp).await?;
+        self.run_after("ListTasks").await?;
         result
     }
 
     /// Cancels a task. Corresponds to `tasks/cancel`.
     pub async fn cancel_task(&self, params: &TaskIdParams) -> Result<Task> {
-        let mut req = Request {
-            meta: CallMeta::default(),
-        };
-        self.intercept_before("CancelTask", &mut req).await?;
+        self.run_before("CancelTask").await?;
         let result = self.transport.cancel_task(params).await;
-        let mut resp = Response {
-            meta: CallMeta::default(),
-        };
-        self.intercept_after("CancelTask", &mut resp).await?;
+        self.run_after("CancelTask").await?;
         result
     }
 
     /// Resubscribes to a task's event stream. Corresponds to `tasks/resubscribe`.
     pub async fn resubscribe(&self, params: &TaskIdParams) -> Result<EventStream> {
-        let mut req = Request {
-            meta: CallMeta::default(),
-        };
-        self.intercept_before("ResubscribeToTask", &mut req).await?;
+        self.run_before("ResubscribeToTask").await?;
         let result = self.transport.resubscribe(params).await;
-        let mut resp = Response {
-            meta: CallMeta::default(),
-        };
-        self.intercept_after("ResubscribeToTask", &mut resp).await?;
+        self.run_after("ResubscribeToTask").await?;
         result
     }
 
     /// Sets push notification config. Corresponds to `tasks/pushNotificationConfig/set`.
     pub async fn set_task_push_config(&self, params: &TaskPushConfig) -> Result<TaskPushConfig> {
-        let mut req = Request {
-            meta: CallMeta::default(),
-        };
-        self.intercept_before("SetTaskPushConfig", &mut req).await?;
+        self.run_before("SetTaskPushConfig").await?;
         let result = self.transport.set_task_push_config(params).await;
-        let mut resp = Response {
-            meta: CallMeta::default(),
-        };
-        self.intercept_after("SetTaskPushConfig", &mut resp).await?;
+        self.run_after("SetTaskPushConfig").await?;
         result
     }
 
@@ -342,15 +303,9 @@ impl Client {
         &self,
         params: &GetTaskPushConfigParams,
     ) -> Result<TaskPushConfig> {
-        let mut req = Request {
-            meta: CallMeta::default(),
-        };
-        self.intercept_before("GetTaskPushConfig", &mut req).await?;
+        self.run_before("GetTaskPushConfig").await?;
         let result = self.transport.get_task_push_config(params).await;
-        let mut resp = Response {
-            meta: CallMeta::default(),
-        };
-        self.intercept_after("GetTaskPushConfig", &mut resp).await?;
+        self.run_after("GetTaskPushConfig").await?;
         result
     }
 
@@ -359,33 +314,17 @@ impl Client {
         &self,
         params: &ListTaskPushConfigParams,
     ) -> Result<Vec<TaskPushConfig>> {
-        let mut req = Request {
-            meta: CallMeta::default(),
-        };
-        self.intercept_before("ListTaskPushConfig", &mut req)
-            .await?;
+        self.run_before("ListTaskPushConfig").await?;
         let result = self.transport.list_task_push_config(params).await;
-        let mut resp = Response {
-            meta: CallMeta::default(),
-        };
-        self.intercept_after("ListTaskPushConfig", &mut resp)
-            .await?;
+        self.run_after("ListTaskPushConfig").await?;
         result
     }
 
     /// Deletes push notification config. Corresponds to `tasks/pushNotificationConfig/delete`.
     pub async fn delete_task_push_config(&self, params: &DeleteTaskPushConfigParams) -> Result<()> {
-        let mut req = Request {
-            meta: CallMeta::default(),
-        };
-        self.intercept_before("DeleteTaskPushConfig", &mut req)
-            .await?;
+        self.run_before("DeleteTaskPushConfig").await?;
         let result = self.transport.delete_task_push_config(params).await;
-        let mut resp = Response {
-            meta: CallMeta::default(),
-        };
-        self.intercept_after("DeleteTaskPushConfig", &mut resp)
-            .await?;
+        self.run_after("DeleteTaskPushConfig").await?;
         result
     }
 
@@ -394,21 +333,15 @@ impl Client {
     /// If the card is already cached and doesn't support extended cards,
     /// returns the cached version. Otherwise fetches from transport.
     pub async fn get_agent_card(&self) -> Result<AgentCard> {
-        // If card is cached and doesn't support extended card, return cached
         if let Some(ref card) = self.card()
-            && !card.supports_authenticated_extended_card {
-                return Ok(card.clone());
-            }
+            && !card.supports_authenticated_extended_card
+        {
+            return Ok(card.clone());
+        }
 
-        let mut req = Request {
-            meta: CallMeta::default(),
-        };
-        self.intercept_before("GetAgentCard", &mut req).await?;
+        self.run_before("GetAgentCard").await?;
         let card = self.transport.get_agent_card().await?;
-        let mut resp = Response {
-            meta: CallMeta::default(),
-        };
-        self.intercept_after("GetAgentCard", &mut resp).await?;
+        self.run_after("GetAgentCard").await?;
         self.set_card(card.clone());
         Ok(card)
     }

@@ -98,15 +98,18 @@ impl QueueManager {
 
     /// Gets or creates an event queue for a task.
     pub async fn get_or_create_queue(&self, task_id: &str) -> Arc<EventQueue> {
-        // Try to get existing queue first
+        // Fast path: read lock
         {
             let queues = self.queues.read().await;
             if let Some(queue) = queues.get(task_id) {
                 return Arc::clone(queue);
             }
         }
-        // Create new queue
+        // Slow path: write lock with double-check
         let mut queues = self.queues.write().await;
+        if let Some(queue) = queues.get(task_id) {
+            return Arc::clone(queue);
+        }
         let queue = Arc::new(EventQueue::new(self.capacity));
         queues.insert(task_id.to_string(), Arc::clone(&queue));
         queue

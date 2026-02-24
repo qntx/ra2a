@@ -259,19 +259,13 @@ impl DefaultRequestHandler {
     /// Used for non-streaming `message/send`. Stores task snapshots along the way.
     ///
     /// Implements Go's `shouldInterruptNonStreaming` logic:
-    /// - If `blocking == false`, return on the first non-Message event (load task from store).
+    /// - If `is_non_blocking`, return on the first non-Message event (load task from store).
     /// - If a task enters `AuthRequired` state, interrupt and return.
     async fn collect_result(
         &self,
         mut rx: tokio::sync::broadcast::Receiver<Event>,
-        params: &MessageSendParams,
+        is_non_blocking: bool,
     ) -> Result<SendMessageResult> {
-        let is_non_blocking = params
-            .configuration
-            .as_ref()
-            .and_then(|c| c.blocking)
-            .is_some_and(|b| !b);
-
         let mut last_event: Option<Event> = None;
 
         loop {
@@ -432,7 +426,12 @@ impl RequestHandler for DefaultRequestHandler {
         self.spawn_execution(ctx, Arc::clone(&queue));
 
         // Collect events until terminal
-        let mut result = self.collect_result(rx, &params).await?;
+        let is_non_blocking = params
+            .configuration
+            .as_ref()
+            .and_then(|c| c.blocking)
+            .is_some_and(|b| !b);
+        let mut result = self.collect_result(rx, is_non_blocking).await?;
 
         // Apply history length
         if let SendMessageResult::Task(ref mut t) = result
@@ -525,9 +524,8 @@ impl RequestHandler for DefaultRequestHandler {
             }
         });
 
-        // Cancel always blocks until completion (no non-blocking interrupt)
-        let blocking_params = MessageSendParams::new(crate::types::Message::user(vec![]));
-        let result = self.collect_result(rx, &blocking_params).await?;
+        // Cancel always blocks until completion
+        let result = self.collect_result(rx, false).await?;
         self.queue_manager.remove_queue(&params.id).await;
 
         match result {

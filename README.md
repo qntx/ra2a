@@ -36,19 +36,18 @@ ra2a implements the full [A2A protocol specification][a2a-spec] **v0.3.0** with 
 
 ### Server
 
-```rust
-use async_trait::async_trait;
-use ra2a::{
-    error::Result,
-    server::{A2AServerBuilder, AgentExecutor, Event, EventQueue, RequestContext},
-    types::{AgentCard, AgentSkill, Message, Part, Task, TaskState, TaskStatus},
-};
+The SDK provides composable Axum handlers — mount A2A routes on your own router, just like Go SDK's `mux.Handle("/invoke", a2asrv.NewJSONRPCHandler(handler))`:
 
+```rust
+use ra2a::server::{ServerState, a2a_router, AgentExecutor, Event, EventQueue, RequestContext};
+use ra2a::types::{AgentCard, AgentSkill, Message, Part, Task, TaskState, TaskStatus};
+
+// 1. Implement your agent
 struct EchoAgent;
 
-#[async_trait]
+#[async_trait::async_trait]
 impl AgentExecutor for EchoAgent {
-    async fn execute(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
+    async fn execute(&self, ctx: &RequestContext, queue: &EventQueue) -> ra2a::error::Result<()> {
         let input = ctx.message.as_ref()
             .and_then(ra2a::Message::text_content)
             .unwrap_or_default();
@@ -62,7 +61,7 @@ impl AgentExecutor for EchoAgent {
         Ok(())
     }
 
-    async fn cancel(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
+    async fn cancel(&self, ctx: &RequestContext, queue: &EventQueue) -> ra2a::error::Result<()> {
         let mut task = Task::new(&ctx.task_id, &ctx.context_id);
         task.status = TaskStatus::new(TaskState::Canceled);
         queue.send(Event::Task(task))?;
@@ -76,14 +75,21 @@ async fn main() -> std::io::Result<()> {
     card.description = "A simple echo agent".into();
     card.skills.push(AgentSkill::new("echo", "Echo", "Echoes messages", vec![]));
 
-    A2AServerBuilder::new()
-        .executor(EchoAgent, card)
-        .port(8080)
-        .build()
-        .serve_with_shutdown(async { tokio::signal::ctrl_c().await.ok(); })
+    // 2. Build state and mount on your own router
+    let state = ServerState::from_executor(EchoAgent, card);
+    let app = axum::Router::new()
+        .merge(a2a_router(state))
+        .route("/health", axum::routing::get(|| async { "OK" }));
+
+    // 3. You own the listener and server
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async { tokio::signal::ctrl_c().await.ok(); })
         .await
 }
 ```
+
+Individual handlers (`handle_jsonrpc`, `handle_sse`, `handle_agent_card`) are also exported for fine-grained route control.
 
 ### Client
 
@@ -125,7 +131,7 @@ cargo run --example client --features client   # in another terminal
 
 ## Architecture
 
-- **ra2a** — Full A2A v0.3.0 SDK. `Client` wraps a `Transport` trait with `CallInterceptor` middleware, `ClientConfig` defaults, and automatic streaming fallback. `AgentExecutor` is the event-driven server trait — implementations write events to an `EventQueue`, and the `DefaultRequestHandler` coordinates persistence, streaming, and push notifications. `InterceptedHandler` decorates any `RequestHandler` with before/after interceptors. `TaskStore` is pluggable (in-memory, PostgreSQL, MySQL, SQLite). All 11 JSON-RPC methods are supported on both client and server, plus gRPC transport via tonic/prost.
+- **ra2a** — Full A2A v0.3.0 SDK. The server side exposes composable Axum handlers (`a2a_router`, `handle_jsonrpc`, `handle_sse`, `handle_agent_card`) that you mount on your own router — the SDK does not own the HTTP server, mirroring Go SDK's `NewJSONRPCHandler`/`NewStaticAgentCardHandler` pattern. `AgentExecutor` is the event-driven server trait; implementations write events to an `EventQueue`, and the `DefaultRequestHandler` coordinates persistence, streaming, and push notifications. `InterceptedHandler` decorates any `RequestHandler` with before/after interceptors. `TaskStore` is pluggable (in-memory, PostgreSQL, MySQL, SQLite). The client side wraps a `Transport` trait with `CallInterceptor` middleware, `ClientConfig` defaults, and automatic streaming fallback. All 11 JSON-RPC methods are supported on both client and server, plus gRPC transport via tonic/prost.
 - **ra2a-ext** — Optional extensions crate (WIP). Will house advanced interceptors and utilities analogous to the Go SDK's `a2aext/` module (extension activators, metadata propagators).
 
 ## Feature Flags
@@ -133,7 +139,7 @@ cargo run --example client --features client   # in another terminal
 | Feature | Default | Description |
 | --- | :---: | --- |
 | `client` | **yes** | HTTP/JSON-RPC client, SSE streaming, card resolver, interceptors |
-| `server` | **yes** | Axum HTTP server, event queue, task lifecycle, SSE endpoints |
+| `server` | **yes** | Composable Axum handlers, event queue, task lifecycle, SSE streaming |
 | `grpc` | — | gRPC transport via tonic/prost (requires protobuf compiler) |
 | `telemetry` | — | OpenTelemetry tracing spans and metrics |
 | `postgresql` | — | PostgreSQL task store via sqlx |

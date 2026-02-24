@@ -508,23 +508,6 @@ impl Event {
             Self::ArtifactUpdate(_) => false,
         }
     }
-
-    /// Returns the SSE event type string and JSON data for this event.
-    pub fn to_sse_data(&self) -> (String, String) {
-        let (event_type, data) = match self {
-            Self::StatusUpdate(e) => (
-                "status_update",
-                serde_json::to_string(e).unwrap_or_default(),
-            ),
-            Self::ArtifactUpdate(e) => (
-                "artifact_update",
-                serde_json::to_string(e).unwrap_or_default(),
-            ),
-            Self::Task(t) => ("task", serde_json::to_string(t).unwrap_or_default()),
-            Self::Message(m) => ("message", serde_json::to_string(m).unwrap_or_default()),
-        };
-        (event_type.to_string(), data)
-    }
 }
 
 /// Result of a non-streaming `message/send` — either a Task or a Message.
