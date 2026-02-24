@@ -6,10 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use super::Metadata;
 
-// ---------------------------------------------------------------------------
-// PushConfig
-// ---------------------------------------------------------------------------
-
 /// Configuration for a push notification endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PushConfig {
@@ -38,10 +34,6 @@ impl PushConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// PushAuthInfo
-// ---------------------------------------------------------------------------
-
 /// Authentication details for a push notification endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PushAuthInfo {
@@ -52,10 +44,6 @@ pub struct PushAuthInfo {
     pub credentials: String,
 }
 
-// ---------------------------------------------------------------------------
-// TaskPushConfig
-// ---------------------------------------------------------------------------
-
 /// Associates a push notification config with a task.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,10 +53,6 @@ pub struct TaskPushConfig {
     /// The push notification configuration.
     pub push_notification_config: PushConfig,
 }
-
-// ---------------------------------------------------------------------------
-// Push config request parameters (aligned with Go's push.go)
-// ---------------------------------------------------------------------------
 
 /// Parameters for getting a push notification config.
 #[derive(Debug, Clone, Serialize, Deserialize)]

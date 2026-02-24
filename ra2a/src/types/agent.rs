@@ -8,10 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use super::Metadata;
 
-// ---------------------------------------------------------------------------
-// Transport protocol
-// ---------------------------------------------------------------------------
-
 /// A2A transport protocol identifier.
 ///
 /// This is an open string type — custom protocols are allowed.
@@ -69,10 +65,6 @@ impl From<String> for TransportProtocol {
         Self(s)
     }
 }
-
-// ---------------------------------------------------------------------------
-// AgentCard
-// ---------------------------------------------------------------------------
 
 /// A self-describing manifest for an agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -179,10 +171,6 @@ impl AgentCard {
     }
 }
 
-// ---------------------------------------------------------------------------
-// AgentCapabilities
-// ---------------------------------------------------------------------------
-
 /// Optional capabilities supported by an agent.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -220,10 +208,6 @@ impl AgentCapabilities {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// AgentSkill
-// ---------------------------------------------------------------------------
 
 /// A distinct capability or function that an agent can perform.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -279,10 +263,6 @@ impl AgentSkill {
     }
 }
 
-// ---------------------------------------------------------------------------
-// AgentExtension
-// ---------------------------------------------------------------------------
-
 /// A protocol extension supported by an agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentExtension {
@@ -298,10 +278,6 @@ pub struct AgentExtension {
     #[serde(default, skip_serializing_if = "Metadata::is_empty")]
     pub params: Metadata,
 }
-
-// ---------------------------------------------------------------------------
-// AgentInterface / AgentProvider / AgentCardSignature
-// ---------------------------------------------------------------------------
 
 /// A combination of a target URL and transport protocol.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -352,10 +328,6 @@ pub struct AgentCardSignature {
     #[serde(default, skip_serializing_if = "Metadata::is_empty")]
     pub header: Metadata,
 }
-
-// ---------------------------------------------------------------------------
-// Security schemes (merged from security.rs + oauth.rs, aligned with Go auth.go)
-// ---------------------------------------------------------------------------
 
 /// A security scheme for securing agent endpoints (OpenAPI 3.0 compatible).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -497,10 +469,6 @@ pub struct MutualTlsSecurityScheme {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
 }
-
-// ---------------------------------------------------------------------------
-// OAuth 2.0 flows (merged from oauth.rs, aligned with Go auth.go)
-// ---------------------------------------------------------------------------
 
 /// Configuration for the supported OAuth 2.0 flows.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

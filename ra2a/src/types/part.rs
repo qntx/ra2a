@@ -70,10 +70,6 @@ impl Part {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Concrete part types
-// ---------------------------------------------------------------------------
-
 /// A text segment within a message or artifact.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TextPart {
@@ -103,10 +99,6 @@ pub struct DataPart {
     #[serde(default, skip_serializing_if = "Metadata::is_empty")]
     pub metadata: Metadata,
 }
-
-// ---------------------------------------------------------------------------
-// File content types (aligned with Go's FilePartContent union)
-// ---------------------------------------------------------------------------
 
 /// File content — either inline base64 bytes or a URI.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

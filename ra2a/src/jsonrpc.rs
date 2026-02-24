@@ -1,7 +1,9 @@
 //! Internal JSON-RPC 2.0 wire types and protocol constants.
 //!
 //! These types are transport-layer details and NOT part of the public API.
-//! Aligned with Go's `internal/jsonrpc` package.
+//! Items are only used when `client` or `server` features are enabled.
+
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 
@@ -9,10 +11,6 @@ use crate::error::JsonRpcError;
 
 /// JSON-RPC 2.0 protocol version.
 pub(crate) const VERSION: &str = "2.0";
-
-// ---------------------------------------------------------------------------
-// JSON-RPC method names per A2A spec §7 (aligned with Go's internal/jsonrpc)
-// ---------------------------------------------------------------------------
 
 /// Method name for `message/send`.
 pub(crate) const METHOD_MESSAGE_SEND: &str = "message/send";
@@ -37,10 +35,6 @@ pub(crate) const METHOD_PUSH_CONFIG_DELETE: &str = "tasks/pushNotificationConfig
 /// Method name for `agent/getAuthenticatedExtendedCard`.
 pub(crate) const METHOD_GET_EXTENDED_AGENT_CARD: &str = "agent/getAuthenticatedExtendedCard";
 
-// ---------------------------------------------------------------------------
-// Request ID (aligned with Go's jsonrpc.go `ID any`)
-// ---------------------------------------------------------------------------
-
 /// A unique identifier for a JSON-RPC request.
 ///
 /// Can be a string, a number, or null — per JSON-RPC 2.0 spec.
@@ -58,10 +52,6 @@ impl Default for RequestId {
         Self::String(uuid::Uuid::new_v4().to_string())
     }
 }
-
-// ---------------------------------------------------------------------------
-// JSON-RPC 2.0 request/response envelopes
-// ---------------------------------------------------------------------------
 
 /// A JSON-RPC 2.0 request object.
 #[derive(Debug, Clone, Serialize, Deserialize)]

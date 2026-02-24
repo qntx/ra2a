@@ -38,10 +38,6 @@ pub use task_store::{InMemoryTaskStore, TaskStore};
 use crate::error::Result;
 use crate::types::AgentCard;
 
-// ---------------------------------------------------------------------------
-// AgentCardProducer
-// ---------------------------------------------------------------------------
-
 /// Trait for producing agent cards dynamically.
 ///
 /// Allows agent cards to vary based on request context (e.g. authentication).
@@ -58,10 +54,6 @@ impl AgentCardProducer for AgentCard {
         Ok(self.clone())
     }
 }
-
-// ---------------------------------------------------------------------------
-// HandlerBuilder
-// ---------------------------------------------------------------------------
 
 /// Builder for constructing a fully-configured [`InterceptedHandler`].
 ///
@@ -163,10 +155,6 @@ impl HandlerBuilder {
         ih
     }
 }
-
-// ---------------------------------------------------------------------------
-// ServerState
-// ---------------------------------------------------------------------------
 
 /// Server state shared across all request handlers.
 ///

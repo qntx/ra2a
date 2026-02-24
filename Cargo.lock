@@ -1822,6 +1822,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ra2a-ext"
+version = "0.6.0"
+
+[[package]]
 name = "rand"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

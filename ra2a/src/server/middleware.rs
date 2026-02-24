@@ -8,10 +8,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-// ---------------------------------------------------------------------------
-// RequestMeta — transport-agnostic request metadata (Go: reqmeta.go)
-// ---------------------------------------------------------------------------
-
 /// Holds metadata associated with a request (e.g. HTTP headers, gRPC metadata).
 ///
 /// Custom transport implementations can attach this to a [`CallContext`] via
@@ -68,10 +64,6 @@ impl RequestMeta {
     }
 }
 
-// ---------------------------------------------------------------------------
-// User — server-side auth primitive (Go: auth.go)
-// ---------------------------------------------------------------------------
-
 /// Represents an authenticated (or unauthenticated) user.
 ///
 /// Aligned with Go's `User` interface in `auth.go`. Implement this trait in
@@ -122,10 +114,6 @@ impl User for UnauthenticatedUser {
         false
     }
 }
-
-// ---------------------------------------------------------------------------
-// CallContext — per-call scope (Go: middleware.go CallContext)
-// ---------------------------------------------------------------------------
 
 /// Holds information about the current server call scope.
 ///
@@ -199,10 +187,6 @@ impl CallContext {
     }
 }
 
-// ---------------------------------------------------------------------------
-// CallInterceptor (Go: middleware.go CallInterceptor)
-// ---------------------------------------------------------------------------
-
 /// Transport-agnostic request wrapper passed to interceptors.
 ///
 /// Aligned with Go's `Request` in `middleware.go`. The payload is type-erased
@@ -237,7 +221,7 @@ impl Request {
 impl std::fmt::Debug for Request {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Request")
-            .field("payload_type", &self.payload.type_id())
+            .field("payload_type", &(*self.payload).type_id())
             .finish()
     }
 }

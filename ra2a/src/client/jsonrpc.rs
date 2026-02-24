@@ -206,10 +206,6 @@ impl Transport for JsonRpcTransport {
     }
 }
 
-// ---------------------------------------------------------------------------
-// SSE parsing (inline — no separate module needed)
-// ---------------------------------------------------------------------------
-
 /// Parses an HTTP response body as an SSE stream of JSON-RPC–wrapped [`Event`]s.
 fn parse_sse_stream(response: reqwest::Response) -> EventStream {
     let byte_stream = response.bytes_stream();

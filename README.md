@@ -3,8 +3,6 @@
 [![CI][ci-badge]][ci-url]
 [![License][license-badge]][license-url]
 [![Rust][rust-badge]][rust-url]
-[![crates.io][crate-badge]][crate-url]
-[![docs.rs][doc-badge]][doc-url]
 
 [ci-badge]: https://github.com/qntx/ra2a/actions/workflows/rust.yml/badge.svg
 [ci-url]: https://github.com/qntx/ra2a/actions/workflows/rust.yml
@@ -12,108 +10,131 @@
 [license-url]: LICENSE-MIT
 [rust-badge]: https://img.shields.io/badge/rust-edition%202024-orange.svg
 [rust-url]: https://doc.rust-lang.org/edition-guide/
-[crate-badge]: https://img.shields.io/crates/v/ra2a.svg
-[crate-url]: https://crates.io/crates/ra2a
-[doc-badge]: https://img.shields.io/docsrs/ra2a.svg
-[doc-url]: https://docs.rs/ra2a
 
-**Comprehensive Rust SDK for the [Agent2Agent (A2A) Protocol][a2a-spec] — client transport, server framework, streaming, gRPC, and multi-backend task storage.**
+**Comprehensive Rust SDK for the [Agent2Agent (A2A) Protocol][a2a-spec] — event-driven server, streaming client, gRPC transport, push notifications, and pluggable SQL task storage.**
 
-ra2a implements the full [A2A protocol specification][a2a-spec] (v0.3.0) with an idiomatic Rust API — Axum server middleware, reqwest-based client, SSE streaming, gRPC transport, push notifications, and pluggable SQL storage backends. For the upstream protocol specification, see [google/A2A][a2a-repo].
+ra2a implements the full [A2A protocol specification][a2a-spec] **v0.3.0** with an idiomatic Rust API, providing a `Client` → `Transport` → `AgentCard` discovery flow on the client side and an `AgentExecutor` → `EventQueue` → `RequestHandler` pipeline on the server side. It is functionally aligned with the official [Go SDK][go-sdk] — same protocol version, same 11 JSON-RPC methods, same type definitions, same 15 error codes.
 
-[a2a-spec]: https://google.github.io/A2A/
-[a2a-repo]: https://github.com/google/A2A
+[a2a-spec]: https://a2a-protocol.org/latest/specification/
+[go-sdk]: https://github.com/a2aproject/a2a-go
 
-See [Security](SECURITY.md) before using in production.
+> **Protocol status:** The A2A specification is titled "Release Candidate v1.0", but the latest **officially released** version remains **v0.3.0** (2025-07-30). No SDK — including the Go reference — has shipped a v1.0 implementation yet. ra2a will track the specification as new versions are released.
+
+## Crates
+
+| Crate | | Description |
+| --- | --- | --- |
+| **[`ra2a`](ra2a/)** | [![crates.io][ra2a-crate]][ra2a-crate-url] [![docs.rs][ra2a-doc]][ra2a-doc-url] | SDK — Client, Server, Types, gRPC, task storage |
+| **[`ra2a-ext`](ra2a-ext/)** | | Extensions — additional interceptors and utilities (WIP) |
+
+[ra2a-crate]: https://img.shields.io/crates/v/ra2a.svg
+[ra2a-crate-url]: https://crates.io/crates/ra2a
+[ra2a-doc]: https://img.shields.io/docsrs/ra2a.svg
+[ra2a-doc-url]: https://docs.rs/ra2a
 
 ## Quick Start
 
-Add ra2a to your project:
-
-```bash
-cargo add ra2a
-```
-
-### Build an Agent (Server)
+### Server
 
 ```rust
 use async_trait::async_trait;
 use ra2a::{
     error::Result,
-    server::{A2AServerBuilder, AgentExecutor, ExecutionContext},
-    types::{AgentCard, AgentCapabilities, AgentSkill, Message, Part, Task, TaskState, TaskStatus},
+    server::{A2AServerBuilder, AgentExecutor, Event, EventQueue, RequestContext},
+    types::{AgentCard, AgentSkill, Message, Part, Task, TaskState, TaskStatus},
 };
 
-struct MyAgent { card: AgentCard }
+struct EchoAgent;
 
 #[async_trait]
-impl AgentExecutor for MyAgent {
-    async fn execute(&self, ctx: &ExecutionContext, message: &Message) -> Result<Task> {
-        let reply = Message::agent(vec![Part::text("Hello from ra2a!")]);
-        Ok(Task::new(&ctx.task_id, &ctx.context_id)
-            .with_status(TaskStatus::with_message(TaskState::Completed, reply)))
+impl AgentExecutor for EchoAgent {
+    async fn execute(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
+        let input = ctx.message.as_ref()
+            .and_then(ra2a::Message::text_content)
+            .unwrap_or_default();
+
+        let mut task = Task::new(&ctx.task_id, &ctx.context_id);
+        task.status = TaskStatus::with_message(
+            TaskState::Completed,
+            Message::agent(vec![Part::text(format!("Echo: {input}"))]),
+        );
+        queue.send(Event::Task(task))?;
+        Ok(())
     }
 
-    async fn cancel(&self, ctx: &ExecutionContext, task_id: &str) -> Result<Task> {
-        Ok(Task::new(task_id, &ctx.context_id)
-            .with_status(TaskStatus::new(TaskState::Canceled)))
+    async fn cancel(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
+        let mut task = Task::new(&ctx.task_id, &ctx.context_id);
+        task.status = TaskStatus::new(TaskState::Canceled);
+        queue.send(Event::Task(task))?;
+        Ok(())
     }
-
-    fn agent_card(&self) -> &AgentCard { &self.card }
 }
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let card = AgentCard::builder("My Agent", "http://localhost:8080")
-        .description("A minimal A2A agent")
-        .version("1.0.0")
-        .skill(AgentSkill::new("chat", "Chat", "General chat", vec![]))
-        .build();
+    let mut card = AgentCard::new("Echo Agent", "http://localhost:8080");
+    card.description = "A simple echo agent".into();
+    card.skills.push(AgentSkill::new("echo", "Echo", "Echoes messages", vec![]));
 
     A2AServerBuilder::new()
-        .executor(MyAgent { card })
-        .host("0.0.0.0")
+        .executor(EchoAgent, card)
         .port(8080)
-        .cors(true)
         .build()
-        .serve()
+        .serve_with_shutdown(async { tokio::signal::ctrl_c().await.ok(); })
         .await
 }
 ```
 
-### Talk to an Agent (Client)
+### Client
 
 ```rust
-use ra2a::client::{A2AClient, Client};
+use ra2a::client::Client;
+use ra2a::types::{Message, MessageSendParams, Part, SendMessageResult};
 
 #[tokio::main]
-async fn main() -> ra2a::Result<()> {
-    let client = A2AClient::new("https://agent.example.com")?;
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Client::from_url("http://localhost:8080")?;
 
     // Discover agent capabilities
     let card = client.get_agent_card().await?;
-    println!("Agent: {} — {}", card.name, card.description.unwrap_or_default());
+    println!("Agent: {} — {}", card.name, card.description);
 
-    // Send a message and stream responses
-    let message = ra2a::types::Message::user_text("Hello!");
-    let mut stream = client.send_message(message).await?;
+    // Send a message (non-streaming)
+    let msg = Message::user(vec![Part::text("Hello!")]);
+    let params = MessageSendParams::new(msg);
+    let result = client.send_message(&params).await?;
 
-    while let Some(event) = futures::StreamExt::next(&mut stream).await {
-        println!("{:?}", event?);
+    match result {
+        SendMessageResult::Task(task) => {
+            let reply = task.status.message.as_ref().and_then(|m| m.text_content());
+            println!("[{:?}] {}", task.status.state, reply.unwrap_or_default());
+        }
+        SendMessageResult::Message(msg) => {
+            println!("{}", msg.text_content().unwrap_or_default());
+        }
     }
     Ok(())
 }
 ```
 
+```bash
+# Run the examples
+cargo run --example server --features server
+cargo run --example client --features client   # in another terminal
+```
+
+## Architecture
+
+- **ra2a** — Full A2A v0.3.0 SDK. `Client` wraps a `Transport` trait with `CallInterceptor` middleware, `ClientConfig` defaults, and automatic streaming fallback. `AgentExecutor` is the event-driven server trait — implementations write events to an `EventQueue`, and the `DefaultRequestHandler` coordinates persistence, streaming, and push notifications. `InterceptedHandler` decorates any `RequestHandler` with before/after interceptors. `TaskStore` is pluggable (in-memory, PostgreSQL, MySQL, SQLite). All 11 JSON-RPC methods are supported on both client and server, plus gRPC transport via tonic/prost.
+- **ra2a-ext** — Optional extensions crate (WIP). Will house advanced interceptors and utilities analogous to the Go SDK's `a2aext/` module (extension activators, metadata propagators).
+
 ## Feature Flags
 
-Feature flags keep compile-time dependencies minimal — enable only what you need:
-
-| Flag | Default | Description |
+| Feature | Default | Description |
 | --- | :---: | --- |
-| `client` | **yes** | HTTP/JSON-RPC client, SSE streaming, card resolver, middleware |
-| `server` | **yes** | Axum HTTP server, event queue, task lifecycle, REST + SSE endpoints |
-| `grpc` | — | gRPC transport via tonic/prost (requires protobuf) |
+| `client` | **yes** | HTTP/JSON-RPC client, SSE streaming, card resolver, interceptors |
+| `server` | **yes** | Axum HTTP server, event queue, task lifecycle, SSE endpoints |
+| `grpc` | — | gRPC transport via tonic/prost (requires protobuf compiler) |
 | `telemetry` | — | OpenTelemetry tracing spans and metrics |
 | `postgresql` | — | PostgreSQL task store via sqlx |
 | `mysql` | — | MySQL task store via sqlx |
@@ -123,49 +144,73 @@ Feature flags keep compile-time dependencies minimal — enable only what you ne
 
 ```toml
 # Server with PostgreSQL storage and telemetry
-ra2a = { version = "0.4", features = ["server", "postgresql", "telemetry"] }
+ra2a = { version = "0.6", features = ["server", "postgresql", "telemetry"] }
 
 # Client only
-ra2a = { version = "0.4", default-features = false, features = ["client"] }
+ra2a = { version = "0.6", default-features = false, features = ["client"] }
 
 # Everything
-ra2a = { version = "0.4", features = ["full"] }
+ra2a = { version = "0.6", features = ["full"] }
 ```
 
-## Design
+## A2A Protocol Overview
 
-| Aspect | Detail |
+### Protocol Version
+
+ra2a targets **A2A v0.3.0** — the latest officially released version of the [A2A specification][a2a-spec]. The specification document is titled "Release Candidate v1.0", but v1.0 has not been formally released yet. When v1.0 ships (breaking changes include removal of the `kind` discriminator and type renames), ra2a will publish a corresponding major version update.
+
+### JSON-RPC Methods
+
+All 11 methods defined by the A2A specification are implemented on both client and server:
+
+| Method | Description |
 | --- | --- |
-| **Protocol version** | A2A v0.3.0 |
-| **Transport** | HTTP/JSON-RPC + SSE streaming + gRPC |
-| **Server framework** | Axum with Tower middleware |
-| **Client** | reqwest + reqwest-eventsource (SSE) |
-| **Task storage** | In-memory (default), PostgreSQL, MySQL, SQLite |
-| **Authentication** | HMAC-SHA256 push notification verification |
-| **Serialization** | serde (JSON) + prost (protobuf) |
-| **Async runtime** | tokio |
-| **Linting** | **pedantic + nursery** (warn), **correctness** (deny) |
+| `message/send` | Send a message, receive Task or Message |
+| `message/stream` | Send a message, receive SSE event stream |
+| `tasks/get` | Retrieve task by ID with optional history |
+| `tasks/list` | List tasks with pagination and filtering |
+| `tasks/cancel` | Request task cancellation |
+| `tasks/resubscribe` | Reconnect to an ongoing task's event stream |
+| `tasks/pushNotificationConfig/*` | CRUD for per-task push notification webhooks |
+| `agent/getAuthenticatedExtendedCard` | Retrieve authenticated extended agent card |
 
-## Examples
+### Task Lifecycle
 
-Run the built-in examples to see ra2a in action:
+Tasks progress through 9 states with well-defined terminal conditions:
 
-```bash
-# Start the server
-cargo run --example server --features server
-
-# In another terminal, run the client
-cargo run --example client --features client
+```text
+Submitted → Working → Completed
+                   → Failed
+                   → Canceled
+                   → Rejected
+           Input Required ←→ Working
+           Auth Required  ←→ Working
+Unknown (initial/query state)
 ```
+
+Terminal states (`Completed`, `Failed`, `Canceled`, `Rejected`) end the task lifecycle. `InputRequired` and `AuthRequired` are interactive states that resume to `Working` when the client responds.
+
+### Agent Discovery
+
+Agents publish an `AgentCard` at `/.well-known/agent-card.json` describing their identity, capabilities, skills, supported transports, and security requirements. The client's card resolver fetches and caches this card automatically. Agents may also expose an authenticated extended card via `agent/getAuthenticatedExtendedCard` for capabilities that require authorization to discover.
+
+### Security Model
+
+A2A supports five security scheme types in the `AgentCard`, aligned with OpenAPI 3.0:
+
+| Scheme | Description |
+| --- | --- |
+| API Key | Static key in header, query, or cookie |
+| HTTP Auth | Bearer token or Basic authentication |
+| OAuth 2.0 | Authorization code, client credentials, device code, implicit flows |
+| OpenID Connect | OIDC discovery-based authentication |
+| Mutual TLS | Client certificate authentication |
+
+Push notifications use HMAC-SHA256 verification to authenticate webhook deliveries.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for disclaimers, supported versions, and vulnerability reporting.
-
-## Acknowledgments
-
-- [Agent2Agent Protocol Specification](https://google.github.io/A2A/) — protocol design by Google
-- [google/A2A](https://github.com/google/A2A) — official reference implementations (Python, TypeScript)
+This library has **not** been independently audited. See [SECURITY.md](SECURITY.md) for full disclaimer, supported versions, and vulnerability reporting instructions.
 
 ## License
 

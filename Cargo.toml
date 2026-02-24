@@ -1,5 +1,5 @@
 [workspace]
-members = ["ra2a"]
+members = ["ra2a", "ra2a-ext"]
 default-members = ["ra2a"]
 resolver = "3"
 
@@ -8,6 +8,7 @@ version = "0.6.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/qntx/ra2a"
+description = "Comprehensive Rust SDK for the Agent2Agent (A2A) Protocol"
 
 [workspace.dependencies]
 async-stream = "0.3"

@@ -26,10 +26,6 @@ use crate::types::{
     TaskQueryParams, TaskState, TaskStatus, TaskStatusUpdateEvent,
 };
 
-// ---------------------------------------------------------------------------
-// GrpcTransport
-// ---------------------------------------------------------------------------
-
 /// gRPC transport for A2A client operations.
 ///
 /// Implements [`Transport`] so it can be used interchangeably with
@@ -234,10 +230,6 @@ impl Transport for GrpcTransport {
         ))
     }
 }
-
-// ---------------------------------------------------------------------------
-// GrpcEventStream — adapts tonic::Streaming to client::EventStream
-// ---------------------------------------------------------------------------
 
 /// Adapts a tonic streaming response into a [`Stream`] of [`Event`]s.
 struct GrpcEventStream {
