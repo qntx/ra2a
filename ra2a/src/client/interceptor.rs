@@ -1,14 +1,31 @@
 //! Call interceptors for cross-cutting concerns (auth, logging, tracing).
 //!
 //! Aligned with Go's `CallInterceptor` in `a2aclient/middleware.go`.
-//! Interceptors are applied by [`super::Client`] before and after each
-//! transport call.
+//! Interceptors can inspect and modify both request/response payloads
+//! and metadata (HTTP headers). `CallMeta` is propagated to the transport
+//! layer via [`CALL_META`] task-local, mirroring Go's `context.Value`.
 
+use std::any::Any;
 use std::collections::HashMap;
 
 use async_trait::async_trait;
 
-use crate::error::Result;
+use crate::error::{A2AError, Result};
+
+tokio::task_local! {
+    /// Per-request metadata propagated from interceptors to the transport layer.
+    ///
+    /// Mirrors Go's `CallMetaFrom(ctx)` pattern. Transport implementations
+    /// use [`call_meta`] to read interceptor-set headers (e.g. auth tokens).
+    pub static CALL_META: CallMeta;
+}
+
+/// Returns a clone of the current request's [`CallMeta`], if set.
+///
+/// Transport implementations call this to retrieve headers set by interceptors.
+pub fn call_meta() -> Option<CallMeta> {
+    CALL_META.try_with(|m| m.clone()).ok()
+}
 
 /// Case-insensitive metadata map carried through interceptor chains.
 ///
@@ -20,12 +37,16 @@ pub struct CallMeta {
 }
 
 impl CallMeta {
-    /// Inserts a value, lowercasing the key.
-    pub fn set(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.inner
+    /// Appends a value, lowercasing the key. Duplicates are not added.
+    pub fn append(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        let vals = self
+            .inner
             .entry(key.into().to_ascii_lowercase())
-            .or_default()
-            .push(value.into());
+            .or_default();
+        let v = value.into();
+        if !vals.contains(&v) {
+            vals.push(v);
+        }
     }
 
     /// Returns the first value for the given key (case-insensitive).
@@ -53,27 +74,36 @@ impl CallMeta {
     }
 }
 
-/// Context passed to interceptors before a transport call.
+/// Transport-agnostic outgoing request that interceptors can observe and modify.
 ///
-/// Aligned with Go's `CallContext` — carries the method name and the
-/// agent card (if resolved).
-pub struct CallContext {
-    /// The JSON-RPC method being called (e.g. `"message/send"`).
-    pub method: String,
-    /// The agent card, if already resolved.
-    pub agent_card: Option<crate::types::AgentCard>,
-}
-
-/// Outgoing request metadata that interceptors can modify.
+/// Aligned with Go's `a2aclient.Request`. Carries the method name, metadata
+/// (HTTP headers), the agent card, and the actual request payload.
 pub struct Request {
+    /// The method being called (e.g. `"SendMessage"`).
+    pub method: String,
     /// Metadata to attach as HTTP headers on the outgoing request.
     pub meta: CallMeta,
+    /// The agent card, if already resolved.
+    pub card: Option<crate::types::AgentCard>,
+    /// The request payload. One of the `a2a` parameter types, boxed.
+    pub payload: Box<dyn Any + Send>,
 }
 
-/// Incoming response metadata available to interceptors.
+/// Transport-agnostic response that interceptors can observe and modify.
+///
+/// Aligned with Go's `a2aclient.Response`. Carries the method name, metadata,
+/// the agent card, and the actual response payload or error.
 pub struct Response {
-    /// Metadata extracted from response headers.
+    /// The method that was called.
+    pub method: String,
+    /// Metadata from response headers.
     pub meta: CallMeta,
+    /// The agent card, if resolved.
+    pub card: Option<crate::types::AgentCard>,
+    /// The response payload, if successful.
+    pub payload: Option<Box<dyn Any + Send>>,
+    /// The error, if the call failed.
+    pub err: Option<A2AError>,
 }
 
 /// Middleware for intercepting client calls.
@@ -82,15 +112,21 @@ pub struct Response {
 /// in order for `before`, and in reverse order for `after`.
 #[async_trait]
 pub trait CallInterceptor: Send + Sync {
-    /// Called before the transport call. May modify outgoing metadata.
-    async fn before(&self, ctx: &CallContext, req: &mut Request) -> Result<()> {
-        let _ = (ctx, req);
+    /// Called before the transport call. May modify outgoing metadata and payload.
+    async fn before(&self, req: &mut Request) -> Result<()> {
+        let _ = req;
         Ok(())
     }
 
-    /// Called after the transport call. May inspect response metadata.
-    async fn after(&self, ctx: &CallContext, resp: &mut Response) -> Result<()> {
-        let _ = (ctx, resp);
+    /// Called after the transport call. May inspect/modify response or error.
+    async fn after(&self, resp: &mut Response) -> Result<()> {
+        let _ = resp;
         Ok(())
     }
 }
+
+/// No-op interceptor for embedding in custom implementations.
+pub struct PassthroughInterceptor;
+
+#[async_trait]
+impl CallInterceptor for PassthroughInterceptor {}

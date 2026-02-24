@@ -79,6 +79,22 @@ impl JsonRpcTransport {
         Self::new(TransportConfig::new(base_url))
     }
 
+    /// Applies interceptor-set [`CallMeta`] headers to a request builder.
+    fn apply_call_meta(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match super::call_meta() {
+            Some(meta) if !meta.is_empty() => {
+                let mut b = builder;
+                for (key, values) in meta.iter() {
+                    for value in values {
+                        b = b.header(key, value);
+                    }
+                }
+                b
+            }
+            _ => builder,
+        }
+    }
+
     /// Sends a typed JSON-RPC request and deserializes the result.
     async fn rpc_call<P, R>(&self, method: &str, params: &P) -> Result<R>
     where
@@ -86,13 +102,12 @@ impl JsonRpcTransport {
         R: serde::de::DeserializeOwned,
     {
         let request = JsonRpcRequest::new(method, params);
-        let resp = self
+        let builder = self
             .client
             .post(&self.base_url)
             .header(CONTENT_TYPE, "application/json")
-            .json(&request)
-            .send()
-            .await?;
+            .json(&request);
+        let resp = Self::apply_call_meta(builder).send().await?;
 
         if !resp.status().is_success() {
             return Err(A2AError::Http(resp.error_for_status().unwrap_err()));
@@ -113,14 +128,13 @@ impl JsonRpcTransport {
         P: serde::Serialize + Sync,
     {
         let request = JsonRpcRequest::new(method, params);
-        let resp = self
+        let builder = self
             .client
             .post(&self.base_url)
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "text/event-stream")
-            .json(&request)
-            .send()
-            .await?;
+            .json(&request);
+        let resp = Self::apply_call_meta(builder).send().await?;
 
         if !resp.status().is_success() {
             return Err(A2AError::Http(resp.error_for_status().unwrap_err()));
@@ -198,7 +212,8 @@ impl Transport for JsonRpcTransport {
     }
 
     async fn get_agent_card(&self) -> Result<AgentCard> {
-        let resp = self.client.get(&self.card_url).send().await?;
+        let builder = self.client.get(&self.card_url);
+        let resp = Self::apply_call_meta(builder).send().await?;
         if !resp.status().is_success() {
             return Err(A2AError::Http(resp.error_for_status().unwrap_err()));
         }
