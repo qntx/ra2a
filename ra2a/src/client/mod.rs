@@ -16,7 +16,6 @@ mod http;
 mod intercepted_client;
 mod middleware;
 mod sse;
-mod streaming;
 pub mod transports;
 
 use std::pin::Pin;
@@ -31,7 +30,6 @@ pub use http::*;
 pub use intercepted_client::*;
 pub use middleware::*;
 pub use sse::*;
-pub use streaming::*;
 pub use transports::{
     ClientTransport, EventStream as TransportEventStream, JsonRpcTransport, RestTransport,
     SendMessageResponse, StreamEvent, TransportOptions, TransportType,

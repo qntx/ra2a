@@ -1,52 +1,62 @@
-//! HTTP-based A2A client implementation.
+//! HTTP-based A2A client with automatic SSE streaming support.
+//!
+//! Provides [`A2AClient`] — the single, unified client for interacting with
+//! A2A agents over HTTP/JSON-RPC. Streaming is auto-negotiated based on
+//! [`ClientConfig`] and the agent's advertised capabilities.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::stream;
-use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
+use tracing::{debug, instrument};
 
-use super::transports::TransportOptions;
 use super::{Client, ClientConfig, ClientEvent, EventStream};
 use crate::error::{A2AError, Result};
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcRequest,
-    JsonRpcResponse, ListTaskPushConfigParams, Message, MessageSendParams, SendMessageResult, Task,
-    TaskIdParams, TaskPushConfig, TaskQueryParams,
+    JsonRpcResponse, ListTaskPushConfigParams, Message, MessageSendConfig, MessageSendParams,
+    SendMessageResult, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
 };
 
-/// HTTP-based A2A client.
+/// Unified HTTP-based A2A client with optional SSE streaming.
 ///
-/// This client uses HTTP/HTTPS with JSON-RPC for communication with A2A agents.
+/// Automatically chooses between `message/send` (synchronous) and
+/// `message/stream` (SSE) based on the client configuration and the
+/// agent's advertised capabilities.
 #[derive(Debug, Clone)]
 pub struct A2AClient {
-    /// The HTTP client.
     http_client: reqwest::Client,
-    /// The base URL of the agent.
     base_url: String,
-    /// The agent card URL (typically `base_url` + "/.well-known/agent-card.json").
     card_url: String,
-    /// Client configuration.
     config: ClientConfig,
-    /// Cached agent card (reserved for future use).
-    #[allow(dead_code)]
     agent_card: Option<Arc<AgentCard>>,
 }
 
 impl A2AClient {
-    /// Creates a new A2A client for the given agent URL.
+    /// Creates a new client for the given agent URL with default config.
     pub fn new(base_url: impl Into<String>) -> Result<Self> {
         Self::with_config(base_url, ClientConfig::default())
     }
 
-    /// Creates a new A2A client with custom configuration.
+    /// Creates a new client with custom configuration.
     pub fn with_config(base_url: impl Into<String>, config: ClientConfig) -> Result<Self> {
+        Self::with_headers(base_url, config, HeaderMap::new())
+    }
+
+    /// Creates a new client with custom configuration and HTTP headers.
+    pub fn with_headers(
+        base_url: impl Into<String>,
+        config: ClientConfig,
+        headers: HeaderMap,
+    ) -> Result<Self> {
         let base_url = base_url.into();
         let card_url = crate::agent_card_url(&base_url);
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
+            .default_headers(headers)
             .build()
             .map_err(|e| A2AError::Other(e.to_string()))?;
 
@@ -55,35 +65,6 @@ impl A2AClient {
             base_url,
             card_url,
             config,
-            agent_card: None,
-        })
-    }
-
-    /// Creates a new A2A client with transport options.
-    pub fn with_transport(transport: TransportOptions) -> Result<Self> {
-        let mut headers = HeaderMap::new();
-        for (name, value) in &transport.headers {
-            if let (Ok(name), Ok(value)) = (
-                reqwest::header::HeaderName::try_from(name.as_str()),
-                HeaderValue::from_str(value),
-            ) {
-                headers.insert(name, value);
-            }
-        }
-
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(transport.timeout_secs))
-            .default_headers(headers)
-            .build()
-            .map_err(|e| A2AError::Other(e.to_string()))?;
-
-        let card_url = crate::agent_card_url(&transport.base_url);
-
-        Ok(Self {
-            http_client,
-            base_url: transport.base_url,
-            card_url,
-            config: ClientConfig::default(),
             agent_card: None,
         })
     }
@@ -100,7 +81,25 @@ impl A2AClient {
         &self.config
     }
 
-    /// Sends a JSON-RPC request to the agent.
+    /// Returns the cached agent card, if available.
+    #[must_use]
+    pub fn cached_agent_card(&self) -> Option<&AgentCard> {
+        self.agent_card.as_deref()
+    }
+
+    /// Returns `true` if streaming is enabled in the config and
+    /// the agent (if known) also supports it.
+    #[must_use]
+    pub fn supports_streaming(&self) -> bool {
+        if !self.config.streaming {
+            return false;
+        }
+        self.agent_card
+            .as_ref()
+            .is_none_or(|card| card.supports_streaming())
+    }
+
+    /// Sends a typed JSON-RPC request and deserialises the result.
     async fn send_request<P, R>(&self, request: JsonRpcRequest<P>) -> Result<R>
     where
         P: serde::Serialize + Send + Sync,
@@ -119,36 +118,20 @@ impl A2AClient {
         }
 
         let json_response: JsonRpcResponse<R> = response.json().await?;
-
         match json_response {
-            JsonRpcResponse::Success(success) => Ok(success.result),
-            JsonRpcResponse::Error(error) => Err(A2AError::JsonRpc(error.error)),
+            JsonRpcResponse::Success(s) => Ok(s.result),
+            JsonRpcResponse::Error(e) => Err(A2AError::JsonRpc(e.error)),
         }
     }
 
-    /// Fetches the agent card from the well-known URL.
-    async fn fetch_agent_card(&self) -> Result<AgentCard> {
-        let response = self.http_client.get(&self.card_url).send().await?;
-
-        if !response.status().is_success() {
-            return Err(A2AError::Http(response.error_for_status().unwrap_err()));
-        }
-
-        let card: AgentCard = response.json().await?;
-        Ok(card)
-    }
-}
-
-#[async_trait]
-impl Client for A2AClient {
-    async fn send_message(&self, message: Message) -> Result<EventStream> {
+    /// Non-streaming `message/send` — returns a single-item stream.
+    async fn send_non_streaming(&self, message: Message) -> Result<EventStream> {
         let params = MessageSendParams::new(message);
         let request: JsonRpcRequest<MessageSendParams> =
             JsonRpcRequest::new("message/send", params);
 
         let result: SendMessageResult = self.send_request(request).await?;
 
-        // Convert the result to a stream of events
         let event = match result {
             SendMessageResult::Task(task) => ClientEvent::TaskUpdate {
                 task: Box::new(task),
@@ -156,44 +139,142 @@ impl Client for A2AClient {
             },
             SendMessageResult::Message(msg) => ClientEvent::Message(msg),
         };
-
-        let stream = stream::once(async move { Ok(event) });
-        Ok(Box::pin(stream))
+        Ok(Box::pin(stream::once(async move { Ok(event) })))
     }
 
+    /// Streaming `message/stream` — returns an SSE event stream.
+    async fn send_streaming(&self, message: Message) -> Result<EventStream> {
+        let mut params = MessageSendParams::new(message);
+
+        // Apply client-level send configuration
+        if !self.config.accepted_output_modes.is_empty()
+            || !self.config.push_notification_configs.is_empty()
+        {
+            let mut cfg = MessageSendConfig::default();
+            if !self.config.accepted_output_modes.is_empty() {
+                cfg.accepted_output_modes = Some(self.config.accepted_output_modes.clone());
+            }
+            if let Some(push_cfg) = self.config.push_notification_configs.first() {
+                cfg.push_notification_config = Some(push_cfg.clone());
+            }
+            params.configuration = Some(cfg);
+        }
+
+        let request: JsonRpcRequest<MessageSendParams> =
+            JsonRpcRequest::new("message/stream", params);
+        let body = serde_json::to_string(&request)?;
+
+        debug!("Sending streaming request to {}", self.base_url);
+
+        let response = self
+            .http_client
+            .post(&self.base_url)
+            .header(CONTENT_TYPE, "application/json")
+            .header(ACCEPT, "text/event-stream")
+            .body(body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(A2AError::Http(response.error_for_status().unwrap_err()));
+        }
+
+        let byte_stream = response.bytes_stream();
+        let line_stream =
+            super::sse::SseLineStream::new(futures::StreamExt::map(byte_stream, |result| {
+                result
+                    .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+                    .map_err(|e| e.to_string())
+            }));
+        Ok(Box::pin(line_stream))
+    }
+
+    /// Fetches the agent card from the well-known URL.
+    async fn fetch_agent_card(&self) -> Result<AgentCard> {
+        let response = self.http_client.get(&self.card_url).send().await?;
+        if !response.status().is_success() {
+            return Err(A2AError::Http(response.error_for_status().unwrap_err()));
+        }
+        response.json().await.map_err(Into::into)
+    }
+}
+
+#[async_trait]
+impl Client for A2AClient {
+    #[instrument(skip(self, message), fields(task_id = ?message.task_id))]
+    async fn send_message(&self, message: Message) -> Result<EventStream> {
+        if self.supports_streaming() {
+            self.send_streaming(message).await
+        } else {
+            self.send_non_streaming(message).await
+        }
+    }
+
+    #[instrument(skip(self))]
     async fn get_task(&self, params: TaskQueryParams) -> Result<Task> {
         let request: JsonRpcRequest<TaskQueryParams> = JsonRpcRequest::new("tasks/get", params);
         self.send_request(request).await
     }
 
+    #[instrument(skip(self))]
     async fn cancel_task(&self, params: TaskIdParams) -> Result<Task> {
         let request: JsonRpcRequest<TaskIdParams> = JsonRpcRequest::new("tasks/cancel", params);
         self.send_request(request).await
     }
 
+    #[instrument(skip(self))]
     async fn set_task_callback(&self, config: TaskPushConfig) -> Result<TaskPushConfig> {
         let request: JsonRpcRequest<TaskPushConfig> =
             JsonRpcRequest::new("tasks/pushNotificationConfig/set", config);
         self.send_request(request).await
     }
 
+    #[instrument(skip(self))]
     async fn get_task_callback(&self, params: GetTaskPushConfigParams) -> Result<TaskPushConfig> {
         let request: JsonRpcRequest<GetTaskPushConfigParams> =
             JsonRpcRequest::new("tasks/pushNotificationConfig/get", params);
         self.send_request(request).await
     }
 
+    #[instrument(skip(self))]
     async fn resubscribe(&self, params: TaskIdParams) -> Result<EventStream> {
-        // For non-streaming client, we just get the current task state
-        let task = self.get_task(TaskQueryParams::new(&params.id)).await?;
-        let event = ClientEvent::TaskUpdate {
-            task: Box::new(task),
-            update: None,
-        };
-        let stream = stream::once(async move { Ok(event) });
-        Ok(Box::pin(stream))
+        if !self.supports_streaming() {
+            let task = self.get_task(TaskQueryParams::new(&params.id)).await?;
+            let event = ClientEvent::TaskUpdate {
+                task: Box::new(task),
+                update: None,
+            };
+            return Ok(Box::pin(stream::once(async move { Ok(event) })));
+        }
+
+        let request: JsonRpcRequest<TaskIdParams> =
+            JsonRpcRequest::new("tasks/resubscribe", params);
+        let body = serde_json::to_string(&request)?;
+
+        let response = self
+            .http_client
+            .post(&self.base_url)
+            .header(CONTENT_TYPE, "application/json")
+            .header(ACCEPT, "text/event-stream")
+            .body(body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(A2AError::Http(response.error_for_status().unwrap_err()));
+        }
+
+        let byte_stream = response.bytes_stream();
+        let line_stream =
+            super::sse::SseLineStream::new(futures::StreamExt::map(byte_stream, |result| {
+                result
+                    .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+                    .map_err(|e| e.to_string())
+            }));
+        Ok(Box::pin(line_stream))
     }
 
+    #[instrument(skip(self))]
     async fn list_task_push_notification_config(
         &self,
         params: ListTaskPushConfigParams,
@@ -203,6 +284,7 @@ impl Client for A2AClient {
         self.send_request(request).await
     }
 
+    #[instrument(skip(self))]
     async fn delete_task_push_notification_config(
         &self,
         params: DeleteTaskPushConfigParams,
@@ -212,17 +294,18 @@ impl Client for A2AClient {
         self.send_request(request).await
     }
 
+    #[instrument(skip(self))]
     async fn get_agent_card(&self) -> Result<AgentCard> {
         self.fetch_agent_card().await
     }
 }
 
-/// Builder for creating an A2A client with custom options.
+/// Builder for creating an [`A2AClient`] with custom options.
 #[derive(Debug)]
 pub struct A2AClientBuilder {
     base_url: String,
     config: ClientConfig,
-    headers: Vec<(String, String)>,
+    headers: HeaderMap,
     timeout_secs: Option<u64>,
 }
 
@@ -232,77 +315,66 @@ impl A2AClientBuilder {
         Self {
             base_url: base_url.into(),
             config: ClientConfig::default(),
-            headers: vec![],
+            headers: HeaderMap::new(),
             timeout_secs: None,
         }
     }
 
-    /// Sets the client configuration.
+    /// Replaces the entire client configuration.
     #[must_use]
     pub fn config(mut self, config: ClientConfig) -> Self {
         self.config = config;
         self
     }
 
-    /// Adds a custom header.
-    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.headers.push((name.into(), value.into()));
-        self
-    }
-
-    /// Sets the Bearer authentication token.
-    pub fn bearer_auth(self, token: impl Into<String>) -> Self {
-        self.header("Authorization", format!("Bearer {}", token.into()))
-    }
-
-    /// Sets the API key.
-    pub fn api_key(self, header_name: impl Into<String>, key: impl Into<String>) -> Self {
-        self.header(header_name, key)
-    }
-
-    /// Sets the request timeout.
-    #[must_use]
-    pub const fn timeout(mut self, secs: u64) -> Self {
-        self.timeout_secs = Some(secs);
-        self
-    }
-
-    /// Enables or disables streaming.
+    /// Enables or disables SSE streaming (enabled by default).
     #[must_use]
     pub const fn streaming(mut self, enabled: bool) -> Self {
         self.config.streaming = enabled;
         self
     }
 
-    /// Builds the A2A client.
-    pub fn build(self) -> Result<A2AClient> {
-        let mut headers = HeaderMap::new();
-        for (name, value) in &self.headers {
-            if let (Ok(name), Ok(value)) = (
-                reqwest::header::HeaderName::try_from(name.as_str()),
-                HeaderValue::from_str(value),
-            ) {
-                headers.insert(name, value);
-            }
+    /// Adds a custom HTTP header.
+    pub fn header(mut self, name: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+        if let (Ok(name), Ok(value)) = (
+            reqwest::header::HeaderName::try_from(name.as_ref()),
+            HeaderValue::from_str(value.as_ref()),
+        ) {
+            self.headers.insert(name, value);
         }
+        self
+    }
 
-        let timeout = self.timeout_secs.unwrap_or(self.config.timeout_secs);
+    /// Sets Bearer authentication.
+    pub fn bearer_auth(self, token: impl AsRef<str>) -> Self {
+        self.header("Authorization", format!("Bearer {}", token.as_ref()))
+    }
 
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(timeout))
-            .default_headers(headers)
-            .build()
-            .map_err(|e| A2AError::Other(e.to_string()))?;
+    /// Sets an API-key header.
+    pub fn api_key(self, header_name: impl AsRef<str>, key: impl AsRef<str>) -> Self {
+        self.header(header_name, key)
+    }
 
-        let card_url = crate::agent_card_url(&self.base_url);
+    /// Sets the request timeout in seconds.
+    #[must_use]
+    pub const fn timeout(mut self, secs: u64) -> Self {
+        self.timeout_secs = Some(secs);
+        self
+    }
 
-        Ok(A2AClient {
-            http_client,
-            base_url: self.base_url,
-            card_url,
-            config: self.config,
-            agent_card: None,
-        })
+    /// Sets the accepted output modes for message requests.
+    #[must_use]
+    pub fn accepted_output_modes(mut self, modes: Vec<String>) -> Self {
+        self.config.accepted_output_modes = modes;
+        self
+    }
+
+    /// Builds the [`A2AClient`].
+    pub fn build(mut self) -> Result<A2AClient> {
+        if let Some(timeout) = self.timeout_secs {
+            self.config.timeout_secs = timeout;
+        }
+        A2AClient::with_headers(self.base_url, self.config, self.headers)
     }
 }
 
@@ -315,10 +387,12 @@ mod tests {
         let client = A2AClientBuilder::new("https://agent.example.com")
             .timeout(60)
             .streaming(true)
+            .bearer_auth("test-token")
             .build()
             .unwrap();
 
         assert_eq!(client.base_url(), "https://agent.example.com");
+        assert!(client.config().streaming);
     }
 
     #[test]
@@ -334,5 +408,15 @@ mod tests {
             client.card_url,
             "https://agent.example.com/.well-known/agent-card.json"
         );
+    }
+
+    #[test]
+    fn test_streaming_disabled() {
+        let client = A2AClientBuilder::new("https://agent.example.com")
+            .streaming(false)
+            .build()
+            .unwrap();
+
+        assert!(!client.supports_streaming());
     }
 }
