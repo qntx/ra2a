@@ -1819,6 +1819,11 @@ dependencies = [
 [[package]]
 name = "ra2a-ext"
 version = "0.8.0"
+dependencies = [
+ "ra2a",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "rand"
