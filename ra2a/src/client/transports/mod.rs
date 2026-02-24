@@ -7,12 +7,6 @@ mod base;
 mod jsonrpc;
 mod rest;
 
-pub use base::*;
-pub use jsonrpc::*;
-pub use rest::*;
-
-// #[cfg(feature = "grpc")]
-// mod grpc;
-
-// #[cfg(feature = "grpc")]
-// pub use grpc::*;
+pub use base::{ClientTransport, EventStream, StreamEvent, TransportOptions, TransportType};
+pub use jsonrpc::JsonRpcTransport;
+pub use rest::RestTransport;

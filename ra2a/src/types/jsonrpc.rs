@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Message, Task};
+use super::{Message, PushConfig, Task};
 use crate::error::JsonRpcError;
 
 /// The JSON-RPC protocol version.
@@ -137,19 +137,19 @@ pub struct MessageSendParams {
     /// Optional configuration for the send request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub configuration: Option<MessageSendConfig>,
-    /// Optional metadata for extensions.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    /// Metadata for extensions.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 impl MessageSendParams {
     /// Creates new send parameters with a message.
     #[must_use]
-    pub const fn new(message: Message) -> Self {
+    pub fn new(message: Message) -> Self {
         Self {
             message,
             configuration: None,
-            metadata: None,
+            metadata: HashMap::new(),
         }
     }
 
@@ -188,9 +188,9 @@ pub struct TaskQueryParams {
     /// The number of recent messages to retrieve.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_length: Option<i32>,
-    /// Optional metadata associated with the request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    /// Metadata associated with the request.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 impl TaskQueryParams {
@@ -199,7 +199,7 @@ impl TaskQueryParams {
         Self {
             id: id.into(),
             history_length: None,
-            metadata: None,
+            metadata: HashMap::new(),
         }
     }
 }
@@ -209,9 +209,9 @@ impl TaskQueryParams {
 pub struct TaskIdParams {
     /// The unique identifier of the task.
     pub id: String,
-    /// Optional metadata associated with the request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    /// Metadata associated with the request.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 impl TaskIdParams {
@@ -219,140 +219,17 @@ impl TaskIdParams {
     pub fn new(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
-            metadata: None,
+            metadata: HashMap::new(),
         }
-    }
-}
-
-/// Configuration for push notifications.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PushConfig {
-    /// The callback URL for push notifications.
-    pub url: String,
-    /// A unique identifier for this configuration.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// A unique token to validate incoming push notifications.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
-    /// Optional authentication details for the push notification endpoint.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub authentication: Option<PushAuthInfo>,
-}
-
-impl PushConfig {
-    /// Creates a new push notification configuration.
-    pub fn new(url: impl Into<String>) -> Self {
-        Self {
-            url: url.into(),
-            id: None,
-            token: None,
-            authentication: None,
-        }
-    }
-}
-
-/// Authentication details for a push notification endpoint.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PushAuthInfo {
-    /// A list of supported authentication schemes.
-    pub schemes: Vec<String>,
-    /// Optional credentials for the endpoint.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub credentials: Option<String>,
-}
-
-/// Associates a push notification config with a task.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskPushConfig {
-    /// The unique identifier of the task.
-    pub task_id: String,
-    /// The push notification configuration.
-    pub push_notification_config: PushConfig,
-}
-
-/// Parameters for getting a push notification config.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetTaskPushConfigParams {
-    /// The unique identifier of the task.
-    pub id: String,
-    /// The ID of the config to retrieve.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub push_notification_config_id: Option<String>,
-    /// Optional metadata associated with the request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
-}
-
-/// Parameters for deleting a push notification config.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeleteTaskPushConfigParams {
-    /// The unique identifier of the task.
-    pub id: String,
-    /// The ID of the config to delete.
-    pub push_notification_config_id: String,
-    /// Optional metadata associated with the request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
-}
-
-impl DeleteTaskPushConfigParams {
-    /// Creates new delete parameters.
-    pub fn new(id: impl Into<String>, config_id: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            push_notification_config_id: config_id.into(),
-            metadata: None,
-        }
-    }
-}
-
-/// Parameters for listing push notification configs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ListTaskPushConfigParams {
-    /// The unique identifier of the task.
-    pub id: String,
-    /// Optional metadata associated with the request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
-}
-
-impl ListTaskPushConfigParams {
-    /// Creates new list parameters.
-    pub fn new(id: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            metadata: None,
-        }
-    }
-}
-
-impl GetTaskPushConfigParams {
-    /// Creates new get parameters.
-    pub fn new(id: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            push_notification_config_id: None,
-            metadata: None,
-        }
-    }
-
-    /// Sets the push notification config ID.
-    pub fn with_config_id(mut self, config_id: impl Into<String>) -> Self {
-        self.push_notification_config_id = Some(config_id.into());
-        self
     }
 }
 
 /// Parameters for getting authenticated extended card.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GetAuthenticatedExtendedCardParams {
-    /// Optional metadata associated with the request.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    /// Metadata associated with the request.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 /// Parameters for listing tasks (aligned with Go's `ListTasksRequest`).
@@ -402,16 +279,6 @@ pub struct ListTasksResponse {
     pub next_page_token: Option<String>,
 }
 
-/// Result of a message/send request (Task or direct Message).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SendMessageResult {
-    /// A task was created or updated.
-    Task(Task),
-    /// A direct message reply.
-    Message(Message),
-}
-
 /// A union type representing any JSON-RPC response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -434,215 +301,8 @@ impl<R> JsonRpcResponse<R> {
     }
 }
 
-/// A discriminated union representing all possible JSON-RPC 2.0 requests
-/// supported by the A2A specification.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "method", rename_all = "camelCase")]
-pub enum A2ARequest {
-    /// Send a message to the agent.
-    #[serde(rename = "message/send")]
-    SendMessage {
-        /// JSON-RPC version.
-        jsonrpc: String,
-        /// Request ID.
-        id: RequestId,
-        /// Request parameters.
-        params: MessageSendParams,
-    },
-    /// Stream a message to the agent.
-    #[serde(rename = "message/stream")]
-    StreamMessage {
-        /// JSON-RPC version.
-        jsonrpc: String,
-        /// Request ID.
-        id: RequestId,
-        /// Request parameters.
-        params: MessageSendParams,
-    },
-    /// Get a task by ID.
-    #[serde(rename = "tasks/get")]
-    GetTask {
-        /// JSON-RPC version.
-        jsonrpc: String,
-        /// Request ID.
-        id: RequestId,
-        /// Request parameters.
-        params: TaskQueryParams,
-    },
-    /// Cancel a task.
-    #[serde(rename = "tasks/cancel")]
-    CancelTask {
-        /// JSON-RPC version.
-        jsonrpc: String,
-        /// Request ID.
-        id: RequestId,
-        /// Request parameters.
-        params: TaskIdParams,
-    },
-    /// Resubscribe to a task's event stream.
-    #[serde(rename = "tasks/resubscribe")]
-    Resubscribe {
-        /// JSON-RPC version.
-        jsonrpc: String,
-        /// Request ID.
-        id: RequestId,
-        /// Request parameters.
-        params: TaskIdParams,
-    },
-    /// Set push notification configuration.
-    #[serde(rename = "tasks/pushNotificationConfig/set")]
-    SetPushConfig {
-        /// JSON-RPC version.
-        jsonrpc: String,
-        /// Request ID.
-        id: RequestId,
-        /// Request parameters.
-        params: TaskPushConfig,
-    },
-    /// Get push notification configuration.
-    #[serde(rename = "tasks/pushNotificationConfig/get")]
-    GetPushConfig {
-        /// JSON-RPC version.
-        jsonrpc: String,
-        /// Request ID.
-        id: RequestId,
-        /// Request parameters.
-        params: GetTaskPushConfigParams,
-    },
-    /// List push notification configurations.
-    #[serde(rename = "tasks/pushNotificationConfig/list")]
-    ListPushConfig {
-        /// JSON-RPC version.
-        jsonrpc: String,
-        /// Request ID.
-        id: RequestId,
-        /// Request parameters.
-        params: ListTaskPushConfigParams,
-    },
-    /// Delete push notification configuration.
-    #[serde(rename = "tasks/pushNotificationConfig/delete")]
-    DeletePushConfig {
-        /// JSON-RPC version.
-        jsonrpc: String,
-        /// Request ID.
-        id: RequestId,
-        /// Request parameters.
-        params: DeleteTaskPushConfigParams,
-    },
-    /// Get authenticated extended agent card.
-    #[serde(rename = "agent/getAuthenticatedExtendedCard")]
-    GetAuthenticatedExtendedCard {
-        /// JSON-RPC version.
-        jsonrpc: String,
-        /// Request ID.
-        id: RequestId,
-    },
-}
-
-impl A2ARequest {
-    /// Returns the method name of this request.
-    #[must_use]
-    pub const fn method(&self) -> &'static str {
-        match self {
-            Self::SendMessage { .. } => "message/send",
-            Self::StreamMessage { .. } => "message/stream",
-            Self::GetTask { .. } => "tasks/get",
-            Self::CancelTask { .. } => "tasks/cancel",
-            Self::Resubscribe { .. } => "tasks/resubscribe",
-            Self::SetPushConfig { .. } => "tasks/pushNotificationConfig/set",
-            Self::GetPushConfig { .. } => "tasks/pushNotificationConfig/get",
-            Self::ListPushConfig { .. } => "tasks/pushNotificationConfig/list",
-            Self::DeletePushConfig { .. } => "tasks/pushNotificationConfig/delete",
-            Self::GetAuthenticatedExtendedCard { .. } => "agent/getAuthenticatedExtendedCard",
-        }
-    }
-
-    /// Returns the request ID.
-    #[must_use]
-    pub const fn id(&self) -> &RequestId {
-        match self {
-            Self::SendMessage { id, .. }
-            | Self::StreamMessage { id, .. }
-            | Self::GetTask { id, .. }
-            | Self::CancelTask { id, .. }
-            | Self::Resubscribe { id, .. }
-            | Self::SetPushConfig { id, .. }
-            | Self::GetPushConfig { id, .. }
-            | Self::ListPushConfig { id, .. }
-            | Self::DeletePushConfig { id, .. }
-            | Self::GetAuthenticatedExtendedCard { id, .. } => id,
-        }
-    }
-}
-
 /// A JSON-RPC 2.0 response that is either a success or error.
 pub type A2AResponse = JsonRpcResponse<serde_json::Value>;
-
-/// Server-Sent Event wrapper for streaming responses.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SseEvent {
-    /// The event type (optional).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub event: Option<String>,
-    /// The event data (JSON string).
-    pub data: String,
-    /// Event ID for reconnection.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Retry interval in milliseconds.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub retry: Option<u64>,
-}
-
-impl SseEvent {
-    /// Creates a new SSE event with data.
-    pub fn new(data: impl Into<String>) -> Self {
-        Self {
-            event: None,
-            data: data.into(),
-            id: None,
-            retry: None,
-        }
-    }
-
-    /// Creates an SSE event from a serializable value.
-    pub fn from_json<T: Serialize>(value: &T) -> Result<Self, serde_json::Error> {
-        Ok(Self::new(serde_json::to_string(value)?))
-    }
-
-    /// Sets the event type.
-    pub fn with_event(mut self, event: impl Into<String>) -> Self {
-        self.event = Some(event.into());
-        self
-    }
-
-    /// Sets the event ID.
-    pub fn with_id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
-        self
-    }
-
-    /// Formats the event as SSE wire format.
-    #[must_use]
-    pub fn to_sse_string(&self) -> String {
-        let mut result = String::new();
-        if let Some(ref event) = self.event {
-            result.push_str(&format!("event: {event}\n"));
-        }
-        if let Some(ref id) = self.id {
-            result.push_str(&format!("id: {id}\n"));
-        }
-        if let Some(retry) = self.retry {
-            result.push_str(&format!("retry: {retry}\n"));
-        }
-        // Handle multi-line data
-        for line in self.data.lines() {
-            result.push_str(&format!("data: {line}\n"));
-        }
-        result.push('\n');
-        result
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -679,17 +339,6 @@ mod tests {
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("\"jsonrpc\":\"2.0\""));
         assert!(json.contains("\"result\""));
-    }
-
-    #[test]
-    fn test_sse_event_formatting() {
-        let event = SseEvent::new(r#"{"test": true}"#)
-            .with_event("message")
-            .with_id("123");
-        let sse_str = event.to_sse_string();
-        assert!(sse_str.contains("event: message\n"));
-        assert!(sse_str.contains("id: 123\n"));
-        assert!(sse_str.contains("data: {\"test\": true}\n"));
     }
 
     #[test]

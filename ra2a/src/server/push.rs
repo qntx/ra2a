@@ -3,9 +3,9 @@
 //! Aligned with Go's `a2asrv/push/store.go` and `a2asrv/push/sender.go`.
 
 use std::collections::HashMap;
-use std::sync::RwLock;
 
 use async_trait::async_trait;
+use tokio::sync::RwLock;
 
 use crate::error::{A2AError, Result};
 use crate::types::{PushConfig, Task};
@@ -54,15 +54,12 @@ impl PushConfigStore for InMemoryPushConfigStore {
         validate_push_config(config)?;
 
         let mut to_save = config.clone();
-        if to_save.id.is_none() || to_save.id.as_deref() == Some("") {
-            to_save.id = Some(uuid::Uuid::new_v4().to_string());
+        if to_save.id.is_empty() {
+            to_save.id = uuid::Uuid::new_v4().to_string();
         }
 
-        let config_id = to_save.id.clone().unwrap();
-        let mut store = self
-            .configs
-            .write()
-            .map_err(|_| A2AError::ServerError("lock poisoned".into()))?;
+        let config_id = to_save.id.clone();
+        let mut store = self.configs.write().await;
         store
             .entry(task_id.to_string())
             .or_default()
@@ -72,10 +69,7 @@ impl PushConfigStore for InMemoryPushConfigStore {
     }
 
     async fn get(&self, task_id: &str, config_id: &str) -> Result<PushConfig> {
-        let store = self
-            .configs
-            .read()
-            .map_err(|_| A2AError::ServerError("lock poisoned".into()))?;
+        let store = self.configs.read().await;
         store
             .get(task_id)
             .and_then(|m| m.get(config_id))
@@ -84,10 +78,7 @@ impl PushConfigStore for InMemoryPushConfigStore {
     }
 
     async fn list(&self, task_id: &str) -> Result<Vec<PushConfig>> {
-        let store = self
-            .configs
-            .read()
-            .map_err(|_| A2AError::ServerError("lock poisoned".into()))?;
+        let store = self.configs.read().await;
         Ok(store
             .get(task_id)
             .map(|m| m.values().cloned().collect())
@@ -95,10 +86,7 @@ impl PushConfigStore for InMemoryPushConfigStore {
     }
 
     async fn delete(&self, task_id: &str, config_id: &str) -> Result<()> {
-        let mut store = self
-            .configs
-            .write()
-            .map_err(|_| A2AError::ServerError("lock poisoned".into()))?;
+        let mut store = self.configs.write().await;
         if let Some(m) = store.get_mut(task_id) {
             m.remove(config_id);
         }
@@ -106,10 +94,7 @@ impl PushConfigStore for InMemoryPushConfigStore {
     }
 
     async fn delete_all(&self, task_id: &str) -> Result<()> {
-        let mut store = self
-            .configs
-            .write()
-            .map_err(|_| A2AError::ServerError("lock poisoned".into()))?;
+        let mut store = self.configs.write().await;
         store.remove(task_id);
         Ok(())
     }
@@ -206,14 +191,15 @@ impl PushSender for HttpPushSender {
             .body(json_data);
 
         // Attach verification token header (Go: X-A2A-Notification-Token)
-        if let Some(ref token) = config.token {
-            req = req.header("X-A2A-Notification-Token", token);
+        if !config.token.is_empty() {
+            req = req.header("X-A2A-Notification-Token", &config.token);
         }
 
         // Apply authentication from push config
         if let Some(ref auth) = config.authentication
-            && let Some(ref credentials) = auth.credentials
+            && !auth.credentials.is_empty()
         {
+            let credentials = &auth.credentials;
             for scheme in &auth.schemes {
                 match scheme.to_lowercase().as_str() {
                     "bearer" => {
@@ -267,9 +253,9 @@ mod tests {
 
         // Save
         let saved = store.save("task-1", &config).await.unwrap();
-        assert!(saved.id.is_some());
+        assert!(!saved.id.is_empty());
 
-        let config_id = saved.id.clone().unwrap();
+        let config_id = saved.id.clone();
 
         // Get
         let retrieved = store.get("task-1", &config_id).await.unwrap();
@@ -292,8 +278,8 @@ mod tests {
         // Empty URL
         let config = PushConfig {
             url: String::new(),
-            id: None,
-            token: None,
+            id: String::new(),
+            token: String::new(),
             authentication: None,
         };
         assert!(store.save("task-1", &config).await.is_err());
@@ -301,8 +287,8 @@ mod tests {
         // Invalid URL scheme
         let config = PushConfig {
             url: "ftp://bad".into(),
-            id: None,
-            token: None,
+            id: String::new(),
+            token: String::new(),
             authentication: None,
         };
         assert!(store.save("task-1", &config).await.is_err());

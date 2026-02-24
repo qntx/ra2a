@@ -1,56 +1,47 @@
 //! A2A Protocol types and data models.
 //!
-//! This module contains all the type definitions for the A2A protocol,
-//! including messages, tasks, agent cards, and JSON-RPC structures.
+//! Core type definitions for messages, tasks, agent cards, events,
+//! JSON-RPC structures, and security schemes.
+//!
+//! Aligned with Go's `a2a` package layout.
 
 mod agent;
-mod extensions;
 mod jsonrpc;
 mod message;
-mod oauth;
 mod part;
-mod security;
+mod push;
 mod task;
 
-pub use agent::*;
-pub use extensions::*;
-pub use jsonrpc::*;
-pub use message::*;
-pub use oauth::*;
-pub use part::*;
-pub use security::*;
-pub use task::*;
+// -- Agent card, capabilities & security (merged from agent.rs + security.rs + oauth.rs) --
+pub use agent::{
+    AgentCapabilities, AgentCard, AgentCardBuilder, AgentCardSignature, AgentExtension,
+    AgentInterface, AgentProvider, AgentSkill, ApiKeyLocation, ApiKeySecurityScheme,
+    AuthorizationCodeOAuthFlow, ClientCredentialsOAuthFlow, HttpAuthSecurityScheme,
+    ImplicitOAuthFlow, MutualTlsSecurityScheme, OAuth2SecurityScheme, OAuthFlows,
+    OpenIdConnectSecurityScheme, PasswordOAuthFlow, SecurityScheme, TransportProtocol,
+};
+// -- JSON-RPC wire types --
+pub use jsonrpc::{
+    A2AResponse, GetAuthenticatedExtendedCardParams, JSONRPC_VERSION, JsonRpcErrorResponse,
+    JsonRpcRequest, JsonRpcResponse, JsonRpcSuccessResponse, ListTasksRequest, ListTasksResponse,
+    MessageSendConfig, MessageSendParams, RequestId, TaskIdParams, TaskQueryParams,
+};
+// -- Message --
+pub use message::{Message, Role};
+// -- Content parts --
+pub use part::{DataPart, FileBytes, FileContent, FilePart, FileUri, Part, TextPart};
+// -- Push notification types (aligned with Go's push.go) --
+pub use push::{
+    DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams, PushAuthInfo,
+    PushConfig, TaskPushConfig,
+};
+// -- Task & events --
+pub use task::{
+    Artifact, Event, SendMessageResult, Task, TaskArtifactUpdateEvent, TaskState, TaskStatus,
+    TaskStatusUpdateEvent, TaskVersion,
+};
 
 /// Helper for serde: skip serializing boolean fields when false.
-#[must_use]
 pub(crate) fn is_false(v: &bool) -> bool {
     !v
-}
-
-/// Serde helpers that inject a constant `"kind"` discriminator on serialization
-/// while tolerating its presence or absence on deserialization.
-///
-/// Usage: `#[serde(with = "kind_serde::task", default)]`
-pub(crate) mod kind_serde {
-    macro_rules! define_kind {
-        ($mod_name:ident, $value:expr) => {
-            pub mod $mod_name {
-                use serde::{Deserialize, Deserializer, Serializer};
-
-                pub fn serialize<S: Serializer>(_: &(), s: S) -> Result<S::Ok, S::Error> {
-                    s.serialize_str($value)
-                }
-
-                pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
-                    let _ = Option::<String>::deserialize(d)?;
-                    Ok(())
-                }
-            }
-        };
-    }
-
-    define_kind!(task, "task");
-    define_kind!(message, "message");
-    define_kind!(status_update, "status-update");
-    define_kind!(artifact_update, "artifact-update");
 }

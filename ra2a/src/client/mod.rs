@@ -21,18 +21,24 @@ pub mod transports;
 use std::pin::Pin;
 
 use async_trait::async_trait;
-pub use auth::*;
-pub use card_resolver::*;
-pub use config::*;
-pub use factory::*;
+pub use auth::{
+    ApiKeyCredential, BasicAuthCredential, BearerTokenCredential, CredentialProvider, NoCredential,
+};
+pub use card_resolver::A2ACardResolver;
+pub use config::ClientConfig;
+pub use factory::ClientFactory;
 use futures::Stream;
-pub use http::*;
-pub use intercepted_client::*;
-pub use middleware::*;
-pub use sse::*;
+pub use http::{A2AClient, A2AClientBuilder};
+pub use intercepted_client::InterceptedClient;
+pub use middleware::{
+    AuthInterceptor, CallMeta, ClientCallInterceptor, ClientRequest, ClientResponse,
+    ExtensionActivator, LogLevel, LoggingInterceptor, PassthroughClientInterceptor,
+    StaticCallMetaInjector, run_interceptors_after, run_interceptors_before,
+};
+pub use sse::{A2ASseEvent, SseEventType, parse_sse_line};
 pub use transports::{
     ClientTransport, EventStream as TransportEventStream, JsonRpcTransport, RestTransport,
-    SendMessageResponse, StreamEvent, TransportOptions, TransportType,
+    StreamEvent, TransportOptions, TransportType,
 };
 
 use crate::error::Result;
@@ -71,7 +77,10 @@ pub type EventStream = Pin<Box<dyn Stream<Item = Result<ClientEvent>> + Send>>;
 /// Abstract interface for an A2A client.
 ///
 /// This trait defines the standard set of methods for interacting with an A2A agent,
-/// regardless of the underlying transport protocol.
+/// regardless of the underlying transport protocol. Aligned with Go's `Client` struct.
+///
+/// Streaming responses are returned as [`EventStream`] — use standard [`Stream`]
+/// combinators (`map`, `for_each`, `collect`, etc.) to process events.
 #[async_trait]
 pub trait Client: Send + Sync {
     /// Sends a message to the agent.
@@ -108,122 +117,4 @@ pub trait Client: Send + Sync {
 
     /// Retrieves the agent's card.
     async fn get_agent_card(&self) -> Result<AgentCard>;
-}
-
-/// Trait for consuming and processing client events.
-///
-/// Implement this trait to create custom event handlers that process streaming
-/// responses from A2A agents. Similar to Python's `Consumer` class.
-#[async_trait]
-pub trait Consumer: Send + Sync {
-    /// Called for each event received from the stream.
-    async fn consume(&self, event: &ClientEvent) -> Result<()>;
-
-    /// Called when the stream completes successfully.
-    async fn on_complete(&self) -> Result<()> {
-        Ok(())
-    }
-
-    /// Called when an error occurs during streaming.
-    async fn on_error(&self, error: &crate::error::A2AError) -> Result<()> {
-        tracing::error!(error = %error, "Consumer error");
-        Ok(())
-    }
-}
-
-/// A simple consumer that collects events into a vector.
-#[derive(Debug, Default)]
-pub struct CollectingConsumer {
-    events: std::sync::Arc<tokio::sync::RwLock<Vec<ClientEvent>>>,
-}
-
-impl CollectingConsumer {
-    /// Creates a new collecting consumer.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Returns all collected events.
-    pub async fn events(&self) -> Vec<ClientEvent> {
-        self.events.read().await.clone()
-    }
-
-    /// Returns the final task if one was received.
-    pub async fn final_task(&self) -> Option<Task> {
-        let events = self.events.read().await;
-        events.iter().rev().find_map(|e| match e {
-            ClientEvent::TaskUpdate { task, .. } => Some((**task).clone()),
-            _ => None,
-        })
-    }
-}
-
-#[async_trait]
-impl Consumer for CollectingConsumer {
-    async fn consume(&self, event: &ClientEvent) -> Result<()> {
-        self.events.write().await.push(event.clone());
-        Ok(())
-    }
-}
-
-/// A consumer that calls a callback function for each event.
-pub struct CallbackConsumer<F>
-where
-    F: Fn(&ClientEvent) -> Result<()> + Send + Sync,
-{
-    callback: F,
-}
-
-impl<F> CallbackConsumer<F>
-where
-    F: Fn(&ClientEvent) -> Result<()> + Send + Sync,
-{
-    /// Creates a new callback consumer.
-    pub const fn new(callback: F) -> Self {
-        Self { callback }
-    }
-}
-
-#[async_trait]
-impl<F> Consumer for CallbackConsumer<F>
-where
-    F: Fn(&ClientEvent) -> Result<()> + Send + Sync + 'static,
-{
-    async fn consume(&self, event: &ClientEvent) -> Result<()> {
-        (self.callback)(event)
-    }
-}
-
-/// Runs a consumer on an event stream until completion or error.
-pub async fn run_consumer<C, S>(consumer: &C, mut stream: S) -> Result<()>
-where
-    C: Consumer,
-    S: Stream<Item = Result<ClientEvent>> + Unpin,
-{
-    use futures::StreamExt;
-
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(event) => {
-                if let Err(e) = consumer.consume(&event).await {
-                    consumer.on_error(&e).await?;
-                }
-            }
-            Err(e) => {
-                consumer.on_error(&e).await?;
-            }
-        }
-    }
-    consumer.on_complete().await
-}
-
-/// Helper to send a message and process all events with a consumer.
-pub async fn send_and_consume<C: Client, Co: Consumer>(
-    client: &C,
-    message: Message,
-    consumer: &Co,
-) -> Result<()> {
-    let stream = client.send_message(message).await?;
-    run_consumer(consumer, stream).await
 }

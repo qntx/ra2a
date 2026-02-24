@@ -1,8 +1,8 @@
 //! Event handling components for the A2A server.
 //!
 //! Provides event queues for streaming task updates to clients.
-//! This module implements a broadcast-based event system similar to Python's
-//! `EventQueue` and `QueueManager` for managing streaming responses.
+//! Re-exports `Event` from core types and adds broadcast-based queue
+//! infrastructure for streaming responses.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,98 +10,8 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
 
 use crate::error::{A2AError, Result};
-use crate::types::{Message, Task, TaskArtifactUpdateEvent, TaskStatusUpdateEvent};
-
-/// An event that can be sent to clients.
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(untagged)]
-pub enum Event {
-    /// A status update event.
-    StatusUpdate(TaskStatusUpdateEvent),
-    /// An artifact update event.
-    ArtifactUpdate(TaskArtifactUpdateEvent),
-    /// A complete task snapshot.
-    Task(Task),
-    /// A message response.
-    Message(Message),
-}
-
-impl Event {
-    /// Returns the task ID from this event, if available.
-    #[must_use]
-    pub fn task_id(&self) -> Option<&str> {
-        match self {
-            Self::StatusUpdate(e) => Some(&e.task_id),
-            Self::ArtifactUpdate(e) => Some(&e.task_id),
-            Self::Task(t) => Some(&t.id),
-            Self::Message(m) => m.task_id.as_deref(),
-        }
-    }
-
-    /// Returns true if this is a final event (status update with `final = true`).
-    #[must_use]
-    pub const fn is_final(&self) -> bool {
-        match self {
-            Self::StatusUpdate(e) => e.r#final,
-            _ => false,
-        }
-    }
-
-    /// Returns true if this event represents a terminal condition that should
-    /// stop the non-streaming event collection loop. Aligned with Go's
-    /// `shouldInterruptNonStreaming` + final-event detection.
-    #[must_use]
-    pub const fn is_terminal(&self) -> bool {
-        match self {
-            Self::StatusUpdate(e) => e.r#final || e.status.state.is_terminal(),
-            Self::Task(t) => t.status.state.is_terminal(),
-            Self::Message(_) => true,
-            Self::ArtifactUpdate(_) => false,
-        }
-    }
-
-    /// Returns the SSE event type string and JSON data for this event.
-    #[must_use]
-    pub fn to_sse_data(&self) -> (String, String) {
-        let (event_type, data) = match self {
-            Self::StatusUpdate(e) => (
-                "status_update",
-                serde_json::to_string(e).unwrap_or_default(),
-            ),
-            Self::ArtifactUpdate(e) => (
-                "artifact_update",
-                serde_json::to_string(e).unwrap_or_default(),
-            ),
-            Self::Task(t) => ("task", serde_json::to_string(t).unwrap_or_default()),
-            Self::Message(m) => ("message", serde_json::to_string(m).unwrap_or_default()),
-        };
-        (event_type.to_string(), data)
-    }
-
-    /// Creates an event from a task status update.
-    #[must_use]
-    pub const fn status_update(event: TaskStatusUpdateEvent) -> Self {
-        Self::StatusUpdate(event)
-    }
-
-    /// Creates an event from an artifact update.
-    #[must_use]
-    pub const fn artifact_update(event: TaskArtifactUpdateEvent) -> Self {
-        Self::ArtifactUpdate(event)
-    }
-
-    /// Creates an event from a task.
-    #[must_use]
-    pub const fn task(task: Task) -> Self {
-        Self::Task(task)
-    }
-
-    /// Creates an event from a message.
-    #[must_use]
-    pub const fn message(message: Message) -> Self {
-        Self::Message(message)
-    }
-}
+// Re-export the unified Event type from core types.
+pub use crate::types::Event;
 
 /// A queue for sending events to a specific task's subscribers.
 #[derive(Debug)]
@@ -227,6 +137,7 @@ impl QueueManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Task;
 
     #[tokio::test]
     async fn test_event_queue() {

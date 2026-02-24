@@ -12,14 +12,15 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 use super::events::{Event, EventQueue, QueueManager};
-use super::handler::{EventStream, RequestHandler, SendMessageResponse};
+use super::handler::{EventStream, RequestHandler};
 use super::push::{InMemoryPushConfigStore, PushConfigStore, PushSender};
 use super::task_store::{InMemoryTaskStore, TaskStore};
 use super::{AgentExecutor, RequestContext, RequestContextInterceptor};
 use crate::error::{A2AError, JsonRpcError, Result};
 use crate::types::{
     DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
-    MessageSendParams, Task, TaskIdParams, TaskPushConfig, TaskQueryParams, TaskStatus,
+    MessageSendParams, SendMessageResult, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
+    TaskStatus,
 };
 
 /// Default request handler for all incoming A2A requests.
@@ -28,6 +29,7 @@ use crate::types::{
 /// and optional push notification components — event-driven, aligned with Go.
 pub struct DefaultRequestHandler<E: AgentExecutor> {
     executor: Arc<E>,
+    agent_card: crate::types::AgentCard,
     task_store: Arc<dyn TaskStore>,
     queue_manager: Arc<QueueManager>,
     push_config_store: Arc<dyn PushConfigStore>,
@@ -37,10 +39,11 @@ pub struct DefaultRequestHandler<E: AgentExecutor> {
 }
 
 impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
-    /// Creates a new default request handler.
-    pub fn new(executor: E) -> Self {
+    /// Creates a new default request handler with the given executor and agent card.
+    pub fn new(executor: E, agent_card: crate::types::AgentCard) -> Self {
         Self {
             executor: Arc::new(executor),
+            agent_card,
             task_store: Arc::new(InMemoryTaskStore::new()),
             queue_manager: Arc::new(QueueManager::new()),
             push_config_store: Arc::new(InMemoryPushConfigStore::new()),
@@ -93,7 +96,7 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
     /// Returns the agent card.
     #[must_use]
     pub fn agent_card(&self) -> &crate::types::AgentCard {
-        self.executor.agent_card()
+        &self.agent_card
     }
 
     /// Gets a task by ID from the task store.
@@ -121,12 +124,12 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
     fn apply_history_length(task: &mut Task, history_length: Option<i32>) {
         if let Some(len) = history_length {
             if len <= 0 {
-                task.history = None;
-            } else if let Some(ref mut history) = task.history {
+                task.history.clear();
+            } else {
                 let len = len as usize;
-                if history.len() > len {
-                    let start = history.len() - len;
-                    *history = history.drain(start..).collect();
+                if task.history.len() > len {
+                    let start = task.history.len() - len;
+                    task.history = task.history.drain(start..).collect();
                 }
             }
         }
@@ -242,7 +245,7 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
         &self,
         mut rx: tokio::sync::broadcast::Receiver<Event>,
         params: &MessageSendParams,
-    ) -> Result<SendMessageResponse> {
+    ) -> Result<SendMessageResult> {
         let is_non_blocking = params
             .configuration
             .as_ref()
@@ -279,19 +282,19 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
                             .get_task_internal(&task_id)
                             .await
                             .unwrap_or_else(|| Task::new(&task_id, ""));
-                        return Ok(SendMessageResponse::Task(t));
+                        return Ok(SendMessageResult::Task(t));
                     }
 
                     if event.is_terminal() {
                         return match event {
-                            Event::Task(t) => Ok(SendMessageResponse::Task(t)),
-                            Event::Message(m) => Ok(SendMessageResponse::Message(m)),
+                            Event::Task(t) => Ok(SendMessageResult::Task(t)),
+                            Event::Message(m) => Ok(SendMessageResult::Message(m)),
                             Event::StatusUpdate(e) => {
                                 let t = self
                                     .get_task_internal(&e.task_id)
                                     .await
                                     .unwrap_or_else(|| Task::new(&e.task_id, ""));
-                                Ok(SendMessageResponse::Task(t))
+                                Ok(SendMessageResult::Task(t))
                             }
                             _ => Err(A2AError::Other("Unexpected terminal event".into())),
                         };
@@ -305,8 +308,8 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
                         return Err(A2AError::Other("Event queue closed unexpectedly".into()));
                     };
                     return match event {
-                        Event::Task(t) => Ok(SendMessageResponse::Task(t)),
-                        Event::Message(m) => Ok(SendMessageResponse::Message(m)),
+                        Event::Task(t) => Ok(SendMessageResult::Task(t)),
+                        Event::Message(m) => Ok(SendMessageResult::Message(m)),
                         _ => self.resolve_task_from_event(&event).await,
                     };
                 }
@@ -318,13 +321,13 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
     }
 
     /// Resolves a task from an event by looking up or creating a fallback task.
-    async fn resolve_task_from_event(&self, event: &Event) -> Result<SendMessageResponse> {
+    async fn resolve_task_from_event(&self, event: &Event) -> Result<SendMessageResult> {
         if let Some(tid) = event.task_id() {
             let t = self
                 .get_task_internal(tid)
                 .await
                 .unwrap_or_else(|| Task::new(tid, ""));
-            Ok(SendMessageResponse::Task(t))
+            Ok(SendMessageResult::Task(t))
         } else {
             Err(A2AError::Other("Event queue closed unexpectedly".into()))
         }
@@ -399,7 +402,7 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
 
 #[async_trait]
 impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
-    async fn on_message_send(&self, params: MessageSendParams) -> Result<SendMessageResponse> {
+    async fn on_message_send(&self, params: MessageSendParams) -> Result<SendMessageResult> {
         let (ctx, queue) = self.build_request_context(&params).await?;
         let task_id = ctx.task_id.clone();
 
@@ -411,7 +414,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         let mut result = self.collect_result(rx, &params).await?;
 
         // Apply history length
-        if let SendMessageResponse::Task(ref mut t) = result
+        if let SendMessageResult::Task(ref mut t) = result
             && let Some(ref config) = params.configuration
         {
             Self::apply_history_length(t, config.history_length);
@@ -503,7 +506,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         self.queue_manager.remove_queue(&params.id).await;
 
         match result {
-            SendMessageResponse::Task(t) => {
+            SendMessageResult::Task(t) => {
                 info!(task_id = %params.id, "Task canceled");
                 Ok(t)
             }
@@ -545,7 +548,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     }
 
     async fn on_set_task_push_config(&self, params: TaskPushConfig) -> Result<TaskPushConfig> {
-        let card = self.executor.agent_card();
+        let card = &self.agent_card;
         if !card.capabilities.push_notifications {
             return Err(JsonRpcError::push_notification_not_supported().into());
         }
@@ -567,7 +570,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         &self,
         params: GetTaskPushConfigParams,
     ) -> Result<TaskPushConfig> {
-        let card = self.executor.agent_card();
+        let card = &self.agent_card;
         if !card.capabilities.push_notifications {
             return Err(JsonRpcError::push_notification_not_supported().into());
         }
@@ -575,7 +578,11 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
             .await
             .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
 
-        let config_id = params.push_notification_config_id.as_deref().unwrap_or("");
+        let config_id = if params.push_notification_config_id.is_empty() {
+            ""
+        } else {
+            &params.push_notification_config_id
+        };
         let config = self.push_config_store.get(&params.id, config_id).await?;
         Ok(TaskPushConfig {
             task_id: params.id,
@@ -587,7 +594,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
         &self,
         params: ListTaskPushConfigParams,
     ) -> Result<Vec<TaskPushConfig>> {
-        let card = self.executor.agent_card();
+        let card = &self.agent_card;
         if !card.capabilities.push_notifications {
             return Err(JsonRpcError::push_notification_not_supported().into());
         }
@@ -606,7 +613,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     }
 
     async fn on_delete_task_push_config(&self, params: DeleteTaskPushConfigParams) -> Result<()> {
-        let card = self.executor.agent_card();
+        let card = &self.agent_card;
         if !card.capabilities.push_notifications {
             return Err(JsonRpcError::push_notification_not_supported().into());
         }
@@ -620,7 +627,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
     }
 
     async fn on_get_extended_agent_card(&self) -> Result<crate::types::AgentCard> {
-        Ok(self.executor.agent_card().clone())
+        Ok(self.agent_card.clone())
     }
 }
 
@@ -628,6 +635,7 @@ impl<E: AgentExecutor> Clone for DefaultRequestHandler<E> {
     fn clone(&self) -> Self {
         Self {
             executor: Arc::clone(&self.executor),
+            agent_card: self.agent_card.clone(),
             task_store: Arc::clone(&self.task_store),
             queue_manager: Arc::clone(&self.queue_manager),
             push_config_store: Arc::clone(&self.push_config_store),
@@ -643,9 +651,7 @@ mod tests {
     use super::*;
     use crate::types::{AgentCapabilities, AgentCard, Message, Part, TaskState};
 
-    struct TestAgent {
-        card: AgentCard,
-    }
+    struct TestAgent;
 
     #[async_trait]
     impl AgentExecutor for TestAgent {
@@ -666,35 +672,28 @@ mod tests {
                 .map_err(|e| A2AError::Other(e.to_string()))?;
             Ok(())
         }
-
-        fn agent_card(&self) -> &AgentCard {
-            &self.card
-        }
     }
 
-    fn create_test_agent() -> TestAgent {
-        TestAgent {
-            card: AgentCard::builder("Test Agent", "http://localhost:8080")
-                .capabilities(AgentCapabilities {
-                    streaming: true,
-                    push_notifications: true,
-                    ..Default::default()
-                })
-                .build(),
-        }
+    fn test_card() -> AgentCard {
+        AgentCard::builder("Test Agent", "http://localhost:8080")
+            .capabilities(AgentCapabilities {
+                streaming: true,
+                push_notifications: true,
+                ..Default::default()
+            })
+            .build()
     }
 
     #[tokio::test]
     async fn test_message_send() {
-        let agent = create_test_agent();
-        let handler = DefaultRequestHandler::new(agent);
+        let handler = DefaultRequestHandler::new(TestAgent, test_card());
 
         let message = Message::user(vec![Part::text("Hello")]);
         let params = MessageSendParams::new(message);
 
         let result = handler.on_message_send(params).await.unwrap();
         match result {
-            SendMessageResponse::Task(task) => {
+            SendMessageResult::Task(task) => {
                 assert!(!task.id.is_empty());
             }
             _ => panic!("Expected Task response"),
@@ -703,15 +702,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_task() {
-        let agent = create_test_agent();
-        let handler = DefaultRequestHandler::new(agent);
+        let handler = DefaultRequestHandler::new(TestAgent, test_card());
 
         let message = Message::user(vec![Part::text("Hello")]);
         let params = MessageSendParams::new(message);
         let result = handler.on_message_send(params).await.unwrap();
 
         let task_id = match result {
-            SendMessageResponse::Task(task) => task.id,
+            SendMessageResult::Task(task) => task.id,
             _ => panic!("Expected Task response"),
         };
 
@@ -722,8 +720,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cancel_task() {
-        let agent = create_test_agent();
-        let handler = DefaultRequestHandler::new(agent);
+        let handler = DefaultRequestHandler::new(TestAgent, test_card());
 
         // Insert a Working task directly so it is cancelable
         let mut task = Task::new("cancel-test-id", "ctx-1");

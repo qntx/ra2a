@@ -32,33 +32,22 @@ pub mod server;
 #[cfg_attr(docsrs, doc(cfg(feature = "grpc")))]
 pub mod grpc;
 
-// Re-export commonly used types at crate root.
-#[cfg(feature = "client")]
-pub use client::{
-    AuthInterceptor, CallMeta, Client, ClientCallInterceptor, ClientEvent, ClientRequest,
-    ClientResponse, Consumer, ExtensionActivator, InterceptedClient, LoggingInterceptor,
-    PassthroughClientInterceptor, StaticCallMetaInjector, UpdateEvent,
-};
+// Re-export core types at crate root for convenience.
+// For client/server specific types, import from `ra2a::client` or `ra2a::server`.
 pub use error::{A2AError, Result};
-#[cfg(feature = "server")]
-pub use server::{
-    AgentCardProducer, AgentExecutor, AuthenticatedUser, CallContext, CallInterceptor,
-    ConcurrencyConfig, DefaultRequestHandler, EXTENSIONS_META_KEY, Event, EventQueue,
-    HandlerBuilder, HttpPushSender, InMemoryPushConfigStore, InterceptedHandler,
-    PassthroughInterceptor, PushConfigStore, PushSender, QueueManager, ReferencedTasksLoader,
-    RequestContext, RequestContextInterceptor, RequestHandler, RequestMeta, SendMessageResponse,
-    User,
-};
 pub use types::{
-    A2ARequest, A2AResponse, AgentCapabilities, AgentCard, AgentSkill, Artifact,
-    JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse, JsonRpcSuccessResponse,
-    ListTasksRequest, ListTasksResponse, Message, MessageSendParams, Part, PushConfig, RequestId,
-    Role, SendMessageResult, Task, TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig,
-    TaskQueryParams, TaskState, TaskStatus, TaskStatusUpdateEvent, TaskVersion,
+    AgentCapabilities, AgentCard, AgentSkill, Artifact, Event, Message, MessageSendParams, Part,
+    PushConfig, Role, SendMessageResult, Task, TaskArtifactUpdateEvent, TaskIdParams,
+    TaskPushConfig, TaskQueryParams, TaskState, TaskStatus, TaskStatusUpdateEvent, TaskVersion,
 };
 
 /// Protocol version supported by this SDK.
 pub const PROTOCOL_VERSION: &str = "0.3.0";
+
+/// The metadata key for A2A extensions passed in request/response headers.
+///
+/// Aligned with Go's `ExtensionsMetaKey` in `extensions.go`.
+pub const EXTENSIONS_META_KEY: &str = "x-a2a-extensions";
 
 /// Well-known path for the public agent card endpoint (aligned with Go's `WellKnownAgentCardPath`).
 pub const WELL_KNOWN_AGENT_CARD_PATH: &str = "/.well-known/agent-card.json";

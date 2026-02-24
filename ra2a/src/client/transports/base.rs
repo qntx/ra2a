@@ -10,7 +10,7 @@ use futures::Stream;
 use crate::error::Result;
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
-    Message, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
+    Message, SendMessageResult, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
 };
 
 /// A boxed stream of streaming events.
@@ -63,15 +63,6 @@ impl std::str::FromStr for TransportType {
     }
 }
 
-/// Result of a send message operation.
-#[derive(Debug, Clone)]
-pub enum SendMessageResponse {
-    /// A task was created or updated.
-    Task(Task),
-    /// A direct message response.
-    Message(Message),
-}
-
 /// Streaming event from a message/stream operation.
 #[derive(Debug, Clone)]
 pub enum StreamEvent {
@@ -94,7 +85,7 @@ pub trait ClientTransport: Send + Sync {
     fn transport_type(&self) -> TransportType;
 
     /// Sends a message to the agent (non-streaming).
-    async fn send_message(&self, message: Message) -> Result<SendMessageResponse>;
+    async fn send_message(&self, message: Message) -> Result<SendMessageResult>;
 
     /// Sends a message to the agent with streaming response.
     async fn send_message_streaming(&self, message: Message) -> Result<EventStream<StreamEvent>>;

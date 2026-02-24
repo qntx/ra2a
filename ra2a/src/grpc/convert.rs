@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::proto;
 use crate::types::{
-    Artifact as NativeArtifact, DataPart, FileContent, FilePart as NativeFilePart, FileWithBytes,
-    FileWithUri, Message as NativeMessage, Part as NativePart, PushConfig as NativePushConfig,
+    Artifact as NativeArtifact, DataPart, FileBytes, FileContent, FilePart as NativeFilePart,
+    FileUri, Message as NativeMessage, Part as NativePart, PushConfig as NativePushConfig,
     Role as NativeRole, Task as NativeTask, TaskState as NativeTaskState,
     TaskStatus as NativeTaskStatus, TextPart,
 };
@@ -84,8 +84,8 @@ impl From<NativePart> for proto::Part {
                     content: Some(proto::part::Content::Text(text_part.text)),
                     ..Default::default()
                 };
-                if let Some(metadata) = text_part.metadata {
-                    proto_part.metadata = hashmap_to_struct(metadata);
+                if !text_part.metadata.is_empty() {
+                    proto_part.metadata = hashmap_to_struct(text_part.metadata);
                 }
                 proto_part
             }
@@ -109,8 +109,8 @@ impl From<NativePart> for proto::Part {
                         proto_part.media_type = file_uri.mime_type.unwrap_or_default();
                     }
                 }
-                if let Some(metadata) = file_part.metadata {
-                    proto_part.metadata = hashmap_to_struct(metadata);
+                if !file_part.metadata.is_empty() {
+                    proto_part.metadata = hashmap_to_struct(file_part.metadata);
                 }
                 proto_part
             }
@@ -126,8 +126,8 @@ impl From<NativePart> for proto::Part {
                 if let Some(prost_val) = json_to_prost_value(json_value) {
                     proto_part.content = Some(proto::part::Content::Data(prost_val));
                 }
-                if let Some(metadata) = data_part.metadata {
-                    proto_part.metadata = hashmap_to_struct(metadata);
+                if !data_part.metadata.is_empty() {
+                    proto_part.metadata = hashmap_to_struct(data_part.metadata);
                 }
                 proto_part
             }
@@ -137,7 +137,10 @@ impl From<NativePart> for proto::Part {
 
 impl From<proto::Part> for NativePart {
     fn from(part: proto::Part) -> Self {
-        let metadata = part.metadata.and_then(struct_to_hashmap);
+        let metadata = part
+            .metadata
+            .and_then(struct_to_hashmap)
+            .unwrap_or_default();
 
         match part.content {
             Some(proto::part::Content::Text(text)) => Self::Text(TextPart { text, metadata }),
@@ -145,7 +148,7 @@ impl From<proto::Part> for NativePart {
                 // Base64 encode the bytes
                 let encoded =
                     base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-                let file_bytes = FileWithBytes {
+                let file_bytes = FileBytes {
                     bytes: encoded,
                     name: if part.filename.is_empty() {
                         None
@@ -164,7 +167,7 @@ impl From<proto::Part> for NativePart {
                 })
             }
             Some(proto::part::Content::Url(url)) => {
-                let file_uri = FileWithUri {
+                let file_uri = FileUri {
                     uri: url,
                     name: if part.filename.is_empty() {
                         None
@@ -211,9 +214,13 @@ impl From<NativeMessage> for proto::Message {
             task_id: msg.task_id.unwrap_or_default(),
             role: proto::Role::from(msg.role).into(),
             parts: msg.parts.into_iter().map(proto::Part::from).collect(),
-            metadata: msg.metadata.and_then(hashmap_to_struct),
-            extensions: msg.extensions.unwrap_or_default(),
-            reference_task_ids: msg.reference_task_ids.unwrap_or_default(),
+            metadata: if msg.metadata.is_empty() {
+                None
+            } else {
+                hashmap_to_struct(msg.metadata)
+            },
+            extensions: msg.extensions,
+            reference_task_ids: msg.reference_task_ids,
         }
     }
 }
@@ -235,17 +242,9 @@ impl From<proto::Message> for NativeMessage {
         } else {
             Some(msg.task_id)
         };
-        native.metadata = msg.metadata.and_then(struct_to_hashmap);
-        native.extensions = if msg.extensions.is_empty() {
-            None
-        } else {
-            Some(msg.extensions)
-        };
-        native.reference_task_ids = if msg.reference_task_ids.is_empty() {
-            None
-        } else {
-            Some(msg.reference_task_ids)
-        };
+        native.metadata = msg.metadata.and_then(struct_to_hashmap).unwrap_or_default();
+        native.extensions = msg.extensions;
+        native.reference_task_ids = msg.reference_task_ids;
         native
     }
 }
@@ -257,8 +256,12 @@ impl From<NativeArtifact> for proto::Artifact {
             name: artifact.name.unwrap_or_default(),
             description: artifact.description.unwrap_or_default(),
             parts: artifact.parts.into_iter().map(proto::Part::from).collect(),
-            metadata: artifact.metadata.and_then(hashmap_to_struct),
-            extensions: artifact.extensions.unwrap_or_default(),
+            metadata: if artifact.metadata.is_empty() {
+                None
+            } else {
+                hashmap_to_struct(artifact.metadata)
+            },
+            extensions: artifact.extensions,
         }
     }
 }
@@ -278,12 +281,11 @@ impl From<proto::Artifact> for NativeArtifact {
                 Some(artifact.description)
             },
             parts: artifact.parts.into_iter().map(NativePart::from).collect(),
-            metadata: artifact.metadata.and_then(struct_to_hashmap),
-            extensions: if artifact.extensions.is_empty() {
-                None
-            } else {
-                Some(artifact.extensions)
-            },
+            metadata: artifact
+                .metadata
+                .and_then(struct_to_hashmap)
+                .unwrap_or_default(),
+            extensions: artifact.extensions,
         }
     }
 }
@@ -328,17 +330,15 @@ impl From<NativeTask> for proto::Task {
             status: Some(proto::TaskStatus::from(task.status)),
             artifacts: task
                 .artifacts
-                .unwrap_or_default()
                 .into_iter()
                 .map(proto::Artifact::from)
                 .collect(),
-            history: task
-                .history
-                .unwrap_or_default()
-                .into_iter()
-                .map(proto::Message::from)
-                .collect(),
-            metadata: task.metadata.and_then(hashmap_to_struct),
+            history: task.history.into_iter().map(proto::Message::from).collect(),
+            metadata: if task.metadata.is_empty() {
+                None
+            } else {
+                hashmap_to_struct(task.metadata)
+            },
         }
     }
 }
@@ -352,22 +352,16 @@ impl From<proto::Task> for NativeTask {
 
         let mut native = Self::new(task.id, task.context_id);
         native.status = status;
-        native.artifacts = if task.artifacts.is_empty() {
-            None
-        } else {
-            Some(
-                task.artifacts
-                    .into_iter()
-                    .map(NativeArtifact::from)
-                    .collect(),
-            )
-        };
-        native.history = if task.history.is_empty() {
-            None
-        } else {
-            Some(task.history.into_iter().map(NativeMessage::from).collect())
-        };
-        native.metadata = task.metadata.and_then(struct_to_hashmap);
+        native.artifacts = task
+            .artifacts
+            .into_iter()
+            .map(NativeArtifact::from)
+            .collect();
+        native.history = task.history.into_iter().map(NativeMessage::from).collect();
+        native.metadata = task
+            .metadata
+            .and_then(struct_to_hashmap)
+            .unwrap_or_default();
         native
     }
 }
@@ -375,13 +369,13 @@ impl From<proto::Task> for NativeTask {
 impl From<NativePushConfig> for proto::PushNotificationConfig {
     fn from(config: NativePushConfig) -> Self {
         Self {
-            id: config.id.unwrap_or_default(),
+            id: config.id,
             url: config.url,
-            token: config.token.unwrap_or_default(),
+            token: config.token,
             authentication: config.authentication.map(|auth| proto::AuthenticationInfo {
                 // Use first scheme if available
                 scheme: auth.schemes.first().cloned().unwrap_or_default(),
-                credentials: auth.credentials.unwrap_or_default(),
+                credentials: auth.credentials,
             }),
         }
     }
@@ -390,17 +384,9 @@ impl From<NativePushConfig> for proto::PushNotificationConfig {
 impl From<proto::PushNotificationConfig> for NativePushConfig {
     fn from(config: proto::PushNotificationConfig) -> Self {
         Self {
-            id: if config.id.is_empty() {
-                None
-            } else {
-                Some(config.id)
-            },
+            id: config.id,
             url: config.url,
-            token: if config.token.is_empty() {
-                None
-            } else {
-                Some(config.token)
-            },
+            token: config.token,
             authentication: config
                 .authentication
                 .map(|auth| crate::types::PushAuthInfo {
@@ -409,11 +395,7 @@ impl From<proto::PushNotificationConfig> for NativePushConfig {
                     } else {
                         vec![auth.scheme]
                     },
-                    credentials: if auth.credentials.is_empty() {
-                        None
-                    } else {
-                        Some(auth.credentials)
-                    },
+                    credentials: auth.credentials,
                 }),
         }
     }

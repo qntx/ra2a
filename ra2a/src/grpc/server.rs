@@ -3,6 +3,7 @@
 //! This module provides a gRPC server that wraps a `RequestHandler` to implement
 //! the generated `A2aService` trait.
 
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -97,7 +98,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         // Apply metadata
         if let Some(metadata) = req.metadata {
-            params.metadata = struct_to_hashmap(metadata);
+            params.metadata = struct_to_hashmap(metadata).unwrap_or_default();
         }
 
         // Call handler
@@ -109,12 +110,12 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         // Convert response
         let response = match result {
-            crate::server::SendMessageResponse::Task(task) => SendMessageResponse {
+            crate::types::SendMessageResult::Task(task) => SendMessageResponse {
                 payload: Some(proto::send_message_response::Payload::Task(
                     proto::Task::from(task),
                 )),
             },
-            crate::server::SendMessageResponse::Message(msg) => SendMessageResponse {
+            crate::types::SendMessageResult::Message(msg) => SendMessageResponse {
                 payload: Some(proto::send_message_response::Payload::Message(
                     proto::Message::from(msg),
                 )),
@@ -161,7 +162,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         // Apply metadata
         if let Some(metadata) = req.metadata {
-            params.metadata = struct_to_hashmap(metadata);
+            params.metadata = struct_to_hashmap(metadata).unwrap_or_default();
         }
 
         // Get streaming response from handler
@@ -348,11 +349,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         Ok(Response::new(TaskPushNotificationConfig {
             tenant: String::new(),
-            id: result
-                .push_notification_config
-                .id
-                .clone()
-                .unwrap_or_default(),
+            id: result.push_notification_config.id.clone(),
             task_id: result.task_id,
             push_notification_config: Some(proto::PushNotificationConfig::from(
                 result.push_notification_config,
@@ -368,12 +365,8 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         let params = GetTaskPushConfigParams {
             id: req.task_id.clone(),
-            push_notification_config_id: if req.id.is_empty() {
-                None
-            } else {
-                Some(req.id.clone())
-            },
-            metadata: None,
+            push_notification_config_id: req.id.clone(),
+            metadata: HashMap::new(),
         };
 
         let result = self
@@ -384,11 +377,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         Ok(Response::new(TaskPushNotificationConfig {
             tenant: String::new(),
-            id: result
-                .push_notification_config
-                .id
-                .clone()
-                .unwrap_or_default(),
+            id: result.push_notification_config.id.clone(),
             task_id: result.task_id,
             push_notification_config: Some(proto::PushNotificationConfig::from(
                 result.push_notification_config,
@@ -404,7 +393,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         let params = crate::types::ListTaskPushConfigParams {
             id: req.task_id.clone(),
-            metadata: None,
+            metadata: HashMap::new(),
         };
 
         let configs = self
@@ -417,7 +406,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
             .into_iter()
             .map(|c| TaskPushNotificationConfig {
                 tenant: String::new(),
-                id: c.push_notification_config.id.clone().unwrap_or_default(),
+                id: c.push_notification_config.id.clone(),
                 task_id: c.task_id,
                 push_notification_config: Some(proto::PushNotificationConfig::from(
                     c.push_notification_config,
@@ -464,7 +453,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let params = DeleteTaskPushConfigParams {
             id: req.task_id,
             push_notification_config_id: req.id,
-            metadata: None,
+            metadata: HashMap::new(),
         };
 
         self.handler
@@ -486,7 +475,11 @@ fn convert_status_update_to_response(
                 task_id: update.task_id,
                 context_id: update.context_id,
                 status: Some(proto::TaskStatus::from(update.status)),
-                metadata: update.metadata.and_then(hashmap_to_struct),
+                metadata: if update.metadata.is_empty() {
+                    None
+                } else {
+                    hashmap_to_struct(update.metadata)
+                },
             },
         )),
     }
@@ -504,7 +497,11 @@ fn convert_artifact_update_to_response(
                 artifact: Some(proto::Artifact::from(update.artifact)),
                 append: update.append,
                 last_chunk: update.last_chunk,
-                metadata: update.metadata.and_then(hashmap_to_struct),
+                metadata: if update.metadata.is_empty() {
+                    None
+                } else {
+                    hashmap_to_struct(update.metadata)
+                },
             },
         )),
     }

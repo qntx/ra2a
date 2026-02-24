@@ -1,6 +1,7 @@
 //! Message types for the A2A protocol.
 //!
-//! Messages represent the communication between users and agents.
+//! Aligned with Go's `Message` struct — the `kind` discriminator is injected
+//! during serialization via a custom `Serialize` impl.
 
 use std::collections::HashMap;
 
@@ -9,9 +10,8 @@ use serde::{Deserialize, Serialize};
 use super::Part;
 
 /// Identifies the sender of the message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
-#[derive(Default)]
 pub enum Role {
     /// Message from the user/client.
     #[default]
@@ -20,131 +20,124 @@ pub enum Role {
     Agent,
 }
 
-/// Represents a single message in the conversation between a user and an agent.
+/// A single message in the conversation between a user and an agent.
 ///
-/// The `kind` field is injected as `"message"` during JSON serialization
-/// (aligned with Go's `Message.MarshalJSON`). It is tolerated but ignored on deserialization.
-#[allow(clippy::manual_non_exhaustive)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// The `"kind": "message"` discriminator is injected on serialization and
+/// tolerated (but ignored) on deserialization, matching Go's `MarshalJSON`.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Message {
-    /// Discriminator injected as `"message"` on serialization.
-    #[serde(with = "super::kind_serde::message", default)]
-    kind: (),
     /// A unique identifier for the message (typically a UUID).
     pub message_id: String,
     /// Identifies the sender of the message.
     pub role: Role,
-    /// An array of content parts that form the message body.
+    /// Content parts that form the message body.
     pub parts: Vec<Part>,
     /// The ID of the task this message is part of.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
-    /// The context ID for this message.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The context ID for grouping related interactions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_id: Option<String>,
-    /// A list of other task IDs that this message references.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reference_task_ids: Option<Vec<String>>,
-    /// The URIs of extensions relevant to this message.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extensions: Option<Vec<String>>,
-    /// Optional metadata for extensions.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    /// Task IDs this message references for additional context.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reference_task_ids: Vec<String>,
+    /// URIs of extensions relevant to this message.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<String>,
+    /// Extension metadata.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+/// Custom `Serialize` to inject `"kind": "message"` (aligned with Go's `MarshalJSON`).
+impl Serialize for Message {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("kind", "message")?;
+        map.serialize_entry("messageId", &self.message_id)?;
+        map.serialize_entry("role", &self.role)?;
+        map.serialize_entry("parts", &self.parts)?;
+        if let Some(ref v) = self.task_id {
+            map.serialize_entry("taskId", v)?;
+        }
+        if let Some(ref v) = self.context_id {
+            map.serialize_entry("contextId", v)?;
+        }
+        if !self.reference_task_ids.is_empty() {
+            map.serialize_entry("referenceTaskIds", &self.reference_task_ids)?;
+        }
+        if !self.extensions.is_empty() {
+            map.serialize_entry("extensions", &self.extensions)?;
+        }
+        if !self.metadata.is_empty() {
+            map.serialize_entry("metadata", &self.metadata)?;
+        }
+        map.end()
+    }
 }
 
 impl Message {
     /// Creates a new message with the given ID, role, and parts.
     pub fn new(message_id: impl Into<String>, role: Role, parts: Vec<Part>) -> Self {
         Self {
-            kind: (),
             message_id: message_id.into(),
             role,
             parts,
             task_id: None,
             context_id: None,
-            reference_task_ids: None,
-            extensions: None,
-            metadata: None,
+            reference_task_ids: Vec::new(),
+            extensions: Vec::new(),
+            metadata: HashMap::new(),
         }
     }
 
-    /// Creates a new user message with auto-generated ID.
-    #[must_use]
+    /// Creates a user message with an auto-generated UUID.
     pub fn user(parts: Vec<Part>) -> Self {
         Self::new(uuid::Uuid::new_v4().to_string(), Role::User, parts)
     }
 
-    /// Creates a new agent message with auto-generated ID.
-    #[must_use]
+    /// Creates an agent message with an auto-generated UUID.
     pub fn agent(parts: Vec<Part>) -> Self {
         Self::new(uuid::Uuid::new_v4().to_string(), Role::Agent, parts)
     }
 
-    /// Creates a simple text message from the user.
+    /// Shorthand: single-text user message.
     pub fn user_text(text: impl Into<String>) -> Self {
         Self::user(vec![Part::text(text)])
     }
 
-    /// Creates a simple text message from the agent.
+    /// Shorthand: single-text agent message.
     pub fn agent_text(text: impl Into<String>) -> Self {
         Self::agent(vec![Part::text(text)])
     }
 
-    /// Sets the task ID for this message.
+    /// Builder: sets the task ID.
     pub fn with_task_id(mut self, task_id: impl Into<String>) -> Self {
         self.task_id = Some(task_id.into());
         self
     }
 
-    /// Sets the context ID for this message.
+    /// Builder: sets the context ID.
     pub fn with_context_id(mut self, context_id: impl Into<String>) -> Self {
         self.context_id = Some(context_id.into());
         self
     }
 
-    /// Sets the extensions for this message.
-    #[must_use]
-    pub fn with_extensions(mut self, extensions: Vec<String>) -> Self {
-        self.extensions = Some(extensions);
-        self
-    }
-
-    /// Sets the metadata for this message.
-    #[must_use]
-    pub fn with_metadata(mut self, metadata: HashMap<String, serde_json::Value>) -> Self {
-        self.metadata = Some(metadata);
-        self
-    }
-
-    /// Returns true if this message is from a user.
-    #[must_use]
-    pub fn is_user(&self) -> bool {
-        self.role == Role::User
-    }
-
-    /// Returns true if this message is from an agent.
-    #[must_use]
-    pub fn is_agent(&self) -> bool {
-        self.role == Role::Agent
-    }
-
-    /// Returns the text content of this message, joining text parts with newlines.
-    #[must_use]
+    /// Returns the concatenated text content of all text parts.
     pub fn text_content(&self) -> Option<String> {
-        self.text_joined("\n")
-    }
-
-    /// Returns the text content of this message, joining text parts with the given delimiter.
-    #[must_use]
-    pub fn text_joined(&self, delimiter: &str) -> Option<String> {
         let texts: Vec<&str> = self.parts.iter().filter_map(|p| p.as_text()).collect();
         if texts.is_empty() {
             None
         } else {
-            Some(texts.join(delimiter))
+            Some(texts.join("\n"))
         }
+    }
+
+    /// Sets a metadata key-value pair.
+    pub fn set_meta(&mut self, key: impl Into<String>, value: serde_json::Value) {
+        self.metadata.insert(key.into(), value);
     }
 }
 
@@ -161,22 +154,25 @@ mod tests {
     #[test]
     fn test_user_text_message() {
         let msg = Message::user_text("Hello!");
-        assert!(msg.is_user());
+        assert_eq!(msg.role, Role::User);
         assert_eq!(msg.text_content(), Some("Hello!".to_string()));
     }
 
     #[test]
-    fn test_agent_message() {
-        let msg = Message::agent_text("Hi there!");
-        assert!(msg.is_agent());
-        assert_eq!(msg.role, Role::Agent);
-    }
-
-    #[test]
-    fn test_message_serialization() {
+    fn test_message_kind_roundtrip() {
         let msg = Message::user_text("Test");
         let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("\"role\":\"user\""));
         assert!(json.contains("\"kind\":\"message\""));
+        assert!(json.contains("\"role\":\"user\""));
+
+        // Deserialize with kind present
+        let parsed: Message = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.message_id, msg.message_id);
+
+        // Deserialize without kind
+        let no_kind = r#"{"messageId":"m1","role":"agent","parts":[]}"#;
+        let parsed2: Message = serde_json::from_str(no_kind).unwrap();
+        assert_eq!(parsed2.message_id, "m1");
+        assert_eq!(parsed2.role, Role::Agent);
     }
 }

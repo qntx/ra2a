@@ -72,8 +72,8 @@ impl A2ASseEvent {
             }
             SseEventType::StatusUpdate => {
                 let event: TaskStatusUpdateEvent = serde_json::from_str(&self.data)?;
-                let task =
-                    Task::new(&event.task_id, &event.context_id).with_status(event.status.clone());
+                let mut task = Task::new(&event.task_id, &event.context_id);
+                task.status = event.status.clone();
                 Ok(ClientEvent::TaskUpdate {
                     task: Box::new(task),
                     update: Some(UpdateEvent::Status(event)),
@@ -106,8 +106,8 @@ impl A2ASseEvent {
                         }
                         Some("status-update") => {
                             let event: TaskStatusUpdateEvent = serde_json::from_value(v)?;
-                            let task = Task::new(&event.task_id, &event.context_id)
-                                .with_status(event.status.clone());
+                            let mut task = Task::new(&event.task_id, &event.context_id);
+                            task.status = event.status.clone();
                             Ok(ClientEvent::TaskUpdate {
                                 task: Box::new(task),
                                 update: Some(UpdateEvent::Status(event)),

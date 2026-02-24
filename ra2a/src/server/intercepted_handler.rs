@@ -9,14 +9,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt;
 
-use super::handler::{EventStream, RequestHandler, SendMessageResponse};
+use super::handler::{EventStream, RequestHandler};
 use super::middleware::{
     CallContext, CallInterceptor, InterceptorRequest, InterceptorResponse, RequestMeta,
 };
 use crate::error::{A2AError, Result};
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
-    MessageSendParams, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
+    MessageSendParams, SendMessageResult, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
 };
 
 /// A [`RequestHandler`] wrapper that applies [`CallInterceptor`]s before and after
@@ -126,7 +126,7 @@ impl InterceptedHandler {
 
 #[async_trait]
 impl RequestHandler for InterceptedHandler {
-    async fn on_message_send(&self, params: MessageSendParams) -> Result<SendMessageResponse> {
+    async fn on_message_send(&self, params: MessageSendParams) -> Result<SendMessageResult> {
         let inner = Arc::clone(&self.inner);
         let p = params.clone();
         self.intercept_unary("message/send", params, async move {
@@ -368,10 +368,7 @@ mod tests {
         }
     }
 
-    // Re-use TestAgent from default_handler tests
-    struct TestAgent {
-        card: AgentCard,
-    }
+    struct TestAgent;
 
     #[async_trait]
     impl crate::server::AgentExecutor for TestAgent {
@@ -400,23 +397,17 @@ mod tests {
                 .map_err(|e| A2AError::Other(e.to_string()))?;
             Ok(())
         }
-
-        fn agent_card(&self) -> &AgentCard {
-            &self.card
-        }
     }
 
     fn create_test_handler() -> Arc<crate::server::DefaultRequestHandler<TestAgent>> {
-        let agent = TestAgent {
-            card: AgentCard::builder("Test Agent", "http://localhost:8080")
-                .capabilities(AgentCapabilities {
-                    streaming: true,
-                    push_notifications: true,
-                    ..Default::default()
-                })
-                .build(),
-        };
-        Arc::new(crate::server::DefaultRequestHandler::new(agent))
+        let card = AgentCard::builder("Test Agent", "http://localhost:8080")
+            .capabilities(AgentCapabilities {
+                streaming: true,
+                push_notifications: true,
+                ..Default::default()
+            })
+            .build();
+        Arc::new(crate::server::DefaultRequestHandler::new(TestAgent, card))
     }
 
     #[tokio::test]

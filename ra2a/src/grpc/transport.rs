@@ -153,7 +153,11 @@ impl GrpcTransport {
                 history_length: config.history_length,
                 blocking: config.blocking.unwrap_or(false),
             });
-        let metadata = params.metadata.and_then(hashmap_to_struct);
+        let metadata = if params.metadata.is_empty() {
+            None
+        } else {
+            hashmap_to_struct(params.metadata)
+        };
 
         SendMessageRequest {
             tenant: String::new(),
@@ -220,7 +224,10 @@ fn convert_stream_response(response: proto::StreamResponse) -> Option<GrpcStream
             );
             let mut event =
                 TaskStatusUpdateEvent::new(update.task_id, update.context_id, status, false);
-            event.metadata = update.metadata.and_then(struct_to_hashmap);
+            event.metadata = update
+                .metadata
+                .and_then(struct_to_hashmap)
+                .unwrap_or_default();
             Some(GrpcStreamEvent::StatusUpdate(event))
         }
         Some(proto::stream_response::Payload::ArtifactUpdate(update)) => {
@@ -235,7 +242,10 @@ fn convert_stream_response(response: proto::StreamResponse) -> Option<GrpcStream
             );
             event.append = update.append;
             event.last_chunk = update.last_chunk;
-            event.metadata = update.metadata.and_then(struct_to_hashmap);
+            event.metadata = update
+                .metadata
+                .and_then(struct_to_hashmap)
+                .unwrap_or_default();
             Some(GrpcStreamEvent::ArtifactUpdate(event))
         }
         _ => None,

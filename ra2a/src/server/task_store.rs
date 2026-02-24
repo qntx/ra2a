@@ -144,6 +144,7 @@ impl TaskStore for InMemoryTaskStore {
 ///
 /// This module provides database-backed implementations of `TaskStore`
 /// using `SQLx` for `SQLite`, `PostgreSQL`, and `MySQL`.
+#[allow(dead_code)] // Helpers are used inside the impl_sql_task_store! macro expansion
 #[cfg(any(feature = "sqlite", feature = "postgresql", feature = "mysql"))]
 pub mod sql {
     use std::sync::atomic::{AtomicI64, Ordering};
@@ -221,18 +222,21 @@ pub mod sql {
                     .as_ref()
                     .and_then(|m| serde_json::to_string(m).ok()),
                 status_timestamp: task.status.timestamp.clone(),
-                history: task
-                    .history
-                    .as_ref()
-                    .and_then(|h| serde_json::to_string(h).ok()),
-                artifacts: task
-                    .artifacts
-                    .as_ref()
-                    .and_then(|a| serde_json::to_string(a).ok()),
-                metadata: task
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| serde_json::to_string(m).ok()),
+                history: if task.history.is_empty() {
+                    None
+                } else {
+                    serde_json::to_string(&task.history).ok()
+                },
+                artifacts: if task.artifacts.is_empty() {
+                    None
+                } else {
+                    serde_json::to_string(&task.artifacts).ok()
+                },
+                metadata: if task.metadata.is_empty() {
+                    None
+                } else {
+                    serde_json::to_string(&task.metadata).ok()
+                },
             }
         }
 
@@ -249,15 +253,15 @@ pub mod sql {
             }
 
             if let Some(ref history_json) = self.history {
-                task.history = serde_json::from_str(history_json).ok();
+                task.history = serde_json::from_str(history_json).unwrap_or_default();
             }
 
             if let Some(ref artifacts_json) = self.artifacts {
-                task.artifacts = serde_json::from_str(artifacts_json).ok();
+                task.artifacts = serde_json::from_str(artifacts_json).unwrap_or_default();
             }
 
             if let Some(ref metadata_json) = self.metadata {
-                task.metadata = serde_json::from_str(metadata_json).ok();
+                task.metadata = serde_json::from_str(metadata_json).unwrap_or_default();
             }
 
             Ok(task)
@@ -438,8 +442,7 @@ pub mod sql {
                 }
             }
 
-            #[cfg(feature = $feat)]
-            pub use $mod::$TaskStore;
+
         };
     }
 

@@ -122,11 +122,6 @@ impl User for UnauthenticatedUser {
     }
 }
 
-/// The metadata key for A2A extensions passed in request/response headers.
-///
-/// Aligned with Go's `ExtensionsMetaKey` in `extensions.go`.
-pub const EXTENSIONS_META_KEY: &str = "x-a2a-extensions";
-
 // ---------------------------------------------------------------------------
 // CallContext — per-call scope (Go: middleware.go CallContext)
 // ---------------------------------------------------------------------------
@@ -191,7 +186,7 @@ impl CallContext {
     #[must_use]
     pub fn requested_extension_uris(&self) -> Vec<String> {
         self.request_meta
-            .get(EXTENSIONS_META_KEY)
+            .get(crate::EXTENSIONS_META_KEY)
             .map(<[std::string::String]>::to_vec)
             .unwrap_or_default()
     }

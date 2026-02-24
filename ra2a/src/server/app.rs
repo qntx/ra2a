@@ -82,16 +82,20 @@ pub struct A2AServer {
 }
 
 impl A2AServer {
-    /// Creates a new A2A server from an [`AgentExecutor`].
+    /// Creates a new A2A server from an [`AgentExecutor`] and [`AgentCard`].
     ///
     /// Internally wraps the executor in a [`DefaultRequestHandler`](super::DefaultRequestHandler).
-    pub fn new(executor: impl AgentExecutor + 'static) -> Self {
-        Self::with_config(executor, ServerConfig::default())
+    pub fn new(executor: impl AgentExecutor + 'static, agent_card: AgentCard) -> Self {
+        Self::with_config(executor, agent_card, ServerConfig::default())
     }
 
     /// Creates a new A2A server with custom configuration.
-    pub fn with_config(executor: impl AgentExecutor + 'static, config: ServerConfig) -> Self {
-        let state = ServerState::from_executor(executor);
+    pub fn with_config(
+        executor: impl AgentExecutor + 'static,
+        agent_card: AgentCard,
+        config: ServerConfig,
+    ) -> Self {
+        let state = ServerState::from_executor(executor, agent_card);
         let router = Self::build_router(state, &config);
         Self { router, config }
     }
@@ -333,9 +337,14 @@ impl A2AServerBuilder {
         }
     }
 
-    /// Sets the agent executor. Wraps it in a [`DefaultRequestHandler`](super::DefaultRequestHandler).
-    pub fn executor(mut self, executor: impl AgentExecutor + 'static) -> Self {
-        self.state = Some(ServerState::from_executor(executor));
+    /// Sets the agent executor and agent card.
+    /// Wraps it in a [`DefaultRequestHandler`](super::DefaultRequestHandler).
+    pub fn executor(
+        mut self,
+        executor: impl AgentExecutor + 'static,
+        agent_card: AgentCard,
+    ) -> Self {
+        self.state = Some(ServerState::from_executor(executor, agent_card));
         self
     }
 

@@ -8,14 +8,12 @@ use async_trait::async_trait;
 use futures::stream;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 
-use super::{
-    ClientTransport, EventStream, SendMessageResponse, StreamEvent, TransportOptions, TransportType,
-};
+use super::{ClientTransport, EventStream, StreamEvent, TransportOptions, TransportType};
 use crate::error::{A2AError, Result};
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
-    Message, Task, TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig, TaskQueryParams,
-    TaskStatusUpdateEvent,
+    Message, SendMessageResult, Task, TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig,
+    TaskQueryParams, TaskStatusUpdateEvent,
 };
 
 /// REST transport for A2A protocol.
@@ -177,7 +175,7 @@ impl ClientTransport for RestTransport {
         TransportType::Rest
     }
 
-    async fn send_message(&self, message: Message) -> Result<SendMessageResponse> {
+    async fn send_message(&self, message: Message) -> Result<SendMessageResult> {
         let response = self
             .client
             .post(self.url("/message"))
@@ -192,9 +190,9 @@ impl ClientTransport for RestTransport {
         // Try to parse as Task first, then as Message
         let text = response.text().await?;
         if let Ok(task) = serde_json::from_str::<Task>(&text) {
-            Ok(SendMessageResponse::Task(task))
+            Ok(SendMessageResult::Task(task))
         } else if let Ok(msg) = serde_json::from_str::<Message>(&text) {
-            Ok(SendMessageResponse::Message(msg))
+            Ok(SendMessageResult::Message(msg))
         } else {
             Err(A2AError::Json(
                 serde_json::from_str::<Task>(&text).unwrap_err(),
@@ -291,8 +289,8 @@ impl ClientTransport for RestTransport {
         params: GetTaskPushConfigParams,
     ) -> Result<TaskPushConfig> {
         let mut url = self.url(&format!("/tasks/{}/PushConfig", params.id));
-        if let Some(ref config_id) = params.push_notification_config_id {
-            url = format!("{url}/{config_id}");
+        if !params.push_notification_config_id.is_empty() {
+            url = format!("{url}/{}", params.push_notification_config_id);
         }
 
         let response = self.client.get(&url).send().await?;

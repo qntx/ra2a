@@ -414,15 +414,15 @@ mod tests {
             extensions: vec![
                 AgentExtension {
                     uri: "urn:ext:a".into(),
-                    description: None,
+                    description: String::new(),
                     required: false,
-                    params: None,
+                    params: Default::default(),
                 },
                 AgentExtension {
                     uri: "urn:ext:c".into(),
-                    description: None,
+                    description: String::new(),
                     required: false,
-                    params: None,
+                    params: Default::default(),
                 },
             ],
             ..Default::default()

@@ -119,7 +119,8 @@ impl ClientFactory {
         }
 
         // 3. Check additional interfaces for supported transports
-        if let Some(ref interfaces) = card.additional_interfaces {
+        {
+            let interfaces = &card.additional_interfaces;
             for interface in interfaces {
                 let transport = TransportType::from(interface.transport.clone());
                 // Prefer gRPC if available, then REST, then JSON-RPC

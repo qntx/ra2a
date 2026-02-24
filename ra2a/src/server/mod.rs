@@ -20,15 +20,20 @@ mod task_store;
 
 use std::sync::Arc;
 
-pub use app::*;
+pub use app::{A2AServer, A2AServerBuilder, ServerConfig};
 use async_trait::async_trait;
-pub use default_handler::*;
-pub use events::*;
-pub use handler::*;
-pub use intercepted_handler::*;
-pub use middleware::*;
-pub use push::*;
-pub use task_store::*;
+pub use default_handler::DefaultRequestHandler;
+pub use events::{Event, EventQueue, QueueManager};
+pub use handler::{EventStream, RequestHandler, handle_request};
+pub use intercepted_handler::InterceptedHandler;
+pub use middleware::{
+    AuthenticatedUser, CallContext, CallInterceptor, InterceptorRequest, InterceptorResponse,
+    PassthroughInterceptor, RequestMeta, UnauthenticatedUser, User,
+};
+pub use push::{
+    HttpPushSender, HttpPushSenderConfig, InMemoryPushConfigStore, PushConfigStore, PushSender,
+};
+pub use task_store::{InMemoryTaskStore, TaskStore};
 
 use crate::error::Result;
 use crate::types::{AgentCard, Message, Task};
@@ -62,19 +67,8 @@ impl AgentCardProducer for AgentCard {
 /// - A [`TaskStatusUpdateEvent`](crate::types::TaskStatusUpdateEvent) with `final = true`
 /// - A [`Task`] with a terminal [`TaskState`](crate::types::TaskState)
 ///
-/// # Example (streaming)
-/// ```ignore
-/// async fn execute(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
-///     // Emit "working" status
-///     queue.send(Event::status_update(TaskStatusUpdateEvent::working(&ctx.task_id)))?;
-///     // ... do work, emit artifact updates ...
-///     // Emit final "completed" status
-///     let mut evt = TaskStatusUpdateEvent::completed(&ctx.task_id, response_message);
-///     evt.r#final = true;
-///     queue.send(Event::status_update(evt))?;
-///     Ok(())
-/// }
-/// ```
+/// The agent card is passed separately via [`HandlerBuilder`] or
+/// [`ServerState`], not through this trait (aligned with Go's design).
 #[async_trait]
 pub trait AgentExecutor: Send + Sync {
     /// Executes the agent for an incoming message.
@@ -89,9 +83,6 @@ pub trait AgentExecutor: Send + Sync {
     /// Write a cancellation event to `queue` (e.g. a [`Task`] with
     /// [`TaskState::Canceled`](crate::types::TaskState::Canceled)).
     async fn cancel(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()>;
-
-    /// Returns the agent card describing this agent's capabilities.
-    fn agent_card(&self) -> &AgentCard;
 }
 
 /// Request context passed to the executor during message processing.
@@ -111,7 +102,7 @@ pub struct RequestContext {
     /// Tasks referenced by `Message.reference_task_ids`, loaded by interceptors.
     pub related_tasks: Vec<Task>,
     /// Additional metadata from the request.
-    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    pub metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl RequestContext {
@@ -123,7 +114,7 @@ impl RequestContext {
             message: None,
             stored_task: None,
             related_tasks: Vec::new(),
-            metadata: None,
+            metadata: std::collections::HashMap::new(),
         }
     }
 
@@ -165,12 +156,8 @@ impl ReferencedTasksLoader {
 #[async_trait]
 impl RequestContextInterceptor for ReferencedTasksLoader {
     async fn intercept(&self, ctx: &mut RequestContext) -> Result<()> {
-        let reference_ids = match ctx
-            .message
-            .as_ref()
-            .and_then(|m| m.reference_task_ids.as_ref())
-        {
-            Some(ids) if !ids.is_empty() => ids.clone(),
+        let reference_ids = match ctx.message.as_ref() {
+            Some(m) if !m.reference_task_ids.is_empty() => m.reference_task_ids.clone(),
             _ => return Ok(()),
         };
 
@@ -209,7 +196,7 @@ impl RequestContextInterceptor for ReferencedTasksLoader {
 /// use std::sync::Arc;
 /// use ra2a::server::HandlerBuilder;
 ///
-/// let handler = HandlerBuilder::new(my_executor)
+/// let handler = HandlerBuilder::new(my_executor, my_agent_card)
 ///     .with_task_store(my_store)
 ///     .with_push_notifications(push_store, push_sender)
 ///     .with_call_interceptor(Arc::new(my_interceptor))
@@ -217,6 +204,7 @@ impl RequestContextInterceptor for ReferencedTasksLoader {
 /// ```
 pub struct HandlerBuilder<E: AgentExecutor + 'static> {
     executor: E,
+    agent_card: AgentCard,
     task_store: Option<Arc<dyn TaskStore>>,
     queue_manager: Option<Arc<QueueManager>>,
     push_config_store: Option<Arc<dyn PushConfigStore>>,
@@ -226,10 +214,13 @@ pub struct HandlerBuilder<E: AgentExecutor + 'static> {
 }
 
 impl<E: AgentExecutor + 'static> HandlerBuilder<E> {
-    /// Creates a new builder with the given agent executor.
-    pub fn new(executor: E) -> Self {
+    /// Creates a new builder with the given agent executor and agent card.
+    ///
+    /// Aligned with Go's `NewHandler(executor, ...RequestHandlerOption)`.
+    pub fn new(executor: E, agent_card: AgentCard) -> Self {
         Self {
             executor,
+            agent_card,
             task_store: None,
             queue_manager: None,
             push_config_store: None,
@@ -289,7 +280,7 @@ impl<E: AgentExecutor + 'static> HandlerBuilder<E> {
 
     /// Builds the final [`InterceptedHandler`] wrapping a [`DefaultRequestHandler`].
     pub fn build(self) -> InterceptedHandler {
-        let mut handler = DefaultRequestHandler::new(self.executor);
+        let mut handler = DefaultRequestHandler::new(self.executor, self.agent_card);
 
         if let Some(manager) = self.queue_manager {
             handler = handler.with_queue_manager(manager);
@@ -312,41 +303,6 @@ impl<E: AgentExecutor + 'static> HandlerBuilder<E> {
             ih = ih.with_interceptor(interceptor);
         }
         ih
-    }
-}
-
-// ---------------------------------------------------------------------------
-// ConcurrencyConfig (Go: limiter/limiter.go)
-// ---------------------------------------------------------------------------
-
-/// Configuration for controlling concurrent agent executions.
-///
-/// Aligned with Go's `limiter.ConcurrencyConfig`. Limits are only enforced
-/// when greater than zero.
-#[derive(Clone, Default)]
-pub struct ConcurrencyConfig {
-    /// Maximum number of concurrent active executions (global limit).
-    ///
-    /// Only enforced when greater than zero.
-    pub max_executions: usize,
-
-    /// Optional per-scope limit function.
-    ///
-    /// When set, returns the maximum number of concurrent executions for a
-    /// given scope string. Only enforced when the returned value is > 0.
-    #[allow(clippy::type_complexity)]
-    pub get_max_executions: Option<Arc<dyn Fn(&str) -> usize + Send + Sync>>,
-}
-
-impl std::fmt::Debug for ConcurrencyConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ConcurrencyConfig")
-            .field("max_executions", &self.max_executions)
-            .field(
-                "get_max_executions",
-                &self.get_max_executions.as_ref().map(|_| "..."),
-            )
-            .finish()
     }
 }
 
@@ -384,12 +340,12 @@ impl ServerState {
 
     /// Convenience constructor: wraps an [`AgentExecutor`] in a
     /// [`DefaultRequestHandler`] automatically.
-    pub fn from_executor<E: AgentExecutor + 'static>(executor: E) -> Self {
-        let card = executor.agent_card().clone();
-        let handler = Arc::new(DefaultRequestHandler::new(executor));
+    pub fn from_executor<E: AgentExecutor + 'static>(executor: E, agent_card: AgentCard) -> Self {
+        let card_producer: Arc<dyn AgentCardProducer> = Arc::new(agent_card.clone());
+        let handler = Arc::new(DefaultRequestHandler::new(executor, agent_card));
         Self {
             handler,
-            card_producer: Arc::new(card),
+            card_producer,
         }
     }
 }

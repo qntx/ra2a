@@ -8,9 +8,7 @@ use async_trait::async_trait;
 use futures::stream;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 
-use super::{
-    ClientTransport, EventStream, SendMessageResponse, StreamEvent, TransportOptions, TransportType,
-};
+use super::{ClientTransport, EventStream, StreamEvent, TransportOptions, TransportType};
 use crate::error::{A2AError, Result};
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcRequest,
@@ -263,13 +261,13 @@ impl ClientTransport for JsonRpcTransport {
         TransportType::JsonRpc
     }
 
-    async fn send_message(&self, message: Message) -> Result<SendMessageResponse> {
+    async fn send_message(&self, message: Message) -> Result<SendMessageResult> {
         let params = MessageSendParams::new(message);
         let result: SendMessageResult = self.send_request("message/send", params).await?;
 
         Ok(match result {
-            SendMessageResult::Task(task) => SendMessageResponse::Task(task),
-            SendMessageResult::Message(msg) => SendMessageResponse::Message(msg),
+            SendMessageResult::Task(task) => SendMessageResult::Task(task),
+            SendMessageResult::Message(msg) => SendMessageResult::Message(msg),
         })
     }
 

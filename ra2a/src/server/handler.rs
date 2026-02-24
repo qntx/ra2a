@@ -15,7 +15,7 @@ use crate::error::{JsonRpcError, Result};
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcErrorResponse,
     JsonRpcRequest, JsonRpcSuccessResponse, ListTaskPushConfigParams, ListTasksRequest,
-    ListTasksResponse, Message, MessageSendParams, Task, TaskIdParams, TaskPushConfig,
+    ListTasksResponse, MessageSendParams, SendMessageResult, Task, TaskIdParams, TaskPushConfig,
     TaskQueryParams,
 };
 
@@ -30,7 +30,7 @@ pub type EventStream = Pin<Box<dyn Stream<Item = Result<Event>> + Send>>;
 #[async_trait]
 pub trait RequestHandler: Send + Sync {
     /// Handles the `message/send` request (non-streaming).
-    async fn on_message_send(&self, params: MessageSendParams) -> Result<SendMessageResponse>;
+    async fn on_message_send(&self, params: MessageSendParams) -> Result<SendMessageResult>;
 
     /// Handles the `message/stream` request (streaming).
     async fn on_message_stream(&self, params: MessageSendParams) -> Result<EventStream>;
@@ -45,22 +45,38 @@ pub trait RequestHandler: Send + Sync {
     async fn on_resubscribe(&self, params: TaskIdParams) -> Result<EventStream>;
 
     /// Handles the `tasks/pushNotificationConfig/set` request.
-    async fn on_set_task_push_config(&self, params: TaskPushConfig) -> Result<TaskPushConfig>;
+    ///
+    /// Default returns [`A2AError::PushNotificationNotSupported`](crate::error::A2AError::PushNotificationNotSupported).
+    async fn on_set_task_push_config(&self, _params: TaskPushConfig) -> Result<TaskPushConfig> {
+        Err(crate::error::A2AError::PushNotificationNotSupported)
+    }
 
     /// Handles the `tasks/pushNotificationConfig/get` request.
+    ///
+    /// Default returns [`A2AError::PushNotificationNotSupported`](crate::error::A2AError::PushNotificationNotSupported).
     async fn on_get_task_push_config(
         &self,
-        params: GetTaskPushConfigParams,
-    ) -> Result<TaskPushConfig>;
+        _params: GetTaskPushConfigParams,
+    ) -> Result<TaskPushConfig> {
+        Err(crate::error::A2AError::PushNotificationNotSupported)
+    }
 
     /// Handles the `tasks/pushNotificationConfig/list` request.
+    ///
+    /// Default returns [`A2AError::PushNotificationNotSupported`](crate::error::A2AError::PushNotificationNotSupported).
     async fn on_list_task_push_config(
         &self,
-        params: ListTaskPushConfigParams,
-    ) -> Result<Vec<TaskPushConfig>>;
+        _params: ListTaskPushConfigParams,
+    ) -> Result<Vec<TaskPushConfig>> {
+        Err(crate::error::A2AError::PushNotificationNotSupported)
+    }
 
     /// Handles the `tasks/pushNotificationConfig/delete` request.
-    async fn on_delete_task_push_config(&self, params: DeleteTaskPushConfigParams) -> Result<()>;
+    ///
+    /// Default returns [`A2AError::PushNotificationNotSupported`](crate::error::A2AError::PushNotificationNotSupported).
+    async fn on_delete_task_push_config(&self, _params: DeleteTaskPushConfigParams) -> Result<()> {
+        Err(crate::error::A2AError::PushNotificationNotSupported)
+    }
 
     /// Handles the `tasks/list` request.
     ///
@@ -76,28 +92,6 @@ pub trait RequestHandler: Send + Sync {
     /// returns [`A2AError::ExtendedCardNotConfigured`](crate::error::A2AError::ExtendedCardNotConfigured).
     async fn on_get_extended_agent_card(&self) -> Result<AgentCard> {
         Err(crate::error::A2AError::ExtendedCardNotConfigured)
-    }
-}
-
-/// Response type for `message/send` operations.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum SendMessageResponse {
-    /// A task was created or updated.
-    Task(Task),
-    /// A direct message response (no task created).
-    Message(Message),
-}
-
-impl From<Task> for SendMessageResponse {
-    fn from(task: Task) -> Self {
-        Self::Task(task)
-    }
-}
-
-impl From<Message> for SendMessageResponse {
-    fn from(message: Message) -> Self {
-        Self::Message(message)
     }
 }
 

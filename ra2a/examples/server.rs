@@ -10,25 +10,7 @@ use ra2a::{
 };
 
 /// A simple echo agent that responds to greetings.
-struct EchoAgent {
-    agent_card: AgentCard,
-}
-
-impl EchoAgent {
-    fn new() -> Self {
-        let agent_card = AgentCard::builder("Echo Agent", "http://localhost:8080")
-            .description("A simple echo agent for demonstration.")
-            .version("1.0.0")
-            .skill(AgentSkill::new(
-                "echo",
-                "Echo",
-                "Echoes user messages with a greeting",
-                vec!["echo".into(), "hello".into()],
-            ))
-            .build();
-        Self { agent_card }
-    }
-}
+struct EchoAgent;
 
 #[async_trait]
 impl AgentExecutor for EchoAgent {
@@ -40,25 +22,35 @@ impl AgentExecutor for EchoAgent {
             .unwrap_or_default();
 
         let reply = format!("Echo: {input}");
-        let task = Task::new(&ctx.task_id, &ctx.context_id).with_status(TaskStatus::with_message(
+        let mut task = Task::new(&ctx.task_id, &ctx.context_id);
+        task.status = TaskStatus::with_message(
             TaskState::Completed,
             Message::agent(vec![Part::text(reply)]),
-        ));
+        );
 
         queue.send(Event::Task(task))?;
         Ok(())
     }
 
     async fn cancel(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
-        let task = Task::new(&ctx.task_id, &ctx.context_id)
-            .with_status(TaskStatus::new(TaskState::Canceled));
+        let mut task = Task::new(&ctx.task_id, &ctx.context_id);
+        task.status = TaskStatus::new(TaskState::Canceled);
         queue.send(Event::Task(task))?;
         Ok(())
     }
+}
 
-    fn agent_card(&self) -> &AgentCard {
-        &self.agent_card
-    }
+fn echo_agent_card() -> AgentCard {
+    AgentCard::builder("Echo Agent", "http://localhost:8080")
+        .description("A simple echo agent for demonstration.")
+        .version("1.0.0")
+        .skill(AgentSkill::new(
+            "echo",
+            "Echo",
+            "Echoes user messages with a greeting",
+            vec!["echo".into(), "hello".into()],
+        ))
+        .build()
 }
 
 #[tokio::main]
@@ -66,7 +58,7 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt::init();
 
     let server = A2AServerBuilder::new()
-        .executor(EchoAgent::new())
+        .executor(EchoAgent, echo_agent_card())
         .port(8080)
         .build();
 
