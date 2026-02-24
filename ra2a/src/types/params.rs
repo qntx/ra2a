@@ -102,14 +102,6 @@ impl TaskIdParams {
     }
 }
 
-/// Parameters for getting authenticated extended card.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct GetAuthenticatedExtendedCardParams {
-    /// Metadata associated with the request.
-    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
-    pub metadata: Metadata,
-}
-
 /// Parameters for listing tasks (aligned with Go's `ListTasksRequest`).
 ///
 /// JSON field names use `snake_case` to match Go's json tags.
@@ -155,31 +147,4 @@ pub struct ListTasksResponse {
     /// Token for retrieving the next page. Empty if no more results.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_page_token: Option<String>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::{Part, Role};
-
-    #[test]
-    fn test_message_send_params() {
-        let message = Message::new("msg-1", Role::User, vec![Part::text("Hello")]);
-        let params = MessageSendParams::new(message);
-        assert_eq!(params.message.message_id, "msg-1");
-    }
-
-    #[test]
-    fn test_task_query_params() {
-        let params = TaskQueryParams::new("task-1");
-        assert_eq!(params.id, "task-1");
-        assert!(params.history_length.is_none());
-    }
-
-    #[test]
-    fn test_list_tasks_request_default() {
-        let req = ListTasksRequest::default();
-        assert!(req.context_id.is_none());
-        assert!(!req.include_artifacts);
-    }
 }

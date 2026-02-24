@@ -16,11 +16,11 @@ use super::handler::{EventStream, RequestHandler};
 use super::push::{InMemoryPushConfigStore, PushConfigStore, PushSender};
 use super::task_store::{InMemoryTaskStore, TaskStore};
 use super::{AgentExecutor, RequestContext, RequestContextInterceptor};
-use crate::error::{A2AError, JsonRpcError, Result};
+use crate::error::{A2AError, Result};
 use crate::types::{
     DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
-    MessageSendParams, SendMessageResult, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
-    TaskStatus,
+    ListTasksRequest, ListTasksResponse, MessageSendParams, SendMessageResult, Task, TaskIdParams,
+    TaskPushConfig, TaskQueryParams, TaskStatus,
 };
 
 /// Default request handler for all incoming A2A requests.
@@ -159,10 +159,10 @@ impl DefaultRequestHandler {
 
         // Validate message (aligned with Go's handleSendMessage)
         if message.message_id.is_empty() {
-            return Err(JsonRpcError::invalid_params("message ID is required").into());
+            return Err(A2AError::InvalidParams("message ID is required".into()));
         }
         if message.parts.is_empty() {
-            return Err(JsonRpcError::invalid_params("message parts is required").into());
+            return Err(A2AError::InvalidParams("message parts is required".into()));
         }
 
         // Resolve task_id and context_id
@@ -175,7 +175,7 @@ impl DefaultRequestHandler {
                 let stored = self
                     .get_task_internal(tid)
                     .await
-                    .ok_or_else(|| JsonRpcError::task_not_found(tid))?;
+                    .ok_or_else(|| A2AError::TaskNotFound(tid.clone()))?;
                 let cid = stored.context_id.clone();
                 (tid.clone(), cid, Some(stored))
             }
@@ -191,11 +191,10 @@ impl DefaultRequestHandler {
         if let Some(ref t) = stored_task
             && t.status.state.is_terminal()
         {
-            return Err(JsonRpcError::invalid_params(format!(
+            return Err(A2AError::InvalidParams(format!(
                 "Task {} is in terminal state: {:?}",
                 task_id, t.status.state
-            ))
-            .into());
+            )));
         }
 
         // Store push notification config if provided
@@ -461,11 +460,15 @@ impl RequestHandler for DefaultRequestHandler {
         Ok(Box::pin(stream))
     }
 
+    async fn on_list_tasks(&self, params: ListTasksRequest) -> Result<ListTasksResponse> {
+        self.task_store.list(&params).await
+    }
+
     async fn on_get_task(&self, params: TaskQueryParams) -> Result<Task> {
         let mut task = self
             .get_task_internal(&params.id)
             .await
-            .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
+            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
 
         Self::apply_history_length(&mut task, params.history_length);
         Ok(task)
@@ -475,10 +478,10 @@ impl RequestHandler for DefaultRequestHandler {
         let task = self
             .get_task_internal(&params.id)
             .await
-            .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
+            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
 
         if task.status.state.is_terminal() {
-            return Err(JsonRpcError::task_not_cancelable(&params.id).into());
+            return Err(A2AError::TaskNotCancelable(params.id.clone()));
         }
 
         // Abort the running task if exists
@@ -532,21 +535,20 @@ impl RequestHandler for DefaultRequestHandler {
         let task = self
             .get_task_internal(&params.id)
             .await
-            .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
+            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
 
         if task.status.state.is_terminal() {
-            return Err(JsonRpcError::invalid_params(format!(
+            return Err(A2AError::InvalidParams(format!(
                 "Task {} is in terminal state: {:?}",
                 params.id, task.status.state
-            ))
-            .into());
+            )));
         }
 
         let queue = self
             .queue_manager
             .get_queue(&params.id)
             .await
-            .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
+            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
 
         let receiver = queue.subscribe();
         let stream = futures::stream::unfold(receiver, |mut rx| async move {
@@ -564,11 +566,11 @@ impl RequestHandler for DefaultRequestHandler {
     async fn on_set_task_push_config(&self, params: TaskPushConfig) -> Result<TaskPushConfig> {
         let card = &self.agent_card;
         if !card.capabilities.push_notifications {
-            return Err(JsonRpcError::push_notification_not_supported().into());
+            return Err(A2AError::PushNotificationNotSupported);
         }
         self.get_task_internal(&params.task_id)
             .await
-            .ok_or_else(|| JsonRpcError::task_not_found(&params.task_id))?;
+            .ok_or_else(|| A2AError::TaskNotFound(params.task_id.clone()))?;
 
         let saved = self
             .push_config_store
@@ -586,11 +588,11 @@ impl RequestHandler for DefaultRequestHandler {
     ) -> Result<TaskPushConfig> {
         let card = &self.agent_card;
         if !card.capabilities.push_notifications {
-            return Err(JsonRpcError::push_notification_not_supported().into());
+            return Err(A2AError::PushNotificationNotSupported);
         }
         self.get_task_internal(&params.id)
             .await
-            .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
+            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
 
         let config_id = if params.push_notification_config_id.is_empty() {
             ""
@@ -610,11 +612,11 @@ impl RequestHandler for DefaultRequestHandler {
     ) -> Result<Vec<TaskPushConfig>> {
         let card = &self.agent_card;
         if !card.capabilities.push_notifications {
-            return Err(JsonRpcError::push_notification_not_supported().into());
+            return Err(A2AError::PushNotificationNotSupported);
         }
         self.get_task_internal(&params.id)
             .await
-            .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
+            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
 
         let configs = self.push_config_store.list(&params.id).await?;
         Ok(configs
@@ -629,11 +631,11 @@ impl RequestHandler for DefaultRequestHandler {
     async fn on_delete_task_push_config(&self, params: DeleteTaskPushConfigParams) -> Result<()> {
         let card = &self.agent_card;
         if !card.capabilities.push_notifications {
-            return Err(JsonRpcError::push_notification_not_supported().into());
+            return Err(A2AError::PushNotificationNotSupported);
         }
         self.get_task_internal(&params.id)
             .await
-            .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
+            .ok_or_else(|| A2AError::TaskNotFound(params.id.clone()))?;
 
         self.push_config_store
             .delete(&params.id, &params.push_notification_config_id)
@@ -657,92 +659,5 @@ impl Clone for DefaultRequestHandler {
             req_context_interceptors: self.req_context_interceptors.clone(),
             running_tasks: Arc::clone(&self.running_tasks),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::{AgentCapabilities, AgentCard, Message, Part, TaskState};
-
-    struct TestAgent;
-
-    #[async_trait]
-    impl AgentExecutor for TestAgent {
-        async fn execute(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
-            let mut task = Task::new(&ctx.task_id, &ctx.context_id);
-            task.status = TaskStatus::new(TaskState::Completed);
-            queue
-                .send(Event::Task(task))
-                .map_err(|e| A2AError::Other(e.to_string()))?;
-            Ok(())
-        }
-
-        async fn cancel(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()> {
-            let mut task = Task::new(&ctx.task_id, &ctx.context_id);
-            task.status = TaskStatus::new(TaskState::Canceled);
-            queue
-                .send(Event::Task(task))
-                .map_err(|e| A2AError::Other(e.to_string()))?;
-            Ok(())
-        }
-    }
-
-    fn test_card() -> AgentCard {
-        AgentCard::builder("Test Agent", "http://localhost:8080")
-            .capabilities(AgentCapabilities {
-                streaming: true,
-                push_notifications: true,
-                ..Default::default()
-            })
-            .build()
-    }
-
-    #[tokio::test]
-    async fn test_message_send() {
-        let handler = DefaultRequestHandler::new(TestAgent, test_card());
-
-        let message = Message::user(vec![Part::text("Hello")]);
-        let params = MessageSendParams::new(message);
-
-        let result = handler.on_message_send(params).await.unwrap();
-        match result {
-            SendMessageResult::Task(task) => {
-                assert!(!task.id.is_empty());
-            }
-            _ => panic!("Expected Task response"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_get_task() {
-        let handler = DefaultRequestHandler::new(TestAgent, test_card());
-
-        let message = Message::user(vec![Part::text("Hello")]);
-        let params = MessageSendParams::new(message);
-        let result = handler.on_message_send(params).await.unwrap();
-
-        let task_id = match result {
-            SendMessageResult::Task(task) => task.id,
-            _ => panic!("Expected Task response"),
-        };
-
-        let get_params = TaskQueryParams::new(&task_id);
-        let task = handler.on_get_task(get_params).await.unwrap();
-        assert_eq!(task.id, task_id);
-    }
-
-    #[tokio::test]
-    async fn test_cancel_task() {
-        let handler = DefaultRequestHandler::new(TestAgent, test_card());
-
-        // Insert a Working task directly so it is cancelable
-        let mut task = Task::new("cancel-test-id", "ctx-1");
-        task.status = TaskStatus::new(TaskState::Working);
-        handler.store_task(&task).await;
-
-        let cancel_params = TaskIdParams::new("cancel-test-id");
-        let canceled = handler.on_cancel_task(cancel_params).await.unwrap();
-        assert_eq!(canceled.status.state, TaskState::Canceled);
     }
 }

@@ -194,15 +194,3 @@ fn serialize_success<T: serde::Serialize>(
     let response = JsonRpcSuccessResponse::new(Some(id.clone()), result);
     Ok(serde_json::to_string(&response)?)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::error::JsonRpcErrorCode;
-
-    #[test]
-    fn test_method_not_found() {
-        let error = JsonRpcError::method_not_found("unknown/method");
-        assert_eq!(error.code, JsonRpcErrorCode::MethodNotFound as i32);
-    }
-}

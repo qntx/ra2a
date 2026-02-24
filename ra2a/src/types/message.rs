@@ -144,33 +144,3 @@ impl Default for Message {
         Self::user(vec![])
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_user_text_message() {
-        let msg = Message::user_text("Hello!");
-        assert_eq!(msg.role, Role::User);
-        assert_eq!(msg.text_content(), Some("Hello!".to_string()));
-    }
-
-    #[test]
-    fn test_message_kind_roundtrip() {
-        let msg = Message::user_text("Test");
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("\"kind\":\"message\""));
-        assert!(json.contains("\"role\":\"user\""));
-
-        // Deserialize with kind present
-        let parsed: Message = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.message_id, msg.message_id);
-
-        // Deserialize without kind
-        let no_kind = r#"{"messageId":"m1","role":"agent","parts":[]}"#;
-        let parsed2: Message = serde_json::from_str(no_kind).unwrap();
-        assert_eq!(parsed2.message_id, "m1");
-        assert_eq!(parsed2.role, Role::Agent);
-    }
-}

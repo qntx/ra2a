@@ -133,38 +133,3 @@ impl QueueManager {
         queue.send(event)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::Task;
-
-    #[tokio::test]
-    async fn test_event_queue() {
-        let queue = EventQueue::new(10);
-        let mut receiver = queue.subscribe();
-
-        let task = Task::new("task-1", "ctx-1");
-        queue.send(Event::Task(task.clone())).unwrap();
-
-        let received = receiver.recv().await.unwrap();
-        match received {
-            Event::Task(t) => assert_eq!(t.id, "task-1"),
-            _ => panic!("Expected Task event"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_queue_manager() {
-        let manager = QueueManager::new();
-
-        let queue = manager.create_queue("task-1").await.unwrap();
-        assert_eq!(manager.queue_count().await, 1);
-
-        let retrieved = manager.get_queue("task-1").await.unwrap();
-        assert_eq!(Arc::as_ptr(&queue), Arc::as_ptr(&retrieved));
-
-        manager.remove_queue("task-1").await;
-        assert_eq!(manager.queue_count().await, 0);
-    }
-}

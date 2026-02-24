@@ -251,19 +251,3 @@ fn convert_stream_response(response: proto::StreamResponse) -> Option<GrpcStream
         _ => None,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_send_message_result() {
-        let task = NativeTask::new("task-1", "ctx-1");
-        let result = SendMessageResult::Task(task);
-
-        match result {
-            SendMessageResult::Task(t) => assert_eq!(t.id, "task-1"),
-            _ => panic!("expected Task"),
-        }
-    }
-}

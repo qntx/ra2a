@@ -41,16 +41,15 @@ impl AgentExecutor for EchoAgent {
 }
 
 fn echo_agent_card() -> AgentCard {
-    AgentCard::builder("Echo Agent", "http://localhost:8080")
-        .description("A simple echo agent for demonstration.")
-        .version("1.0.0")
-        .skill(AgentSkill::new(
-            "echo",
-            "Echo",
-            "Echoes user messages with a greeting",
-            vec!["echo".into(), "hello".into()],
-        ))
-        .build()
+    let mut card = AgentCard::new("Echo Agent", "http://localhost:8080");
+    card.description = "A simple echo agent for demonstration.".into();
+    card.skills.push(AgentSkill::new(
+        "echo",
+        "Echo",
+        "Echoes user messages with a greeting",
+        vec!["echo".into(), "hello".into()],
+    ));
+    card
 }
 
 #[tokio::main]

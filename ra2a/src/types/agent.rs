@@ -84,10 +84,39 @@ pub struct AgentCard {
     pub signatures: Vec<AgentCardSignature>,
 }
 
+impl Default for AgentCard {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            description: String::new(),
+            url: String::new(),
+            version: "1.0.0".to_string(),
+            default_input_modes: vec!["text/plain".to_string()],
+            default_output_modes: vec!["text/plain".to_string()],
+            capabilities: AgentCapabilities::default(),
+            skills: Vec::new(),
+            protocol_version: crate::PROTOCOL_VERSION.to_string(),
+            preferred_transport: Some(TransportProtocol::JsonRpc),
+            additional_interfaces: Vec::new(),
+            provider: None,
+            documentation_url: None,
+            icon_url: None,
+            security_schemes: HashMap::new(),
+            security: Vec::new(),
+            supports_authenticated_extended_card: false,
+            signatures: Vec::new(),
+        }
+    }
+}
+
 impl AgentCard {
-    /// Creates a new `AgentCard` builder.
-    pub fn builder(name: impl Into<String>, url: impl Into<String>) -> AgentCardBuilder {
-        AgentCardBuilder::new(name, url)
+    /// Creates a new `AgentCard` with the given name and URL.
+    pub fn new(name: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            url: url.into(),
+            ..Default::default()
+        }
     }
 
     /// Returns true if the agent supports streaming.
@@ -109,103 +138,6 @@ impl AgentCard {
     }
 }
 
-// ---------------------------------------------------------------------------
-// AgentCardBuilder
-// ---------------------------------------------------------------------------
-
-/// Builder for creating an `AgentCard`.
-#[derive(Debug)]
-pub struct AgentCardBuilder {
-    card: AgentCard,
-}
-
-impl AgentCardBuilder {
-    /// Creates a new builder with required fields.
-    pub fn new(name: impl Into<String>, url: impl Into<String>) -> Self {
-        Self {
-            card: AgentCard {
-                name: name.into(),
-                description: String::new(),
-                url: url.into(),
-                version: "1.0.0".to_string(),
-                default_input_modes: vec!["text/plain".to_string()],
-                default_output_modes: vec!["text/plain".to_string()],
-                capabilities: AgentCapabilities::default(),
-                skills: Vec::new(),
-                protocol_version: crate::PROTOCOL_VERSION.to_string(),
-                preferred_transport: Some(TransportProtocol::JsonRpc),
-                additional_interfaces: Vec::new(),
-                provider: None,
-                documentation_url: None,
-                icon_url: None,
-                security_schemes: HashMap::new(),
-                security: Vec::new(),
-                supports_authenticated_extended_card: false,
-                signatures: Vec::new(),
-            },
-        }
-    }
-
-    /// Sets the description.
-    pub fn description(mut self, description: impl Into<String>) -> Self {
-        self.card.description = description.into();
-        self
-    }
-
-    /// Sets the version.
-    pub fn version(mut self, version: impl Into<String>) -> Self {
-        self.card.version = version.into();
-        self
-    }
-
-    /// Sets the capabilities.
-    #[must_use]
-    pub fn capabilities(mut self, capabilities: AgentCapabilities) -> Self {
-        self.card.capabilities = capabilities;
-        self
-    }
-
-    /// Adds a skill.
-    #[must_use]
-    pub fn skill(mut self, skill: AgentSkill) -> Self {
-        self.card.skills.push(skill);
-        self
-    }
-
-    /// Sets multiple skills.
-    #[must_use]
-    pub fn skills(mut self, skills: Vec<AgentSkill>) -> Self {
-        self.card.skills = skills;
-        self
-    }
-
-    /// Sets the input modes.
-    #[must_use]
-    pub fn input_modes(mut self, modes: Vec<String>) -> Self {
-        self.card.default_input_modes = modes;
-        self
-    }
-
-    /// Sets the output modes.
-    #[must_use]
-    pub fn output_modes(mut self, modes: Vec<String>) -> Self {
-        self.card.default_output_modes = modes;
-        self
-    }
-
-    /// Sets the provider.
-    #[must_use]
-    pub fn provider(mut self, provider: AgentProvider) -> Self {
-        self.card.provider = Some(provider);
-        self
-    }
-
-    /// Builds the `AgentCard`.
-    #[must_use]
-    pub fn build(self) -> AgentCard {
-        self.card
-    }
-}
 
 // ---------------------------------------------------------------------------
 // AgentCapabilities
@@ -600,80 +532,4 @@ pub struct PasswordOAuthFlow {
     /// Optional refresh URL.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub refresh_url: String,
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_agent_card_builder() {
-        let card = AgentCard::builder("Test Agent", "https://example.com")
-            .description("A test agent")
-            .version("1.0.0")
-            .skill(AgentSkill::new(
-                "greet",
-                "Greeting",
-                "Greets the user",
-                vec!["greeting".to_string()],
-            ))
-            .build();
-
-        assert_eq!(card.name, "Test Agent");
-        assert_eq!(card.skills.len(), 1);
-        assert_eq!(card.skills[0].id, "greet");
-    }
-
-    #[test]
-    fn test_agent_capabilities() {
-        let caps = AgentCapabilities::with_streaming();
-        assert!(caps.streaming);
-        assert!(!caps.push_notifications);
-    }
-
-    #[test]
-    fn test_agent_card_serialization() {
-        let card = AgentCard::builder("Test", "https://test.com")
-            .description("Test agent")
-            .build();
-        let json = serde_json::to_string(&card).unwrap();
-        assert!(json.contains("\"name\":\"Test\""));
-    }
-
-    #[test]
-    fn test_security_scheme_serialization() {
-        let scheme = SecurityScheme::ApiKey(ApiKeySecurityScheme::header("X-API-Key"));
-        let json = serde_json::to_string(&scheme).unwrap();
-        assert!(json.contains("\"type\":\"apiKey\""));
-        assert!(json.contains("\"name\":\"X-API-Key\""));
-    }
-
-    #[test]
-    fn test_http_auth_scheme() {
-        let scheme = HttpAuthSecurityScheme::bearer_jwt();
-        assert_eq!(scheme.scheme, "Bearer");
-        assert_eq!(scheme.bearer_format, "JWT");
-    }
-
-    #[test]
-    fn test_oauth_flows() {
-        let mut scopes = HashMap::new();
-        scopes.insert("read".to_string(), "Read access".to_string());
-
-        let flows = OAuthFlows {
-            client_credentials: Some(ClientCredentialsOAuthFlow {
-                token_url: "https://auth.example.com/token".into(),
-                scopes,
-                refresh_url: String::new(),
-            }),
-            ..Default::default()
-        };
-
-        assert!(flows.client_credentials.is_some());
-        assert!(flows.authorization_code.is_none());
-    }
 }

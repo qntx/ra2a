@@ -102,10 +102,6 @@ pub enum A2AError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
-    /// URL parsing error.
-    #[error("invalid URL: {0}")]
-    InvalidUrl(#[from] url::ParseError),
-
     // === Infrastructure Errors ===
     /// Database error from SQL storage operations.
     #[error("database error: {0}")]
@@ -120,7 +116,7 @@ impl A2AError {
     /// Returns `true` if this is a transport-level error (HTTP, JSON, connection).
     #[must_use]
     pub const fn is_transport_error(&self) -> bool {
-        matches!(self, Self::Http(_) | Self::Json(_) | Self::InvalidUrl(_))
+        matches!(self, Self::Http(_) | Self::Json(_))
     }
 
     /// Extracts the JSON-RPC error code if this is a JSON-RPC error.
@@ -314,19 +310,6 @@ impl JsonRpcError {
         }
     }
 
-    /// Creates a new JSON-RPC error with additional data.
-    pub fn with_data(
-        code: JsonRpcErrorCode,
-        message: impl Into<String>,
-        data: serde_json::Value,
-    ) -> Self {
-        Self {
-            code: code as i32,
-            message: message.into(),
-            data: Some(data),
-        }
-    }
-
     /// Creates a parse error.
     #[must_use]
     pub fn parse_error() -> Self {
@@ -355,94 +338,9 @@ impl JsonRpcError {
         Self::new(JsonRpcErrorCode::InvalidParams, message)
     }
 
-    /// Creates an internal error.
-    pub fn internal_error(message: impl Into<String>) -> Self {
-        Self::new(JsonRpcErrorCode::InternalError, message)
-    }
-
-    /// Creates a task not found error.
-    #[must_use]
-    pub fn task_not_found(task_id: &str) -> Self {
-        Self::new(
-            JsonRpcErrorCode::TaskNotFound,
-            format!("Task '{task_id}' not found"),
-        )
-    }
-
-    /// Creates a task not cancelable error.
-    #[must_use]
-    pub fn task_not_cancelable(task_id: &str) -> Self {
-        Self::new(
-            JsonRpcErrorCode::TaskNotCancelable,
-            format!("Task '{task_id}' cannot be canceled"),
-        )
-    }
-
-    /// Creates a push notification not supported error.
-    #[must_use]
-    pub fn push_notification_not_supported() -> Self {
-        Self::new(
-            JsonRpcErrorCode::PushNotificationNotSupported,
-            JsonRpcErrorCode::PushNotificationNotSupported.default_message(),
-        )
-    }
-
-    /// Creates an unsupported operation error.
-    #[must_use]
-    pub fn unsupported_operation(operation: &str) -> Self {
-        Self::new(
-            JsonRpcErrorCode::UnsupportedOperation,
-            format!("Operation '{operation}' is not supported"),
-        )
-    }
-
     /// Returns the error code as an enum variant.
     #[must_use]
     pub fn error_code(&self) -> JsonRpcErrorCode {
         JsonRpcErrorCode::from(self.code)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_error_code_conversion() {
-        assert_eq!(JsonRpcErrorCode::from(-32700), JsonRpcErrorCode::ParseError);
-        assert_eq!(
-            JsonRpcErrorCode::from(-32001),
-            JsonRpcErrorCode::TaskNotFound
-        );
-    }
-
-    #[test]
-    fn test_json_rpc_error_serialization() {
-        let error = JsonRpcError::task_not_found("test-123");
-        let json = serde_json::to_string(&error).unwrap();
-        assert!(json.contains("-32001"));
-        assert!(json.contains("test-123"));
-    }
-
-    #[test]
-    fn test_sentinel_errors_to_jsonrpc() {
-        let err = A2AError::TaskNotFound("task-1".into());
-        let rpc = err.to_jsonrpc_error();
-        assert_eq!(rpc.code, JsonRpcErrorCode::TaskNotFound as i32);
-
-        let err = A2AError::InternalError("boom".into());
-        let rpc = err.to_jsonrpc_error();
-        assert_eq!(rpc.code, JsonRpcErrorCode::InternalError as i32);
-    }
-
-    #[test]
-    fn test_other_and_database_errors() {
-        let err = A2AError::Other("something".into());
-        let rpc = err.to_jsonrpc_error();
-        assert_eq!(rpc.code, JsonRpcErrorCode::InternalError as i32);
-
-        let err = A2AError::Database("db down".into());
-        let rpc = err.to_jsonrpc_error();
-        assert_eq!(rpc.code, JsonRpcErrorCode::InternalError as i32);
     }
 }

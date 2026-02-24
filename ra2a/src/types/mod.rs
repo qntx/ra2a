@@ -6,7 +6,7 @@
 //! Aligned with Go's `a2a` package layout.
 
 mod agent;
-mod jsonrpc;
+mod params;
 mod message;
 mod part;
 mod push;
@@ -14,16 +14,16 @@ mod task;
 
 // -- Agent card, capabilities & security (merged from agent.rs + security.rs + oauth.rs) --
 pub use agent::{
-    AgentCapabilities, AgentCard, AgentCardBuilder, AgentCardSignature, AgentExtension,
-    AgentInterface, AgentProvider, AgentSkill, ApiKeyLocation, ApiKeySecurityScheme,
-    AuthorizationCodeOAuthFlow, ClientCredentialsOAuthFlow, HttpAuthSecurityScheme,
-    ImplicitOAuthFlow, MutualTlsSecurityScheme, OAuth2SecurityScheme, OAuthFlows,
-    OpenIdConnectSecurityScheme, PasswordOAuthFlow, SecurityScheme, TransportProtocol,
+    AgentCapabilities, AgentCard, AgentCardSignature, AgentExtension, AgentInterface,
+    AgentProvider, AgentSkill, ApiKeyLocation, ApiKeySecurityScheme, AuthorizationCodeOAuthFlow,
+    ClientCredentialsOAuthFlow, HttpAuthSecurityScheme, ImplicitOAuthFlow, MutualTlsSecurityScheme,
+    OAuth2SecurityScheme, OAuthFlows, OpenIdConnectSecurityScheme, PasswordOAuthFlow,
+    SecurityScheme, TransportProtocol,
 };
 // -- Request parameter types --
-pub use jsonrpc::{
-    GetAuthenticatedExtendedCardParams, ListTasksRequest, ListTasksResponse, MessageSendConfig,
-    MessageSendParams, TaskIdParams, TaskQueryParams,
+pub use params::{
+    ListTasksRequest, ListTasksResponse, MessageSendConfig, MessageSendParams, TaskIdParams,
+    TaskQueryParams,
 };
 // -- Message --
 pub use message::{Message, Role};

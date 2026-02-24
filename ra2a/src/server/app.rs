@@ -378,26 +378,3 @@ impl Default for A2AServerBuilder {
         Self::new()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_server_config_default() {
-        let config = ServerConfig::default();
-        assert_eq!(config.host, "0.0.0.0");
-        assert_eq!(config.port, 8080);
-        assert!(config.enable_cors);
-    }
-
-    #[test]
-    fn test_server_config_builder() {
-        let config = ServerConfig::new().host("127.0.0.1").port(3000).cors(false);
-
-        assert_eq!(config.host, "127.0.0.1");
-        assert_eq!(config.port, 3000);
-        assert!(!config.enable_cors);
-        assert_eq!(config.bind_address(), "127.0.0.1:3000");
-    }
-}

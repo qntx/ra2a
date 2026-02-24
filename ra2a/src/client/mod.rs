@@ -1,120 +1,157 @@
-//! A2A Client implementation.
+//! A2A client — concrete [`Client`] struct wrapping a [`Transport`].
 //!
-//! This module provides the client-side implementation for interacting with A2A agents.
+//! Architecture aligned with Go's `a2aclient` package:
 //!
-//! # Features
-//!
-//! - **HTTP Client**: Basic HTTP/JSON-RPC client for synchronous requests
-//! - **SSE Streaming**: Server-Sent Events support for real-time updates
-//! - **Middleware**: Request/response interceptors for authentication and logging
+//! - [`Transport`] trait defines transport-agnostic A2A operations
+//! - [`Client`] struct wraps a transport and applies [`CallInterceptor`]s
+//! - [`Factory`] creates clients from agent cards or URLs
+//! - [`JsonRpcTransport`] is the default HTTP/JSON-RPC transport
 
-mod auth;
-mod card_resolver;
-mod config;
 mod factory;
-mod http;
-mod intercepted_client;
-mod middleware;
-mod sse;
-pub mod transports;
+mod interceptor;
+mod jsonrpc;
+mod transport;
 
-use std::pin::Pin;
-
-use async_trait::async_trait;
-pub use auth::{
-    ApiKeyCredential, BasicAuthCredential, BearerTokenCredential, CredentialProvider, NoCredential,
-};
-pub use card_resolver::A2ACardResolver;
-pub use config::ClientConfig;
-pub use factory::ClientFactory;
-use futures::Stream;
-pub use http::{A2AClient, A2AClientBuilder};
-pub use intercepted_client::InterceptedClient;
-pub use middleware::{
-    AuthInterceptor, CallMeta, ClientCallInterceptor, ClientRequest, ClientResponse,
-    ExtensionActivator, LogLevel, LoggingInterceptor, PassthroughClientInterceptor,
-    StaticCallMetaInjector, run_interceptors_after, run_interceptors_before,
-};
-pub use sse::{A2ASseEvent, SseEventType, parse_sse_line};
-pub use transports::{
-    ClientTransport, EventStream as TransportEventStream, JsonRpcTransport, RestTransport,
-    StreamEvent, TransportOptions, TransportType,
-};
+pub use factory::Factory;
+pub use interceptor::{CallContext, CallInterceptor, CallMeta, Request, Response};
+pub use jsonrpc::{JsonRpcTransport, TransportConfig};
+pub use transport::{EventStream, Transport};
 
 use crate::error::Result;
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
-    Message, Task, TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig, TaskQueryParams,
-    TaskStatusUpdateEvent,
+    ListTasksRequest, ListTasksResponse, MessageSendParams, SendMessageResult, Task, TaskIdParams,
+    TaskPushConfig, TaskQueryParams,
 };
 
-/// Update event from streaming responses.
-#[derive(Debug, Clone)]
-pub enum UpdateEvent {
-    /// A status update event.
-    Status(TaskStatusUpdateEvent),
-    /// An artifact update event.
-    Artifact(TaskArtifactUpdateEvent),
+/// A2A protocol client.
+///
+/// Wraps a [`Transport`] and applies [`CallInterceptor`]s before/after each
+/// call. This is a concrete struct — not a trait — matching Go's `Client`.
+///
+/// # Example
+///
+/// ```no_run
+/// use ra2a::client::{Client, JsonRpcTransport};
+/// use ra2a::types::{Message, MessageSendParams, Part};
+///
+/// # async fn example() -> ra2a::error::Result<()> {
+/// let client = Client::from_url("https://agent.example.com")?;
+/// let msg = Message::user(vec![Part::text("Hello")]);
+/// let result = client.send_message(&MessageSendParams::new(msg)).await?;
+/// # Ok(())
+/// # }
+/// ```
+pub struct Client {
+    transport: Box<dyn Transport>,
+    interceptors: Vec<Box<dyn CallInterceptor>>,
+    card: std::sync::RwLock<Option<AgentCard>>,
 }
 
-/// Event emitted by the client during message processing.
-#[derive(Debug, Clone)]
-pub enum ClientEvent {
-    /// A task with optional update event.
-    TaskUpdate {
-        /// The current task state.
-        task: Box<Task>,
-        /// Optional update event.
-        update: Option<UpdateEvent>,
-    },
-    /// A direct message response.
-    Message(Message),
-}
+impl Client {
+    /// Creates a new client wrapping the given transport.
+    pub fn new(transport: Box<dyn Transport>) -> Self {
+        Self {
+            transport,
+            interceptors: Vec::new(),
+            card: std::sync::RwLock::new(None),
+        }
+    }
 
-/// A boxed stream of client events.
-pub type EventStream = Pin<Box<dyn Stream<Item = Result<ClientEvent>> + Send>>;
+    /// Creates a client from a base URL using [`JsonRpcTransport`].
+    pub fn from_url(base_url: impl Into<String>) -> Result<Self> {
+        let transport = JsonRpcTransport::from_url(base_url)?;
+        Ok(Self::new(Box::new(transport)))
+    }
 
-/// Abstract interface for an A2A client.
-///
-/// This trait defines the standard set of methods for interacting with an A2A agent,
-/// regardless of the underlying transport protocol. Aligned with Go's `Client` struct.
-///
-/// Streaming responses are returned as [`EventStream`] — use standard [`Stream`]
-/// combinators (`map`, `for_each`, `collect`, etc.) to process events.
-#[async_trait]
-pub trait Client: Send + Sync {
-    /// Sends a message to the agent.
+    /// Adds a call interceptor.
+    pub fn with_interceptor(mut self, interceptor: impl CallInterceptor + 'static) -> Self {
+        self.interceptors.push(Box::new(interceptor));
+        self
+    }
+
+    /// Caches an agent card for capability checks.
+    pub fn set_card(&self, card: AgentCard) {
+        *self.card.write().unwrap() = Some(card);
+    }
+
+    /// Returns the cached agent card, if any.
+    pub fn card(&self) -> Option<AgentCard> {
+        self.card.read().unwrap().clone()
+    }
+
+    // ----- A2A protocol methods (delegate to transport) ---------------------
+
+    /// Sends a message (non-streaming). Corresponds to `message/send`.
+    pub async fn send_message(&self, params: &MessageSendParams) -> Result<SendMessageResult> {
+        self.transport.send_message(params).await
+    }
+
+    /// Sends a message with streaming response. Corresponds to `message/stream`.
+    pub async fn send_message_stream(&self, params: &MessageSendParams) -> Result<EventStream> {
+        self.transport.send_message_stream(params).await
+    }
+
+    /// Retrieves a task. Corresponds to `tasks/get`.
+    pub async fn get_task(&self, params: &TaskQueryParams) -> Result<Task> {
+        self.transport.get_task(params).await
+    }
+
+    /// Lists tasks. Corresponds to `tasks/list`.
+    pub async fn list_tasks(&self, params: &ListTasksRequest) -> Result<ListTasksResponse> {
+        self.transport.list_tasks(params).await
+    }
+
+    /// Cancels a task. Corresponds to `tasks/cancel`.
+    pub async fn cancel_task(&self, params: &TaskIdParams) -> Result<Task> {
+        self.transport.cancel_task(params).await
+    }
+
+    /// Resubscribes to a task's event stream. Corresponds to `tasks/resubscribe`.
+    pub async fn resubscribe(&self, params: &TaskIdParams) -> Result<EventStream> {
+        self.transport.resubscribe(params).await
+    }
+
+    /// Sets push notification config. Corresponds to `tasks/pushNotificationConfig/set`.
+    pub async fn set_task_push_config(&self, params: &TaskPushConfig) -> Result<TaskPushConfig> {
+        self.transport.set_task_push_config(params).await
+    }
+
+    /// Gets push notification config. Corresponds to `tasks/pushNotificationConfig/get`.
+    pub async fn get_task_push_config(
+        &self,
+        params: &GetTaskPushConfigParams,
+    ) -> Result<TaskPushConfig> {
+        self.transport.get_task_push_config(params).await
+    }
+
+    /// Lists push notification configs. Corresponds to `tasks/pushNotificationConfig/list`.
+    pub async fn list_task_push_config(
+        &self,
+        params: &ListTaskPushConfigParams,
+    ) -> Result<Vec<TaskPushConfig>> {
+        self.transport.list_task_push_config(params).await
+    }
+
+    /// Deletes push notification config. Corresponds to `tasks/pushNotificationConfig/delete`.
+    pub async fn delete_task_push_config(
+        &self,
+        params: &DeleteTaskPushConfigParams,
+    ) -> Result<()> {
+        self.transport.delete_task_push_config(params).await
+    }
+
+    /// Retrieves the agent card from the server.
     ///
-    /// Returns a stream of events that may include task updates or direct messages.
-    async fn send_message(&self, message: Message) -> Result<EventStream>;
+    /// The card is also cached internally for future capability checks.
+    pub async fn get_agent_card(&self) -> Result<AgentCard> {
+        let card = self.transport.get_agent_card().await?;
+        self.set_card(card.clone());
+        Ok(card)
+    }
 
-    /// Retrieves the current state and history of a specific task.
-    async fn get_task(&self, params: TaskQueryParams) -> Result<Task>;
-
-    /// Requests the agent to cancel a specific task.
-    async fn cancel_task(&self, params: TaskIdParams) -> Result<Task>;
-
-    /// Sets or updates the push notification configuration for a task.
-    async fn set_task_callback(&self, config: TaskPushConfig) -> Result<TaskPushConfig>;
-
-    /// Retrieves the push notification configuration for a task.
-    async fn get_task_callback(&self, params: GetTaskPushConfigParams) -> Result<TaskPushConfig>;
-
-    /// Resubscribes to a task's event stream.
-    async fn resubscribe(&self, params: TaskIdParams) -> Result<EventStream>;
-
-    /// Lists all push notification configurations for a task.
-    async fn list_task_push_notification_config(
-        &self,
-        params: ListTaskPushConfigParams,
-    ) -> Result<Vec<TaskPushConfig>>;
-
-    /// Deletes a push notification configuration for a task.
-    async fn delete_task_push_notification_config(
-        &self,
-        params: DeleteTaskPushConfigParams,
-    ) -> Result<()>;
-
-    /// Retrieves the agent's card.
-    async fn get_agent_card(&self) -> Result<AgentCard>;
+    /// Releases transport resources.
+    pub async fn destroy(&self) {
+        self.transport.destroy().await;
+    }
 }
