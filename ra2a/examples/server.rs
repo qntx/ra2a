@@ -40,12 +40,10 @@ impl AgentExecutor for EchoAgent {
             .unwrap_or_default();
 
         let reply = format!("Echo: {input}");
-        let task = Task::new(&ctx.task_id, &ctx.context_id).with_status(
-            TaskStatus::with_message(
-                TaskState::Completed,
-                Message::agent(vec![Part::text(reply)]),
-            ),
-        );
+        let task = Task::new(&ctx.task_id, &ctx.context_id).with_status(TaskStatus::with_message(
+            TaskState::Completed,
+            Message::agent(vec![Part::text(reply)]),
+        ));
 
         queue.send(Event::Task(task))?;
         Ok(())

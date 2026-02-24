@@ -27,11 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match event {
                 ClientEvent::TaskUpdate { task, .. } => {
                     let state = &task.status.state;
-                    let reply = task
-                        .status
-                        .message
-                        .as_ref()
-                        .and_then(|m| m.text_content());
+                    let reply = task.status.message.as_ref().and_then(|m| m.text_content());
                     println!("  [{state:?}] {}", reply.unwrap_or_default());
                 }
                 ClientEvent::Message(msg) => {
