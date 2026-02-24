@@ -1,14 +1,17 @@
-//! gRPC support for the A2A Rust SDK.
+//! gRPC infrastructure for the A2A protocol.
 //!
-//! This module provides gRPC client and server implementations for the A2A protocol.
-//! It requires the `grpc` feature to be enabled.
+//! This module provides shared gRPC infrastructure (proto types, conversions)
+//! and the server-side gRPC service implementation. The client-side
+//! [`GrpcTransport`](crate::client::GrpcTransport) lives in [`crate::client`].
 //!
-//! # Overview
+//! # Architecture
 //!
-//! The gRPC module provides:
-//! - Generated protobuf types in the `proto` submodule
-//! - Type conversion utilities between proto and native SDK types
-//! - gRPC client and server implementations (WIP)
+//! - **Proto types**: Generated protobuf definitions in [`proto`]
+//! - **Conversions**: Bidirectional native ↔ proto type conversions
+//! - **Server**: [`GrpcServiceImpl`] implements the generated `A2aService` trait
+//!
+//! The server follows the SDK's composable design — users own the tonic server
+//! and attach [`GrpcServiceImpl`] via [`A2aServiceServer`].
 
 // Include the generated protobuf code
 #[allow(missing_docs)]

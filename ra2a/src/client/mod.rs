@@ -3,6 +3,7 @@
 //! - [`Transport`] — transport-agnostic interface for all A2A protocol operations
 //! - [`Client`] — concrete client wrapping a [`Transport`] with [`CallInterceptor`] support
 //! - [`JsonRpcTransport`] — default HTTP/JSON-RPC + SSE transport
+//! - [`GrpcTransport`] — gRPC transport (requires `grpc` feature)
 
 mod interceptor;
 mod jsonrpc;
