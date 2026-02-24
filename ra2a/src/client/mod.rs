@@ -250,7 +250,8 @@ impl Client {
                 SendMessageResult::Task(t) => Event::Task(t),
                 SendMessageResult::Message(m) => Event::Message(m),
             };
-            return Ok(Box::pin(futures::stream::once(async move { Ok(event) })));
+            let stream: EventStream = Box::pin(futures::stream::once(async move { Ok(event) }));
+            return Ok(stream);
         }
 
         let result = self.transport.send_message_stream(&params).await;
