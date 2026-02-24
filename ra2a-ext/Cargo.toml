@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "ra2a-ext"
 version.workspace = true
 edition.workspace = true
@@ -11,7 +11,7 @@ keywords = ["a2a", "agent", "protocol", "extensions"]
 categories = ["network-programming"]
 
 [dependencies]
-ra2a = { path = "../ra2a", default-features = false }
+ra2a = { workspace = true }
 serde_json.workspace = true
 tokio.workspace = true
 
