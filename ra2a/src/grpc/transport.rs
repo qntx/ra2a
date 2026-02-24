@@ -1,11 +1,15 @@
-//! gRPC transport implementation for the A2A client.
+//! gRPC transport — implements [`client::Transport`](crate::client::Transport) over gRPC.
 //!
-//! This module provides a gRPC-based transport for communicating with A2A agents.
+//! Provides [`GrpcTransport`] as a first-class alternative to
+//! [`JsonRpcTransport`](crate::client::JsonRpcTransport).
 
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use async_trait::async_trait;
 use futures::Stream;
+use tokio::sync::Mutex;
 use tonic::transport::Channel;
 
 use super::convert::{hashmap_to_struct, struct_to_hashmap};
@@ -13,23 +17,44 @@ use super::proto::{
     self, CancelTaskRequest, GetTaskRequest, SendMessageRequest, SubscribeToTaskRequest,
     a2a_service_client::A2aServiceClient,
 };
+use crate::client::{EventStream, Transport};
 use crate::error::{A2AError, Result};
 use crate::types::{
-    Message as NativeMessage, MessageSendParams, Task as NativeTask, TaskArtifactUpdateEvent,
-    TaskIdParams, TaskQueryParams, TaskStatusUpdateEvent,
+    AgentCard, Artifact, DeleteTaskPushConfigParams, Event, GetTaskPushConfigParams,
+    ListTaskPushConfigParams, ListTasksRequest, ListTasksResponse, Message, MessageSendParams,
+    SendMessageResult, Task, TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig,
+    TaskQueryParams, TaskState, TaskStatus, TaskStatusUpdateEvent,
 };
+
+// ---------------------------------------------------------------------------
+// GrpcTransport
+// ---------------------------------------------------------------------------
 
 /// gRPC transport for A2A client operations.
 ///
-/// This transport wraps the generated `A2aServiceClient` and provides
-/// a higher-level API that works with native SDK types.
+/// Implements [`Transport`] so it can be used interchangeably with
+/// [`JsonRpcTransport`](crate::client::JsonRpcTransport) via [`Client`](crate::client::Client).
+///
+/// # Example
+///
+/// ```no_run
+/// use ra2a::client::Client;
+/// use ra2a::grpc::GrpcTransport;
+///
+/// # async fn example() -> ra2a::error::Result<()> {
+/// let transport = GrpcTransport::connect("http://localhost:50051").await?;
+/// let client = Client::new(Box::new(transport));
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct GrpcTransport {
-    client: A2aServiceClient<Channel>,
+    // Arc<Mutex> because tonic client methods take &mut self
+    client: Arc<Mutex<A2aServiceClient<Channel>>>,
 }
 
 impl GrpcTransport {
-    /// Creates a new gRPC transport connected to the given endpoint.
+    /// Connects to a gRPC endpoint.
     pub async fn connect(endpoint: impl Into<String>) -> Result<Self> {
         let endpoint = endpoint.into();
         let channel = Channel::from_shared(endpoint)
@@ -37,126 +62,37 @@ impl GrpcTransport {
             .connect()
             .await
             .map_err(|e| A2AError::Other(e.to_string()))?;
-
-        Ok(Self {
-            client: A2aServiceClient::new(channel),
-        })
+        Ok(Self::from_channel(channel))
     }
 
-    /// Creates a new gRPC transport from an existing channel.
+    /// Creates a transport from an existing [`Channel`].
     #[must_use]
     pub fn from_channel(channel: Channel) -> Self {
         Self {
-            client: A2aServiceClient::new(channel),
+            client: Arc::new(Mutex::new(A2aServiceClient::new(channel))),
         }
     }
 
-    /// Sends a message to the agent and returns the response.
-    pub async fn send_message(&mut self, params: MessageSendParams) -> Result<SendMessageResult> {
-        let request = self.build_send_request(params);
-
-        let response = self
-            .client
-            .send_message(request)
-            .await
-            .map_err(|e| A2AError::Other(e.to_string()))?;
-
-        let inner = response.into_inner();
-
-        match inner.payload {
-            Some(proto::send_message_response::Payload::Task(task)) => {
-                Ok(SendMessageResult::Task(NativeTask::from(task)))
-            }
-            Some(proto::send_message_response::Payload::Message(msg)) => {
-                Ok(SendMessageResult::Message(NativeMessage::from(msg)))
-            }
-            None => Err(A2AError::InternalError("empty response".to_string())),
-        }
-    }
-
-    /// Sends a streaming message to the agent.
-    pub async fn send_streaming_message(
-        &mut self,
-        params: MessageSendParams,
-    ) -> Result<GrpcEventStream> {
-        let request = self.build_send_request(params);
-
-        let response = self
-            .client
-            .send_streaming_message(request)
-            .await
-            .map_err(|e| A2AError::Other(e.to_string()))?;
-
-        Ok(GrpcEventStream::new(response.into_inner()))
-    }
-
-    /// Gets the current state of a task.
-    pub async fn get_task(&mut self, params: TaskQueryParams) -> Result<NativeTask> {
-        let request = GetTaskRequest {
-            tenant: String::new(),
-            id: params.id,
-            history_length: params.history_length,
-        };
-
-        let response = self
-            .client
-            .get_task(request)
-            .await
-            .map_err(|e| A2AError::Other(e.to_string()))?;
-
-        Ok(NativeTask::from(response.into_inner()))
-    }
-
-    /// Cancels a task.
-    pub async fn cancel_task(&mut self, params: TaskIdParams) -> Result<NativeTask> {
-        let request = CancelTaskRequest {
-            tenant: String::new(),
-            id: params.id,
-        };
-
-        let response = self
-            .client
-            .cancel_task(request)
-            .await
-            .map_err(|e| A2AError::Other(e.to_string()))?;
-
-        Ok(NativeTask::from(response.into_inner()))
-    }
-
-    /// Subscribes to task updates.
-    pub async fn subscribe_to_task(&mut self, params: TaskIdParams) -> Result<GrpcEventStream> {
-        let request = SubscribeToTaskRequest {
-            tenant: String::new(),
-            id: params.id,
-        };
-
-        let response = self
-            .client
-            .subscribe_to_task(request)
-            .await
-            .map_err(|e| A2AError::Other(e.to_string()))?;
-
-        Ok(GrpcEventStream::new(response.into_inner()))
-    }
-
-    /// Builds a `SendMessageRequest` from params.
-    fn build_send_request(&self, params: MessageSendParams) -> SendMessageRequest {
-        let message = proto::Message::from(params.message);
-
-        let configuration = params
-            .configuration
-            .map(|config| proto::SendMessageConfiguration {
-                accepted_output_modes: config.accepted_output_modes.unwrap_or_default(),
-                push_notification_config: config
-                    .push_notification_config
-                    .map(proto::PushNotificationConfig::from),
-                history_length: config.history_length,
-                blocking: config.blocking.unwrap_or(false),
-            });
+    /// Builds a proto `SendMessageRequest` from native params.
+    fn build_send_request(params: &MessageSendParams) -> SendMessageRequest {
+        let message = proto::Message::from(params.message.clone());
+        let configuration =
+            params
+                .configuration
+                .as_ref()
+                .map(|config| proto::SendMessageConfiguration {
+                    accepted_output_modes: config.accepted_output_modes.clone(),
+                    push_notification_config: config
+                        .push_notification_config
+                        .as_ref()
+                        .map(|pc| proto::PushNotificationConfig::from(pc.clone())),
+                    history_length: config.history_length,
+                    blocking: config.blocking.unwrap_or(false),
+                });
         let metadata = if params.metadata.is_empty() {
             None
         } else {
-            hashmap_to_struct(params.metadata)
+            hashmap_to_struct(params.metadata.clone())
         };
 
         SendMessageRequest {
@@ -168,85 +104,194 @@ impl GrpcTransport {
     }
 }
 
-/// Result of a send message operation.
-#[derive(Debug, Clone)]
-pub enum SendMessageResult {
-    /// A task was returned.
-    Task(NativeTask),
-    /// A message was returned.
-    Message(NativeMessage),
-}
+#[async_trait]
+impl Transport for GrpcTransport {
+    async fn send_message(&self, params: &MessageSendParams) -> Result<SendMessageResult> {
+        let request = Self::build_send_request(params);
+        let response = self
+            .client
+            .lock()
+            .await
+            .send_message(request)
+            .await
+            .map_err(|e| A2AError::Other(e.to_string()))?;
 
-/// Stream of events from gRPC streaming responses.
-pub struct GrpcEventStream {
-    inner: tonic::Streaming<proto::StreamResponse>,
-}
+        match response.into_inner().payload {
+            Some(proto::send_message_response::Payload::Task(task)) => {
+                Ok(SendMessageResult::Task(Task::from(task)))
+            }
+            Some(proto::send_message_response::Payload::Message(msg)) => {
+                Ok(SendMessageResult::Message(Message::from(msg)))
+            }
+            None => Err(A2AError::InternalError("empty gRPC response".into())),
+        }
+    }
 
-impl GrpcEventStream {
-    /// Creates a new event stream.
-    const fn new(inner: tonic::Streaming<proto::StreamResponse>) -> Self {
-        Self { inner }
+    async fn send_message_stream(&self, params: &MessageSendParams) -> Result<EventStream> {
+        let request = Self::build_send_request(params);
+        let response = self
+            .client
+            .lock()
+            .await
+            .send_streaming_message(request)
+            .await
+            .map_err(|e| A2AError::Other(e.to_string()))?;
+
+        Ok(Box::pin(GrpcEventStream {
+            inner: response.into_inner(),
+        }))
+    }
+
+    async fn get_task(&self, params: &TaskQueryParams) -> Result<Task> {
+        let request = GetTaskRequest {
+            tenant: String::new(),
+            id: params.id.clone(),
+            history_length: params.history_length,
+        };
+        let response = self
+            .client
+            .lock()
+            .await
+            .get_task(request)
+            .await
+            .map_err(|e| A2AError::Other(e.to_string()))?;
+        Ok(Task::from(response.into_inner()))
+    }
+
+    async fn list_tasks(&self, _params: &ListTasksRequest) -> Result<ListTasksResponse> {
+        // gRPC proto does not define a ListTasks RPC yet
+        Err(A2AError::UnsupportedOperation(
+            "list_tasks not available over gRPC".into(),
+        ))
+    }
+
+    async fn cancel_task(&self, params: &TaskIdParams) -> Result<Task> {
+        let request = CancelTaskRequest {
+            tenant: String::new(),
+            id: params.id.clone(),
+        };
+        let response = self
+            .client
+            .lock()
+            .await
+            .cancel_task(request)
+            .await
+            .map_err(|e| A2AError::Other(e.to_string()))?;
+        Ok(Task::from(response.into_inner()))
+    }
+
+    async fn resubscribe(&self, params: &TaskIdParams) -> Result<EventStream> {
+        let request = SubscribeToTaskRequest {
+            tenant: String::new(),
+            id: params.id.clone(),
+        };
+        let response = self
+            .client
+            .lock()
+            .await
+            .subscribe_to_task(request)
+            .await
+            .map_err(|e| A2AError::Other(e.to_string()))?;
+
+        Ok(Box::pin(GrpcEventStream {
+            inner: response.into_inner(),
+        }))
+    }
+
+    async fn set_task_push_config(&self, _params: &TaskPushConfig) -> Result<TaskPushConfig> {
+        Err(A2AError::UnsupportedOperation(
+            "push config not available over gRPC".into(),
+        ))
+    }
+
+    async fn get_task_push_config(
+        &self,
+        _params: &GetTaskPushConfigParams,
+    ) -> Result<TaskPushConfig> {
+        Err(A2AError::UnsupportedOperation(
+            "push config not available over gRPC".into(),
+        ))
+    }
+
+    async fn list_task_push_config(
+        &self,
+        _params: &ListTaskPushConfigParams,
+    ) -> Result<Vec<TaskPushConfig>> {
+        Err(A2AError::UnsupportedOperation(
+            "push config not available over gRPC".into(),
+        ))
+    }
+
+    async fn delete_task_push_config(&self, _params: &DeleteTaskPushConfigParams) -> Result<()> {
+        Err(A2AError::UnsupportedOperation(
+            "push config not available over gRPC".into(),
+        ))
+    }
+
+    async fn get_agent_card(&self) -> Result<AgentCard> {
+        Err(A2AError::UnsupportedOperation(
+            "agent card discovery not available over gRPC".into(),
+        ))
     }
 }
 
-/// A streaming event from a gRPC response.
-#[derive(Debug, Clone)]
-pub enum GrpcStreamEvent {
-    /// A status update event.
-    StatusUpdate(TaskStatusUpdateEvent),
-    /// An artifact update event.
-    ArtifactUpdate(TaskArtifactUpdateEvent),
+// ---------------------------------------------------------------------------
+// GrpcEventStream — adapts tonic::Streaming to client::EventStream
+// ---------------------------------------------------------------------------
+
+/// Adapts a tonic streaming response into a [`Stream`] of [`Event`]s.
+struct GrpcEventStream {
+    inner: tonic::Streaming<proto::StreamResponse>,
 }
 
 impl Stream for GrpcEventStream {
-    type Item = GrpcStreamEvent;
+    type Item = Result<Event>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match Pin::new(&mut self.inner).poll_next(cx) {
-            Poll::Ready(Some(Ok(response))) => {
-                let event = convert_stream_response(response);
-                Poll::Ready(event)
-            }
-            Poll::Ready(Some(Err(_))) => Poll::Ready(None),
+            Poll::Ready(Some(Ok(response))) => match convert_stream_response(response) {
+                Some(event) => Poll::Ready(Some(Ok(event))),
+                None => {
+                    // Skip unknown payload types, poll again
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            },
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(A2AError::Other(e.to_string())))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
     }
 }
 
-/// Converts a proto `StreamResponse` to a native `GrpcStreamEvent`.
-fn convert_stream_response(response: proto::StreamResponse) -> Option<GrpcStreamEvent> {
+/// Converts a proto `StreamResponse` to a native [`Event`].
+fn convert_stream_response(response: proto::StreamResponse) -> Option<Event> {
     match response.payload {
         Some(proto::stream_response::Payload::StatusUpdate(update)) => {
-            let status = update.status.map_or_else(
-                || crate::types::TaskStatus::new(crate::types::TaskState::Unknown),
-                crate::types::TaskStatus::from,
-            );
+            let status = update
+                .status
+                .map_or_else(|| TaskStatus::new(TaskState::Unknown), TaskStatus::from);
             let mut event =
                 TaskStatusUpdateEvent::new(update.task_id, update.context_id, status, false);
             event.metadata = update
                 .metadata
                 .and_then(struct_to_hashmap)
                 .unwrap_or_default();
-            Some(GrpcStreamEvent::StatusUpdate(event))
+            Some(Event::StatusUpdate(event))
         }
         Some(proto::stream_response::Payload::ArtifactUpdate(update)) => {
-            let artifact = update.artifact.map_or_else(
-                || crate::types::Artifact::new("", vec![]),
-                crate::types::Artifact::from,
-            );
-            let mut event = crate::types::TaskArtifactUpdateEvent::new(
-                update.task_id,
-                update.context_id,
-                artifact,
-            );
+            let artifact = update
+                .artifact
+                .map_or_else(|| Artifact::new("", vec![]), Artifact::from);
+            let mut event =
+                TaskArtifactUpdateEvent::new(update.task_id, update.context_id, artifact);
             event.append = update.append;
             event.last_chunk = update.last_chunk;
             event.metadata = update
                 .metadata
                 .and_then(struct_to_hashmap)
                 .unwrap_or_default();
-            Some(GrpcStreamEvent::ArtifactUpdate(event))
+            Some(Event::ArtifactUpdate(event))
         }
         _ => None,
     }

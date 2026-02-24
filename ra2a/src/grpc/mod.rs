@@ -26,8 +26,7 @@ mod server;
 mod transport;
 
 pub use convert::{hashmap_to_struct, json_to_struct, struct_to_hashmap, struct_to_json};
-// Re-export commonly used types from proto
 pub use proto::a2a_service_client::A2aServiceClient;
 pub use proto::a2a_service_server::{A2aService, A2aServiceServer};
 pub use server::{GrpcServerBuilder, GrpcServiceImpl, serve_grpc};
-pub use transport::{GrpcEventStream, GrpcTransport, SendMessageResult};
+pub use transport::GrpcTransport;

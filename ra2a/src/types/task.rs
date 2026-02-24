@@ -2,7 +2,7 @@
 //!
 //! Aligned with Go's `Task`, `TaskStatus`, `Artifact`, and event types.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::{Message, Metadata, Part};
 
@@ -287,12 +287,12 @@ pub struct Artifact {
     pub artifact_id: String,
     /// Content parts that make up the artifact.
     pub parts: Vec<Part>,
-    /// Optional human-readable name.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    /// Optional description.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    /// Human-readable name (empty = not set).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    /// Human-readable description (empty = not set).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
     /// Extension URIs relevant to this artifact.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<String>,
@@ -307,8 +307,8 @@ impl Artifact {
         Self {
             artifact_id: artifact_id.into(),
             parts,
-            name: None,
-            description: None,
+            name: String::new(),
+            description: String::new(),
             extensions: Vec::new(),
             metadata: Metadata::new(),
         }
@@ -453,7 +453,11 @@ impl TaskArtifactUpdateEvent {
 ///
 /// Aligned with Go's `Event` interface — represents any event that can be
 /// sent over a streaming connection.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+///
+/// Uses the `"kind"` discriminator for deserialization, matching Go's
+/// `UnmarshalEventJSON`. Serialization delegates to each variant's custom
+/// `Serialize` impl which injects `"kind"` automatically.
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum Event {
     /// A complete task snapshot.
@@ -464,6 +468,30 @@ pub enum Event {
     StatusUpdate(TaskStatusUpdateEvent),
     /// An artifact creation/update notification.
     ArtifactUpdate(TaskArtifactUpdateEvent),
+}
+
+impl<'de> Deserialize<'de> for Event {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let kind = value.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        match kind {
+            "task" => Task::deserialize(value)
+                .map(Event::Task)
+                .map_err(serde::de::Error::custom),
+            "message" => Message::deserialize(value)
+                .map(Event::Message)
+                .map_err(serde::de::Error::custom),
+            "status-update" => TaskStatusUpdateEvent::deserialize(value)
+                .map(Event::StatusUpdate)
+                .map_err(serde::de::Error::custom),
+            "artifact-update" => TaskArtifactUpdateEvent::deserialize(value)
+                .map(Event::ArtifactUpdate)
+                .map_err(serde::de::Error::custom),
+            other => Err(serde::de::Error::custom(format!(
+                "unknown event kind: {other:?}"
+            ))),
+        }
+    }
 }
 
 impl Event {
@@ -530,13 +558,32 @@ impl Event {
 /// Result of a non-streaming `message/send` — either a Task or a Message.
 ///
 /// Aligned with Go's `SendMessageResult` interface.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Uses `"kind"` discriminator for deserialization.
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum SendMessageResult {
     /// A task was created or updated.
     Task(Task),
     /// A direct message reply (no task created).
     Message(Message),
+}
+
+impl<'de> Deserialize<'de> for SendMessageResult {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let kind = value.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        match kind {
+            "task" => Task::deserialize(value)
+                .map(Self::Task)
+                .map_err(serde::de::Error::custom),
+            "message" => Message::deserialize(value)
+                .map(Self::Message)
+                .map_err(serde::de::Error::custom),
+            other => Err(serde::de::Error::custom(format!(
+                "unknown result kind: {other:?}"
+            ))),
+        }
+    }
 }
 
 impl From<Task> for SendMessageResult {

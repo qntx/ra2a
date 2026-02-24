@@ -1,28 +1,77 @@
-//! A2A client — concrete [`Client`] struct wrapping a [`Transport`].
+//! A2A client module.
 //!
-//! Architecture aligned with Go's `a2aclient` package:
-//!
-//! - [`Transport`] trait defines transport-agnostic A2A operations
-//! - [`Client`] struct wraps a transport and applies [`CallInterceptor`]s
-//! - [`Factory`] creates clients from agent cards or URLs
-//! - [`JsonRpcTransport`] is the default HTTP/JSON-RPC transport
+//! - [`Transport`] — transport-agnostic interface for all A2A protocol operations
+//! - [`Client`] — concrete client wrapping a [`Transport`] with [`CallInterceptor`] support
+//! - [`JsonRpcTransport`] — default HTTP/JSON-RPC + SSE transport
 
-mod factory;
 mod interceptor;
 mod jsonrpc;
-mod transport;
 
-pub use factory::Factory;
+use std::pin::Pin;
+
+use async_trait::async_trait;
+use futures::Stream;
 pub use interceptor::{CallContext, CallInterceptor, CallMeta, Request, Response};
 pub use jsonrpc::{JsonRpcTransport, TransportConfig};
-pub use transport::{EventStream, Transport};
 
 use crate::error::Result;
 use crate::types::{
-    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
-    ListTasksRequest, ListTasksResponse, MessageSendParams, SendMessageResult, Task, TaskIdParams,
-    TaskPushConfig, TaskQueryParams,
+    AgentCard, DeleteTaskPushConfigParams, Event, GetTaskPushConfigParams,
+    ListTaskPushConfigParams, ListTasksRequest, ListTasksResponse, MessageSendParams,
+    SendMessageResult, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
 };
+
+/// A boxed stream of protocol [`Event`]s for streaming responses.
+pub type EventStream = Pin<Box<dyn Stream<Item = Result<Event>> + Send>>;
+
+/// Transport-agnostic interface for all A2A protocol operations.
+///
+/// Each method corresponds to a single A2A protocol method. The transport
+/// handles serialization, HTTP/gRPC details, and SSE parsing internally.
+#[async_trait]
+pub trait Transport: Send + Sync {
+    /// Sends a message (non-streaming). Corresponds to `message/send`.
+    async fn send_message(&self, params: &MessageSendParams) -> Result<SendMessageResult>;
+
+    /// Sends a message with streaming response. Corresponds to `message/stream`.
+    async fn send_message_stream(&self, params: &MessageSendParams) -> Result<EventStream>;
+
+    /// Retrieves a task. Corresponds to `tasks/get`.
+    async fn get_task(&self, params: &TaskQueryParams) -> Result<Task>;
+
+    /// Lists tasks. Corresponds to `tasks/list`.
+    async fn list_tasks(&self, params: &ListTasksRequest) -> Result<ListTasksResponse>;
+
+    /// Cancels a task. Corresponds to `tasks/cancel`.
+    async fn cancel_task(&self, params: &TaskIdParams) -> Result<Task>;
+
+    /// Resubscribes to a task's event stream. Corresponds to `tasks/resubscribe`.
+    async fn resubscribe(&self, params: &TaskIdParams) -> Result<EventStream>;
+
+    /// Sets push notification config for a task.
+    async fn set_task_push_config(&self, params: &TaskPushConfig) -> Result<TaskPushConfig>;
+
+    /// Gets push notification config for a task.
+    async fn get_task_push_config(
+        &self,
+        params: &GetTaskPushConfigParams,
+    ) -> Result<TaskPushConfig>;
+
+    /// Lists push notification configs for a task.
+    async fn list_task_push_config(
+        &self,
+        params: &ListTaskPushConfigParams,
+    ) -> Result<Vec<TaskPushConfig>>;
+
+    /// Deletes push notification config for a task.
+    async fn delete_task_push_config(&self, params: &DeleteTaskPushConfigParams) -> Result<()>;
+
+    /// Retrieves the agent card.
+    async fn get_agent_card(&self) -> Result<AgentCard>;
+
+    /// Releases any resources held by the transport.
+    async fn destroy(&self) {}
+}
 
 /// A2A protocol client.
 ///
@@ -134,10 +183,7 @@ impl Client {
     }
 
     /// Deletes push notification config. Corresponds to `tasks/pushNotificationConfig/delete`.
-    pub async fn delete_task_push_config(
-        &self,
-        params: &DeleteTaskPushConfigParams,
-    ) -> Result<()> {
+    pub async fn delete_task_push_config(&self, params: &DeleteTaskPushConfigParams) -> Result<()> {
         self.transport.delete_task_push_config(params).await
     }
 

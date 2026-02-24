@@ -1,16 +1,21 @@
-//! Request handler trait and JSON-RPC dispatcher for the A2A server.
+//! Request handler trait, implementations, and JSON-RPC dispatcher.
 //!
-//! Defines the [`RequestHandler`] trait (the server-side interface for all
-//! A2A JSON-RPC methods) and the [`handle_request`] dispatcher that routes
-//! incoming JSON bodies to the appropriate method.
+//! - [`RequestHandler`] — trait for handling all A2A JSON-RPC methods
+//! - [`DefaultRequestHandler`] — standard implementation coordinating executor, stores, queues
+//! - [`InterceptedHandler`] — decorator applying [`CallInterceptor`](super::CallInterceptor)s
+
+mod default;
+mod intercepted;
 
 use std::pin::Pin;
 
 use async_trait::async_trait;
+pub use default::DefaultRequestHandler;
 use futures::Stream;
+pub use intercepted::InterceptedHandler;
 
 use super::ServerState;
-use super::events::Event;
+use super::event::Event;
 use crate::error::{JsonRpcError, Result};
 use crate::jsonrpc::{self, JsonRpcErrorResponse, JsonRpcRequest, JsonRpcSuccessResponse};
 use crate::types::{

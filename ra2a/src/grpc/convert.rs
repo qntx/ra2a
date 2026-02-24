@@ -100,13 +100,13 @@ impl From<NativePart> for proto::Part {
                         ) {
                             proto_part.content = Some(proto::part::Content::Raw(bytes));
                         }
-                        proto_part.filename = file_bytes.name.unwrap_or_default();
-                        proto_part.media_type = file_bytes.mime_type.unwrap_or_default();
+                        proto_part.filename = file_bytes.name;
+                        proto_part.media_type = file_bytes.mime_type;
                     }
                     FileContent::Uri(file_uri) => {
                         proto_part.content = Some(proto::part::Content::Url(file_uri.uri));
-                        proto_part.filename = file_uri.name.unwrap_or_default();
-                        proto_part.media_type = file_uri.mime_type.unwrap_or_default();
+                        proto_part.filename = file_uri.name;
+                        proto_part.media_type = file_uri.mime_type;
                     }
                 }
                 if !file_part.metadata.is_empty() {
@@ -150,16 +150,8 @@ impl From<proto::Part> for NativePart {
                     base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
                 let file_bytes = FileBytes {
                     bytes: encoded,
-                    name: if part.filename.is_empty() {
-                        None
-                    } else {
-                        Some(part.filename)
-                    },
-                    mime_type: if part.media_type.is_empty() {
-                        None
-                    } else {
-                        Some(part.media_type)
-                    },
+                    name: part.filename,
+                    mime_type: part.media_type,
                 };
                 Self::File(NativeFilePart {
                     file: FileContent::Bytes(file_bytes),
@@ -169,16 +161,8 @@ impl From<proto::Part> for NativePart {
             Some(proto::part::Content::Url(url)) => {
                 let file_uri = FileUri {
                     uri: url,
-                    name: if part.filename.is_empty() {
-                        None
-                    } else {
-                        Some(part.filename.clone())
-                    },
-                    mime_type: if part.media_type.is_empty() {
-                        None
-                    } else {
-                        Some(part.media_type.clone())
-                    },
+                    name: part.filename.clone(),
+                    mime_type: part.media_type.clone(),
                 };
                 Self::File(NativeFilePart {
                     file: FileContent::Uri(file_uri),
@@ -245,8 +229,8 @@ impl From<NativeArtifact> for proto::Artifact {
     fn from(artifact: NativeArtifact) -> Self {
         Self {
             artifact_id: artifact.artifact_id,
-            name: artifact.name.unwrap_or_default(),
-            description: artifact.description.unwrap_or_default(),
+            name: artifact.name,
+            description: artifact.description,
             parts: artifact.parts.into_iter().map(proto::Part::from).collect(),
             metadata: if artifact.metadata.is_empty() {
                 None
@@ -262,16 +246,8 @@ impl From<proto::Artifact> for NativeArtifact {
     fn from(artifact: proto::Artifact) -> Self {
         Self {
             artifact_id: artifact.artifact_id,
-            name: if artifact.name.is_empty() {
-                None
-            } else {
-                Some(artifact.name)
-            },
-            description: if artifact.description.is_empty() {
-                None
-            } else {
-                Some(artifact.description)
-            },
+            name: artifact.name,
+            description: artifact.description,
             parts: artifact.parts.into_iter().map(NativePart::from).collect(),
             metadata: artifact
                 .metadata

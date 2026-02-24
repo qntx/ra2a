@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use futures::stream;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap};
 
-use super::transport::{EventStream, Transport};
+use super::{EventStream, Transport};
 use crate::error::{A2AError, Result};
 use crate::jsonrpc::{self, JsonRpcRequest, JsonRpcResponse};
 use crate::types::{
@@ -138,9 +138,7 @@ impl JsonRpcTransport {
             // Server returned a single JSON-RPC response instead of SSE.
             let rpc: JsonRpcResponse<Event> = resp.json().await?;
             match rpc {
-                JsonRpcResponse::Success(s) => {
-                    Ok(Box::pin(stream::iter(vec![Ok(s.result)])))
-                }
+                JsonRpcResponse::Success(s) => Ok(Box::pin(stream::iter(vec![Ok(s.result)]))),
                 JsonRpcResponse::Error(e) => Err(A2AError::JsonRpc(e.error)),
             }
         }
@@ -154,7 +152,8 @@ impl Transport for JsonRpcTransport {
     }
 
     async fn send_message_stream(&self, params: &MessageSendParams) -> Result<EventStream> {
-        self.rpc_stream(jsonrpc::METHOD_MESSAGE_STREAM, params).await
+        self.rpc_stream(jsonrpc::METHOD_MESSAGE_STREAM, params)
+            .await
     }
 
     async fn get_task(&self, params: &TaskQueryParams) -> Result<Task> {
@@ -239,10 +238,7 @@ fn parse_sse_stream(response: reqwest::Response) -> EventStream {
                     }
                     Ok(None) => return None,
                     Err(e) => {
-                        return Some((
-                            Err(A2AError::Other(e.to_string())),
-                            (bytes, buf),
-                        ));
+                        return Some((Err(A2AError::Other(e.to_string())), (bytes, buf)));
                     }
                 }
             }
@@ -278,12 +274,11 @@ fn parse_sse_message(message: &str) -> Option<Result<Event>> {
     }
 
     // Try parsing as JSON-RPC response wrapping an Event.
-    let result: Result<Event> =
-        match serde_json::from_str::<JsonRpcResponse<Event>>(&data) {
-            Ok(JsonRpcResponse::Success(s)) => Ok(s.result),
-            Ok(JsonRpcResponse::Error(e)) => Err(A2AError::JsonRpc(e.error)),
-            Err(e) => Err(A2AError::Other(format!("SSE parse error: {e}"))),
-        };
+    let result: Result<Event> = match serde_json::from_str::<JsonRpcResponse<Event>>(&data) {
+        Ok(JsonRpcResponse::Success(s)) => Ok(s.result),
+        Ok(JsonRpcResponse::Error(e)) => Err(A2AError::JsonRpc(e.error)),
+        Err(e) => Err(A2AError::Other(format!("SSE parse error: {e}"))),
+    };
 
     Some(result)
 }

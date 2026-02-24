@@ -50,7 +50,7 @@ tonic-prost-build = { workspace = true, optional = true }
 default = ["client", "server"]
 client = []
 server = ["axum", "tower", "tower-http", "http-body", "http-body-util"]
-grpc = ["tonic", "prost", "prost-types", "tonic-prost", "tonic-prost-build", "google-api-proto", "base64", "tokio-stream"]
+grpc = ["client", "tonic", "prost", "prost-types", "tonic-prost", "tonic-prost-build", "google-api-proto", "base64", "tokio-stream"]
 telemetry = ["opentelemetry", "tracing-opentelemetry"]
 postgresql = ["sqlx", "sqlx/postgres"]
 mysql = ["sqlx", "sqlx/mysql"]

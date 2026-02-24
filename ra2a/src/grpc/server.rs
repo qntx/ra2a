@@ -82,7 +82,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         if let Some(config) = req.configuration {
             let mut send_config = MessageSendConfig {
                 blocking: Some(config.blocking),
-                accepted_output_modes: Some(config.accepted_output_modes.clone()),
+                accepted_output_modes: config.accepted_output_modes.clone(),
                 ..Default::default()
             };
             if let Some(history_length) = config.history_length
@@ -152,7 +152,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
                 send_config.history_length = Some(history_length);
             }
             if !config.accepted_output_modes.is_empty() {
-                send_config.accepted_output_modes = Some(config.accepted_output_modes);
+                send_config.accepted_output_modes = config.accepted_output_modes;
             }
             if let Some(push_config) = config.push_notification_config {
                 send_config.push_notification_config = Some(NativePushConfig::from(push_config));
@@ -432,7 +432,11 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
             version: card.version.clone(),
             supported_interfaces: vec![],
             provider: None,
-            documentation_url: card.documentation_url.clone(),
+            documentation_url: if card.documentation_url.is_empty() {
+                None
+            } else {
+                Some(card.documentation_url.clone())
+            },
             capabilities: None,
             security_schemes: std::collections::HashMap::new(),
             security_requirements: vec![],
@@ -440,7 +444,11 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
             default_output_modes: card.default_output_modes.clone(),
             skills: vec![],
             signatures: vec![],
-            icon_url: card.icon_url.clone(),
+            icon_url: if card.icon_url.is_empty() {
+                None
+            } else {
+                Some(card.icon_url.clone())
+            },
         }))
     }
 

@@ -44,8 +44,8 @@ impl MessageSendParams {
 #[serde(rename_all = "camelCase")]
 pub struct MessageSendConfig {
     /// A list of output MIME types the client accepts.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub accepted_output_modes: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accepted_output_modes: Vec<String>,
     /// If true, the client will wait for the task to complete.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocking: Option<bool>,

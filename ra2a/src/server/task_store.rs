@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 
 use crate::error::Result;
-use crate::server::events::Event;
+use crate::server::event::Event;
 use crate::types::{ListTasksRequest, ListTasksResponse, Task, TaskVersion};
 
 /// Agent Task Store interface.

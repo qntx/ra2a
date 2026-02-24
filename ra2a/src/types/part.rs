@@ -30,24 +30,24 @@ impl Part {
     }
 
     /// Creates a file part with inline bytes.
-    pub fn file_bytes(bytes: impl Into<String>, mime_type: impl Into<Option<String>>) -> Self {
+    pub fn file_bytes(bytes: impl Into<String>, mime_type: impl Into<String>) -> Self {
         Self::File(FilePart {
             file: FileContent::Bytes(FileBytes {
                 bytes: bytes.into(),
                 mime_type: mime_type.into(),
-                name: None,
+                name: String::new(),
             }),
             metadata: Default::default(),
         })
     }
 
     /// Creates a file part with a URI reference.
-    pub fn file_uri(uri: impl Into<String>, mime_type: impl Into<Option<String>>) -> Self {
+    pub fn file_uri(uri: impl Into<String>, mime_type: impl Into<String>) -> Self {
         Self::File(FilePart {
             file: FileContent::Uri(FileUri {
                 uri: uri.into(),
                 mime_type: mime_type.into(),
-                name: None,
+                name: String::new(),
             }),
             metadata: Default::default(),
         })
@@ -119,19 +119,19 @@ pub enum FileContent {
 }
 
 impl FileContent {
-    /// Returns the MIME type if present.
-    pub fn mime_type(&self) -> Option<&str> {
+    /// Returns the MIME type (empty = not set).
+    pub fn mime_type(&self) -> &str {
         match self {
-            Self::Bytes(f) => f.mime_type.as_deref(),
-            Self::Uri(f) => f.mime_type.as_deref(),
+            Self::Bytes(f) => &f.mime_type,
+            Self::Uri(f) => &f.mime_type,
         }
     }
 
-    /// Returns the file name if present.
-    pub fn name(&self) -> Option<&str> {
+    /// Returns the file name (empty = not set).
+    pub fn name(&self) -> &str {
         match self {
-            Self::Bytes(f) => f.name.as_deref(),
-            Self::Uri(f) => f.name.as_deref(),
+            Self::Bytes(f) => &f.name,
+            Self::Uri(f) => &f.name,
         }
     }
 }
@@ -142,12 +142,12 @@ impl FileContent {
 pub struct FileBytes {
     /// Base64-encoded file content.
     pub bytes: String,
-    /// Optional MIME type (e.g. `"application/pdf"`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mime_type: Option<String>,
-    /// Optional file name.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    /// MIME type (e.g. `"application/pdf"`, empty = not set).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mime_type: String,
+    /// File name (empty = not set).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
 }
 
 /// File with content at a URI.
@@ -156,10 +156,10 @@ pub struct FileBytes {
 pub struct FileUri {
     /// URI pointing to the file content.
     pub uri: String,
-    /// Optional MIME type.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mime_type: Option<String>,
-    /// Optional file name.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    /// MIME type (empty = not set).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mime_type: String,
+    /// File name (empty = not set).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
 }

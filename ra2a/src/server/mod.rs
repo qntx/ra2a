@@ -1,31 +1,31 @@
-//! A2A Server implementation.
+//! A2A Server module.
 //!
-//! This module provides the server-side implementation for building A2A agents.
-//!
-//! # Features
-//!
-//! - **HTTP Server**: Axum-based HTTP server with JSON-RPC endpoint
-//! - **SSE Streaming**: Server-Sent Events for real-time task updates
-//! - **Event Queue**: Broadcast-based event distribution to subscribers
-//! - **Task Management**: Task lifecycle and state management
+//! - [`AgentExecutor`] — trait for implementing agent business logic
+//! - [`RequestHandler`] — trait defining all A2A JSON-RPC method handlers
+//! - [`DefaultRequestHandler`] — standard implementation coordinating executor, stores, queues
+//! - [`InterceptedHandler`] — decorator applying [`CallInterceptor`]s
+//! - [`A2AServer`] / [`A2AServerBuilder`] — Axum HTTP/SSE server
+//! - [`TaskStore`] / [`EventQueue`] / [`PushConfigStore`] — storage and eventing
 
-mod app;
-mod default_handler;
-mod events;
+mod event;
+mod executor;
 mod handler;
-mod intercepted_handler;
+mod http;
 mod middleware;
 mod push;
 mod task_store;
 
 use std::sync::Arc;
 
-pub use app::{A2AServer, A2AServerBuilder, ServerConfig};
 use async_trait::async_trait;
-pub use default_handler::DefaultRequestHandler;
-pub use events::{Event, EventQueue, QueueManager};
-pub use handler::{EventStream, RequestHandler, handle_request};
-pub use intercepted_handler::InterceptedHandler;
+pub use event::{Event, EventQueue, QueueManager};
+pub use executor::{
+    AgentExecutor, ReferencedTasksLoader, RequestContext, RequestContextInterceptor,
+};
+pub use handler::{
+    DefaultRequestHandler, EventStream, InterceptedHandler, RequestHandler, handle_request,
+};
+pub use http::{A2AServer, A2AServerBuilder, ServerConfig};
 pub use middleware::{
     AuthenticatedUser, CallContext, CallInterceptor, PassthroughInterceptor, Request, RequestMeta,
     Response, UnauthenticatedUser, User,
@@ -36,13 +36,15 @@ pub use push::{
 pub use task_store::{InMemoryTaskStore, TaskStore};
 
 use crate::error::Result;
-use crate::types::{AgentCard, Message, Task};
+use crate::types::AgentCard;
+
+// ---------------------------------------------------------------------------
+// AgentCardProducer
+// ---------------------------------------------------------------------------
 
 /// Trait for producing agent cards dynamically.
 ///
-/// Aligned with Go's `AgentCardProducer` interface in `agentcard.go`.
 /// Allows agent cards to vary based on request context (e.g. authentication).
-///
 /// For static cards, [`AgentCard`] itself implements this trait.
 #[async_trait]
 pub trait AgentCardProducer: Send + Sync {
@@ -50,7 +52,6 @@ pub trait AgentCardProducer: Send + Sync {
     async fn card(&self) -> Result<AgentCard>;
 }
 
-/// A static card always returns a clone of itself.
 #[async_trait]
 impl AgentCardProducer for AgentCard {
     async fn card(&self) -> Result<Self> {
@@ -58,148 +59,17 @@ impl AgentCardProducer for AgentCard {
     }
 }
 
-/// Trait for implementing agent execution logic.
-///
-/// Aligned with Go's `AgentExecutor` interface in `agentexec.go`.
-/// The agent translates its outputs to A2A events and writes them to the
-/// provided [`EventQueue`]. The server stops processing after:
-/// - A [`Message`] event with any payload
-/// - A [`TaskStatusUpdateEvent`](crate::types::TaskStatusUpdateEvent) with `final = true`
-/// - A [`Task`] with a terminal [`TaskState`](crate::types::TaskState)
-///
-/// The agent card is passed separately via [`HandlerBuilder`] or
-/// [`ServerState`], not through this trait (aligned with Go's design).
-#[async_trait]
-pub trait AgentExecutor: Send + Sync {
-    /// Executes the agent for an incoming message.
-    ///
-    /// The triggering message is available via [`RequestContext::message`].
-    /// Write A2A events to `queue`; the server consumes them for streaming
-    /// and persistence.
-    async fn execute(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()>;
-
-    /// Cancels an ongoing task.
-    ///
-    /// Write a cancellation event to `queue` (e.g. a [`Task`] with
-    /// [`TaskState::Canceled`](crate::types::TaskState::Canceled)).
-    async fn cancel(&self, ctx: &RequestContext, queue: &EventQueue) -> Result<()>;
-}
-
-/// Request context passed to the executor during message processing.
-///
-/// Aligned with Go's `RequestContext` in `reqctx.go`. Carries task identity,
-/// the triggering message, and any previously stored task.
-#[derive(Debug, Clone)]
-pub struct RequestContext {
-    /// The task ID being processed (or newly generated).
-    pub task_id: String,
-    /// The context ID for maintaining session state.
-    pub context_id: String,
-    /// The message that triggered this execution. `None` for cancel requests.
-    pub message: Option<Message>,
-    /// The existing task if the message references one.
-    pub stored_task: Option<Task>,
-    /// Tasks referenced by `Message.reference_task_ids`, loaded by interceptors.
-    pub related_tasks: Vec<Task>,
-    /// Additional metadata from the request.
-    pub metadata: crate::types::Metadata,
-}
-
-impl RequestContext {
-    /// Creates a new request context.
-    pub fn new(task_id: impl Into<String>, context_id: impl Into<String>) -> Self {
-        Self {
-            task_id: task_id.into(),
-            context_id: context_id.into(),
-            message: None,
-            stored_task: None,
-            related_tasks: Vec::new(),
-            metadata: std::collections::HashMap::new(),
-        }
-    }
-
-    /// Creates a new request context with auto-generated IDs.
-    #[must_use]
-    pub fn create() -> Self {
-        Self::new(
-            uuid::Uuid::new_v4().to_string(),
-            uuid::Uuid::new_v4().to_string(),
-        )
-    }
-}
-
-/// Extension point for modifying [`RequestContext`] before it reaches [`AgentExecutor`].
-///
-/// Aligned with Go's `RequestContextInterceptor` in `reqctx.go`.
-/// Multiple interceptors are applied in order of registration.
-#[async_trait]
-pub trait RequestContextInterceptor: Send + Sync {
-    /// Intercept and optionally modify the request context before execution.
-    async fn intercept(&self, ctx: &mut RequestContext) -> Result<()>;
-}
-
-/// Loads tasks referenced by [`Message::reference_task_ids`](crate::types::Message)
-/// into [`RequestContext::related_tasks`].
-///
-/// Aligned with Go's `ReferencedTasksLoader`.
-pub struct ReferencedTasksLoader {
-    store: Arc<dyn TaskStore>,
-}
-
-impl ReferencedTasksLoader {
-    /// Creates a new loader backed by the given task store.
-    pub fn new(store: Arc<dyn TaskStore>) -> Self {
-        Self { store }
-    }
-}
-
-#[async_trait]
-impl RequestContextInterceptor for ReferencedTasksLoader {
-    async fn intercept(&self, ctx: &mut RequestContext) -> Result<()> {
-        let reference_ids = match ctx.message.as_ref() {
-            Some(m) if !m.reference_task_ids.is_empty() => m.reference_task_ids.clone(),
-            _ => return Ok(()),
-        };
-
-        let mut tasks = Vec::new();
-        for task_id in &reference_ids {
-            match self.store.get(task_id).await {
-                Ok(Some((t, _version))) => tasks.push(t),
-                Ok(None) => {
-                    tracing::info!(referenced_task_id = %task_id, "Referenced task not found");
-                }
-                Err(e) => {
-                    tracing::info!(error = %e, referenced_task_id = %task_id, "Failed to load referenced task");
-                }
-            }
-        }
-
-        if !tasks.is_empty() {
-            ctx.related_tasks = tasks;
-        }
-        Ok(())
-    }
-}
-
 // ---------------------------------------------------------------------------
-// HandlerBuilder (Go: NewHandler + RequestHandlerOption)
+// HandlerBuilder
 // ---------------------------------------------------------------------------
 
 /// Builder for constructing a fully-configured [`InterceptedHandler`].
 ///
-/// Aligned with Go's `NewHandler(executor, ...RequestHandlerOption)`.
-/// Assembles both the inner [`DefaultRequestHandler`] and the outer
-/// [`InterceptedHandler`] in a single builder chain.
-///
 /// # Example
 /// ```ignore
-/// use std::sync::Arc;
-/// use ra2a::server::HandlerBuilder;
-///
 /// let handler = HandlerBuilder::new(my_executor, my_agent_card)
 ///     .with_task_store(my_store)
 ///     .with_push_notifications(push_store, push_sender)
-///     .with_call_interceptor(Arc::new(my_interceptor))
 ///     .build();
 /// ```
 pub struct HandlerBuilder {
@@ -215,8 +85,6 @@ pub struct HandlerBuilder {
 
 impl HandlerBuilder {
     /// Creates a new builder with the given agent executor and agent card.
-    ///
-    /// Aligned with Go's `NewHandler(executor, ...RequestHandlerOption)`.
     pub fn new(executor: impl AgentExecutor + 'static, agent_card: AgentCard) -> Self {
         Self {
             executor: Box::new(executor),
@@ -231,24 +99,18 @@ impl HandlerBuilder {
     }
 
     /// Overrides the task store (default: in-memory).
-    ///
-    /// Aligned with Go's `WithTaskStore`.
     pub fn with_task_store(mut self, store: Arc<dyn TaskStore>) -> Self {
         self.task_store = Some(store);
         self
     }
 
     /// Overrides the event queue manager (default: in-memory).
-    ///
-    /// Aligned with Go's `WithEventQueueManager`.
     pub fn with_queue_manager(mut self, manager: Arc<QueueManager>) -> Self {
         self.queue_manager = Some(manager);
         self
     }
 
     /// Adds push notification support.
-    ///
-    /// Aligned with Go's `WithPushNotifications`.
     pub fn with_push_notifications(
         mut self,
         store: Arc<dyn PushConfigStore>,
@@ -260,8 +122,6 @@ impl HandlerBuilder {
     }
 
     /// Adds a request context interceptor.
-    ///
-    /// Aligned with Go's `WithRequestContextInterceptor`.
     pub fn with_request_context_interceptor(
         mut self,
         interceptor: Arc<dyn RequestContextInterceptor>,
@@ -271,8 +131,6 @@ impl HandlerBuilder {
     }
 
     /// Adds a call interceptor (applied by [`InterceptedHandler`]).
-    ///
-    /// Aligned with Go's `WithCallInterceptor`.
     pub fn with_call_interceptor(mut self, interceptor: Arc<dyn CallInterceptor>) -> Self {
         self.call_interceptors.push(interceptor);
         self
@@ -306,6 +164,10 @@ impl HandlerBuilder {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ServerState
+// ---------------------------------------------------------------------------
+
 /// Server state shared across all request handlers.
 ///
 /// Holds an [`AgentCardProducer`] for the well-known endpoint and a boxed
@@ -338,8 +200,7 @@ impl ServerState {
         }
     }
 
-    /// Convenience constructor: wraps an [`AgentExecutor`] in a
-    /// [`DefaultRequestHandler`] automatically.
+    /// Convenience: wraps an [`AgentExecutor`] in a [`DefaultRequestHandler`].
     pub fn from_executor(executor: impl AgentExecutor + 'static, agent_card: AgentCard) -> Self {
         let card_producer: Arc<dyn AgentCardProducer> = Arc::new(agent_card.clone());
         let handler = Arc::new(DefaultRequestHandler::new(executor, agent_card));

@@ -9,10 +9,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt;
 
-use super::handler::{EventStream, RequestHandler};
-use super::middleware::{CallContext, CallInterceptor, Request, RequestMeta, Response};
+use super::{EventStream, RequestHandler};
 use crate::error::{A2AError, Result};
 use crate::jsonrpc;
+use crate::server::middleware::{CallContext, CallInterceptor, Request, RequestMeta, Response};
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
     ListTasksRequest, ListTasksResponse, MessageSendParams, SendMessageResult, Task, TaskIdParams,
@@ -121,7 +121,7 @@ impl InterceptedHandler {
                         }
                         match resp
                             .payload
-                            .and_then(|p| p.downcast::<super::events::Event>().ok())
+                            .and_then(|p| p.downcast::<crate::server::event::Event>().ok())
                         {
                             Some(e) => Ok(*e),
                             None => Err(A2AError::Other("missing event after interceptor".into())),

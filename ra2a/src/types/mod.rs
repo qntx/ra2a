@@ -6,8 +6,8 @@
 //! Aligned with Go's `a2a` package layout.
 
 mod agent;
-mod params;
 mod message;
+mod params;
 mod part;
 mod push;
 mod task;
@@ -20,13 +20,13 @@ pub use agent::{
     OAuth2SecurityScheme, OAuthFlows, OpenIdConnectSecurityScheme, PasswordOAuthFlow,
     SecurityScheme, TransportProtocol,
 };
+// -- Message --
+pub use message::{Message, Role};
 // -- Request parameter types --
 pub use params::{
     ListTasksRequest, ListTasksResponse, MessageSendConfig, MessageSendParams, TaskIdParams,
     TaskQueryParams,
 };
-// -- Message --
-pub use message::{Message, Role};
 // -- Content parts --
 pub use part::{DataPart, FileBytes, FileContent, FilePart, FileUri, Part, TextPart};
 // -- Push notification types (aligned with Go's push.go) --

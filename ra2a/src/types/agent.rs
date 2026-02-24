@@ -12,21 +12,62 @@ use super::Metadata;
 // Transport protocol
 // ---------------------------------------------------------------------------
 
-/// Supported A2A transport protocols.
+/// A2A transport protocol identifier.
 ///
-/// Custom protocols are allowed — this type MUST NOT be treated as a closed enum.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum TransportProtocol {
+/// This is an open string type — custom protocols are allowed.
+/// Use the provided constants for well-known protocols.
+///
+/// Aligned with Go's `TransportProtocol` string type: "Custom protocols are
+/// allowed and the type MUST NOT be treated as an enum."
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(transparent)]
+pub struct TransportProtocol(pub String);
+
+impl TransportProtocol {
     /// JSON-RPC over HTTP.
-    #[serde(rename = "JSONRPC")]
-    #[default]
-    JsonRpc,
+    pub const JSONRPC: &'static str = "JSONRPC";
     /// gRPC transport.
-    #[serde(rename = "GRPC")]
-    Grpc,
+    pub const GRPC: &'static str = "GRPC";
     /// HTTP+JSON (REST-like).
-    #[serde(rename = "HTTP+JSON")]
-    HttpJson,
+    pub const HTTP_JSON: &'static str = "HTTP+JSON";
+
+    /// Creates a new transport protocol from a string.
+    pub fn new(protocol: impl Into<String>) -> Self {
+        Self(protocol.into())
+    }
+
+    /// Returns the protocol string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Returns true if this is the JSON-RPC protocol.
+    pub fn is_jsonrpc(&self) -> bool {
+        self.0 == Self::JSONRPC
+    }
+
+    /// Returns true if this is the gRPC protocol.
+    pub fn is_grpc(&self) -> bool {
+        self.0 == Self::GRPC
+    }
+}
+
+impl std::fmt::Display for TransportProtocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<&str> for TransportProtocol {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+impl From<String> for TransportProtocol {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -64,12 +105,12 @@ pub struct AgentCard {
     /// Information about the agent's service provider.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<AgentProvider>,
-    /// An optional URL to the agent's documentation.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub documentation_url: Option<String>,
-    /// An optional URL to an icon for the agent.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon_url: Option<String>,
+    /// URL to the agent's documentation (empty = not set).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub documentation_url: String,
+    /// URL to an icon for the agent (empty = not set).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub icon_url: String,
     /// Security schemes available to authorize requests (keyed by scheme name).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub security_schemes: HashMap<String, SecurityScheme>,
@@ -96,11 +137,11 @@ impl Default for AgentCard {
             capabilities: AgentCapabilities::default(),
             skills: Vec::new(),
             protocol_version: crate::PROTOCOL_VERSION.to_string(),
-            preferred_transport: Some(TransportProtocol::JsonRpc),
+            preferred_transport: Some(TransportProtocol::new(TransportProtocol::JSONRPC)),
             additional_interfaces: Vec::new(),
             provider: None,
-            documentation_url: None,
-            icon_url: None,
+            documentation_url: String::new(),
+            icon_url: String::new(),
             security_schemes: HashMap::new(),
             security: Vec::new(),
             supports_authenticated_extended_card: false,
@@ -137,7 +178,6 @@ impl AgentCard {
         self.skills.iter().find(|s| s.id == skill_id)
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // AgentCapabilities
