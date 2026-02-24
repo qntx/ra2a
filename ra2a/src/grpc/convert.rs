@@ -210,8 +210,8 @@ impl From<NativeMessage> for proto::Message {
     fn from(msg: NativeMessage) -> Self {
         Self {
             message_id: msg.message_id,
-            context_id: msg.context_id.unwrap_or_default(),
-            task_id: msg.task_id.unwrap_or_default(),
+            context_id: msg.context_id,
+            task_id: msg.task_id,
             role: proto::Role::from(msg.role).into(),
             parts: msg.parts.into_iter().map(proto::Part::from).collect(),
             metadata: if msg.metadata.is_empty() {
@@ -232,16 +232,8 @@ impl From<proto::Message> for NativeMessage {
             NativeRole::from(msg.role),
             msg.parts.into_iter().map(NativePart::from).collect(),
         );
-        native.context_id = if msg.context_id.is_empty() {
-            None
-        } else {
-            Some(msg.context_id)
-        };
-        native.task_id = if msg.task_id.is_empty() {
-            None
-        } else {
-            Some(msg.task_id)
-        };
+        native.context_id = msg.context_id;
+        native.task_id = msg.task_id;
         native.metadata = msg.metadata.and_then(struct_to_hashmap).unwrap_or_default();
         native.extensions = msg.extensions;
         native.reference_task_ids = msg.reference_task_ids;

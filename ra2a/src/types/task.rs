@@ -468,22 +468,22 @@ pub enum Event {
 
 impl Event {
     /// Returns the task ID associated with this event.
-    pub fn task_id(&self) -> Option<&str> {
+    pub fn task_id(&self) -> &str {
         match self {
-            Self::Task(t) => Some(&t.id),
-            Self::Message(m) => m.task_id.as_deref(),
-            Self::StatusUpdate(e) => Some(&e.task_id),
-            Self::ArtifactUpdate(e) => Some(&e.task_id),
+            Self::Task(t) => &t.id,
+            Self::Message(m) => &m.task_id,
+            Self::StatusUpdate(e) => &e.task_id,
+            Self::ArtifactUpdate(e) => &e.task_id,
         }
     }
 
     /// Returns the context ID associated with this event.
-    pub fn context_id(&self) -> Option<&str> {
+    pub fn context_id(&self) -> &str {
         match self {
-            Self::Task(t) => Some(&t.context_id),
-            Self::Message(m) => m.context_id.as_deref(),
-            Self::StatusUpdate(e) => Some(&e.context_id),
-            Self::ArtifactUpdate(e) => Some(&e.context_id),
+            Self::Task(t) => &t.context_id,
+            Self::Message(m) => &m.context_id,
+            Self::StatusUpdate(e) => &e.context_id,
+            Self::ArtifactUpdate(e) => &e.context_id,
         }
     }
 

@@ -32,11 +32,13 @@ pub struct Message {
     /// Content parts that form the message body.
     pub parts: Vec<Part>,
     /// The ID of the task this message is part of.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task_id: Option<String>,
+    /// An empty string means the message doesn't reference any task.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub task_id: String,
     /// The context ID for grouping related interactions.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_id: Option<String>,
+    /// An empty string means the message doesn't reference any context.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub context_id: String,
     /// Task IDs this message references for additional context.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reference_task_ids: Vec<String>,
@@ -57,11 +59,11 @@ impl Serialize for Message {
         map.serialize_entry("messageId", &self.message_id)?;
         map.serialize_entry("role", &self.role)?;
         map.serialize_entry("parts", &self.parts)?;
-        if let Some(ref v) = self.task_id {
-            map.serialize_entry("taskId", v)?;
+        if !self.task_id.is_empty() {
+            map.serialize_entry("taskId", &self.task_id)?;
         }
-        if let Some(ref v) = self.context_id {
-            map.serialize_entry("contextId", v)?;
+        if !self.context_id.is_empty() {
+            map.serialize_entry("contextId", &self.context_id)?;
         }
         if !self.reference_task_ids.is_empty() {
             map.serialize_entry("referenceTaskIds", &self.reference_task_ids)?;
@@ -83,8 +85,8 @@ impl Message {
             message_id: message_id.into(),
             role,
             parts,
-            task_id: None,
-            context_id: None,
+            task_id: String::new(),
+            context_id: String::new(),
             reference_task_ids: Vec::new(),
             extensions: Vec::new(),
             metadata: Metadata::new(),
@@ -113,14 +115,24 @@ impl Message {
 
     /// Builder: sets the task ID.
     pub fn with_task_id(mut self, task_id: impl Into<String>) -> Self {
-        self.task_id = Some(task_id.into());
+        self.task_id = task_id.into();
         self
     }
 
     /// Builder: sets the context ID.
     pub fn with_context_id(mut self, context_id: impl Into<String>) -> Self {
-        self.context_id = Some(context_id.into());
+        self.context_id = context_id.into();
         self
+    }
+
+    /// Returns `true` if this message references a task.
+    pub fn has_task_id(&self) -> bool {
+        !self.task_id.is_empty()
+    }
+
+    /// Returns `true` if this message references a context.
+    pub fn has_context_id(&self) -> bool {
+        !self.context_id.is_empty()
     }
 
     /// Returns the concatenated text content of all text parts.

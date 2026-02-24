@@ -165,22 +165,29 @@ impl DefaultRequestHandler {
             return Err(A2AError::InvalidParams("message parts is required".into()));
         }
 
-        // Resolve task_id and context_id
-        let (task_id, context_id, stored_task) = match (&message.task_id, &message.context_id) {
-            (Some(tid), Some(cid)) => {
-                let stored = self.get_task_internal(tid).await;
-                (tid.clone(), cid.clone(), stored)
+        // Resolve task_id and context_id (empty string = not set, aligned with Go)
+        let has_task_id = message.has_task_id();
+        let has_context_id = message.has_context_id();
+
+        let (task_id, context_id, stored_task) = match (has_task_id, has_context_id) {
+            (true, true) => {
+                let stored = self.get_task_internal(&message.task_id).await;
+                (message.task_id.clone(), message.context_id.clone(), stored)
             }
-            (Some(tid), None) => {
+            (true, false) => {
                 let stored = self
-                    .get_task_internal(tid)
+                    .get_task_internal(&message.task_id)
                     .await
-                    .ok_or_else(|| A2AError::TaskNotFound(tid.clone()))?;
+                    .ok_or_else(|| A2AError::TaskNotFound(message.task_id.clone()))?;
                 let cid = stored.context_id.clone();
-                (tid.clone(), cid, Some(stored))
+                (message.task_id.clone(), cid, Some(stored))
             }
-            (None, Some(cid)) => (uuid::Uuid::new_v4().to_string(), cid.clone(), None),
-            (None, None) => (
+            (false, true) => (
+                uuid::Uuid::new_v4().to_string(),
+                message.context_id.clone(),
+                None,
+            ),
+            (false, false) => (
                 uuid::Uuid::new_v4().to_string(),
                 uuid::Uuid::new_v4().to_string(),
                 None,
@@ -335,15 +342,15 @@ impl DefaultRequestHandler {
 
     /// Resolves a task from an event by looking up or creating a fallback task.
     async fn resolve_task_from_event(&self, event: &Event) -> Result<SendMessageResult> {
-        if let Some(tid) = event.task_id() {
-            let t = self
-                .get_task_internal(tid)
-                .await
-                .unwrap_or_else(|| Task::new(tid, ""));
-            Ok(SendMessageResult::Task(t))
-        } else {
-            Err(A2AError::Other("Event queue closed unexpectedly".into()))
+        let tid = event.task_id();
+        if tid.is_empty() {
+            return Err(A2AError::Other("Event has no task ID".into()));
         }
+        let t = self
+            .get_task_internal(tid)
+            .await
+            .unwrap_or_else(|| Task::new(tid, ""));
+        Ok(SendMessageResult::Task(t))
     }
 
     /// Determines if a non-streaming message/send should be interrupted.
@@ -360,7 +367,8 @@ impl DefaultRequestHandler {
             if matches!(event, Event::Message(_)) {
                 return None;
             }
-            if let Some(tid) = event.task_id() {
+            let tid = event.task_id();
+            if !tid.is_empty() {
                 return Some((tid.to_string(), true));
             }
             return None;
