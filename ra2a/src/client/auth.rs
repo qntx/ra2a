@@ -156,7 +156,7 @@ pub struct CompositeCredential {
 
 impl CompositeCredential {
     /// Creates a new composite credential.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             providers: Vec::new(),
@@ -224,7 +224,7 @@ pub struct CredentialContext {
 
 impl CredentialContext {
     /// Creates a new credential context.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -275,7 +275,7 @@ impl Credentials {
     }
 
     /// Creates new credentials with expiration.
-    #[must_use] 
+    #[must_use]
     pub fn with_expiry(mut self, expires_in: Duration) -> Self {
         self.expires_at = Some(Instant::now() + expires_in);
         self
@@ -288,13 +288,13 @@ impl Credentials {
     }
 
     /// Checks if the credentials have expired.
-    #[must_use] 
+    #[must_use]
     pub fn is_expired(&self) -> bool {
         self.expires_at.is_some_and(|exp| Instant::now() >= exp)
     }
 
     /// Returns the authorization header value.
-    #[must_use] 
+    #[must_use]
     pub fn authorization_header(&self) -> String {
         format!("{} {}", self.token_type, self.access_token)
     }
@@ -387,7 +387,7 @@ pub struct InMemoryCredentialStore {
 
 impl InMemoryCredentialStore {
     /// Creates a new in-memory credential store.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -435,7 +435,7 @@ pub struct InMemoryCredentialService {
 
 impl InMemoryCredentialService {
     /// Creates a new in-memory credential service.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             store: Arc::new(InMemoryCredentialStore::new()),
@@ -448,7 +448,7 @@ impl InMemoryCredentialService {
     }
 
     /// Gets the underlying store.
-    #[must_use] 
+    #[must_use]
     pub const fn store(&self) -> &Arc<InMemoryCredentialStore> {
         &self.store
     }
@@ -510,7 +510,7 @@ impl OAuth2ClientCredential {
     }
 
     /// Adds scopes to the `OAuth2` request.
-    #[must_use] 
+    #[must_use]
     pub fn with_scopes(mut self, scopes: Vec<String>) -> Self {
         self.scopes = scopes;
         self
@@ -589,11 +589,12 @@ impl CredentialProvider for OAuth2ClientCredential {
         {
             let cached = self.cached_token.read().await;
             if let Some(ref creds) = *cached
-                && !creds.is_expired() {
-                    let mut headers = HashMap::new();
-                    headers.insert("Authorization".to_string(), creds.authorization_header());
-                    return Ok(headers);
-                }
+                && !creds.is_expired()
+            {
+                let mut headers = HashMap::new();
+                headers.insert("Authorization".to_string(), creds.authorization_header());
+                return Ok(headers);
+            }
         }
 
         // Fetch new token

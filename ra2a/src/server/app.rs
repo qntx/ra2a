@@ -37,7 +37,7 @@ impl Default for ServerConfig {
 
 impl ServerConfig {
     /// Creates a new server configuration.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -49,21 +49,21 @@ impl ServerConfig {
     }
 
     /// Sets the port.
-    #[must_use] 
+    #[must_use]
     pub const fn port(mut self, port: u16) -> Self {
         self.port = port;
         self
     }
 
     /// Enables or disables CORS.
-    #[must_use] 
+    #[must_use]
     pub const fn cors(mut self, enabled: bool) -> Self {
         self.enable_cors = enabled;
         self
     }
 
     /// Returns the bind address.
-    #[must_use] 
+    #[must_use]
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
@@ -97,7 +97,7 @@ impl A2AServer {
     }
 
     /// Creates a server from a pre-built [`ServerState`].
-    #[must_use] 
+    #[must_use]
     pub fn from_state(state: ServerState, config: ServerConfig) -> Self {
         let router = Self::build_router(state, &config);
         Self { router, config }
@@ -129,7 +129,7 @@ impl A2AServer {
     }
 
     /// Returns the server configuration.
-    #[must_use] 
+    #[must_use]
     pub const fn config(&self) -> &ServerConfig {
         &self.config
     }
@@ -325,7 +325,7 @@ pub struct A2AServerBuilder {
 
 impl A2AServerBuilder {
     /// Creates a new server builder.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             state: None,
@@ -340,7 +340,7 @@ impl A2AServerBuilder {
     }
 
     /// Sets a pre-built server state (for custom `RequestHandler`).
-    #[must_use] 
+    #[must_use]
     pub fn state(mut self, state: ServerState) -> Self {
         self.state = Some(state);
         self
@@ -353,14 +353,14 @@ impl A2AServerBuilder {
     }
 
     /// Sets the port.
-    #[must_use] 
+    #[must_use]
     pub const fn port(mut self, port: u16) -> Self {
         self.config.port = port;
         self
     }
 
     /// Enables or disables CORS.
-    #[must_use] 
+    #[must_use]
     pub const fn cors(mut self, enabled: bool) -> Self {
         self.config.enable_cors = enabled;
         self
@@ -371,7 +371,7 @@ impl A2AServerBuilder {
     /// # Panics
     ///
     /// Panics if neither executor nor state has been set.
-    #[must_use] 
+    #[must_use]
     pub fn build(self) -> A2AServer {
         let state = self.state.expect("Executor or state must be set");
         A2AServer::from_state(state, self.config)

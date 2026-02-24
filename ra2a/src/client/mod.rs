@@ -141,7 +141,7 @@ pub struct CollectingConsumer {
 
 impl CollectingConsumer {
     /// Creates a new collecting consumer.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }

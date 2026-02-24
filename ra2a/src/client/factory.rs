@@ -30,7 +30,7 @@ impl ClientFactory {
     }
 
     /// Creates a factory with custom transport options.
-    #[must_use] 
+    #[must_use]
     pub const fn with_options(options: TransportOptions) -> Self {
         Self {
             options,
@@ -39,14 +39,14 @@ impl ClientFactory {
     }
 
     /// Sets the preferred transport type.
-    #[must_use] 
+    #[must_use]
     pub const fn prefer_transport(mut self, transport: TransportType) -> Self {
         self.preferred_transport = Some(transport);
         self
     }
 
     /// Sets the request timeout.
-    #[must_use] 
+    #[must_use]
     pub fn timeout(mut self, secs: u64) -> Self {
         self.options = self.options.timeout(secs);
         self

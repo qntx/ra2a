@@ -31,14 +31,14 @@ impl ExtensionDeclaration {
     }
 
     /// Marks this extension as required.
-    #[must_use] 
+    #[must_use]
     pub const fn required(mut self) -> Self {
         self.required = true;
         self
     }
 
     /// Sets extension parameters.
-    #[must_use] 
+    #[must_use]
     pub fn with_params(mut self, params: HashMap<String, serde_json::Value>) -> Self {
         self.params = Some(params);
         self
@@ -58,7 +58,7 @@ pub struct ExtensionContext {
 
 impl ExtensionContext {
     /// Creates a new empty extension context.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -71,7 +71,7 @@ impl ExtensionContext {
     }
 
     /// Checks if a specific extension is present.
-    #[must_use] 
+    #[must_use]
     pub fn has_extension(&self, uri: &str) -> bool {
         self.extensions
             .as_ref()
@@ -86,7 +86,7 @@ impl ExtensionContext {
     }
 
     /// Gets metadata for a specific key.
-    #[must_use] 
+    #[must_use]
     pub fn get_metadata(&self, key: &str) -> Option<&serde_json::Value> {
         self.metadata.as_ref().and_then(|m| m.get(key))
     }

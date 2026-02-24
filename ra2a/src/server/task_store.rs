@@ -5,8 +5,8 @@
 use async_trait::async_trait;
 
 use crate::error::Result;
-use crate::types::{ListTasksRequest, ListTasksResponse, Task, TaskVersion};
 use crate::server::events::Event;
+use crate::types::{ListTasksRequest, ListTasksResponse, Task, TaskVersion};
 
 /// Agent Task Store interface.
 ///
@@ -56,7 +56,7 @@ pub struct InMemoryTaskStore {
 
 impl InMemoryTaskStore {
     /// Creates a new in-memory task store.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             tasks: Default::default(),
@@ -90,9 +90,7 @@ impl TaskStore for InMemoryTaskStore {
 
     async fn get(&self, task_id: &str) -> Result<Option<(Task, TaskVersion)>> {
         let tasks = self.tasks.read().await;
-        Ok(tasks
-            .get(task_id)
-            .map(|vt| (vt.task.clone(), vt.version)))
+        Ok(tasks.get(task_id).map(|vt| (vt.task.clone(), vt.version)))
     }
 
     async fn delete(&self, task_id: &str) -> Result<()> {
@@ -148,9 +146,13 @@ impl TaskStore for InMemoryTaskStore {
 /// using `SQLx` for `SQLite`, `PostgreSQL`, and `MySQL`.
 #[cfg(any(feature = "sqlite", feature = "postgresql", feature = "mysql"))]
 pub mod sql {
-    use super::{async_trait, Event, Task, TaskVersion, ListTasksRequest, ListTasksResponse, Result, TaskStore};
-    use crate::types::{TaskState, TaskStatus};
     use std::sync::atomic::{AtomicI64, Ordering};
+
+    use super::{
+        Event, ListTasksRequest, ListTasksResponse, Result, Task, TaskStore, TaskVersion,
+        async_trait,
+    };
+    use crate::types::{TaskState, TaskStatus};
 
     /// SQL table schema for tasks (`SQLite` compatible).
     pub const TASK_TABLE_SCHEMA_SQLITE: &str = r"
@@ -207,7 +209,7 @@ pub mod sql {
 
     impl TaskRow {
         /// Converts a Task to a `TaskRow` for storage.
-        #[must_use] 
+        #[must_use]
         pub fn from_task(task: &Task) -> Self {
             Self {
                 id: task.id.clone(),
@@ -489,10 +491,7 @@ mod tests {
         let store = InMemoryTaskStore::new();
         let task = Task::new("task-1", "ctx-1");
 
-        let ver = store
-            .save(&task, None, TaskVersion::MISSING)
-            .await
-            .unwrap();
+        let ver = store.save(&task, None, TaskVersion::MISSING).await.unwrap();
         assert!(ver.0 > 0);
 
         let retrieved = store.get("task-1").await.unwrap();
@@ -518,10 +517,7 @@ mod tests {
         store.save(&t3, None, TaskVersion::MISSING).await.unwrap();
 
         // List all
-        let resp = store
-            .list(&ListTasksRequest::default())
-            .await
-            .unwrap();
+        let resp = store.list(&ListTasksRequest::default()).await.unwrap();
         assert_eq!(resp.total_size, Some(3));
 
         // Filter by context_id

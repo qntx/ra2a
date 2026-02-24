@@ -46,7 +46,7 @@ pub struct InMemoryPushConfigStore {
 
 impl InMemoryPushConfigStore {
     /// Creates a new empty store.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -176,13 +176,13 @@ impl Default for HttpPushSenderConfig {
 
 impl HttpPushSender {
     /// Creates a new sender with default configuration (30s timeout, errors logged).
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::with_config(HttpPushSenderConfig::default())
     }
 
     /// Creates a new sender with custom configuration.
-    #[must_use] 
+    #[must_use]
     pub fn with_config(config: HttpPushSenderConfig) -> Self {
         let client = reqwest::Client::builder()
             .timeout(config.timeout)
@@ -220,21 +220,22 @@ impl PushSender for HttpPushSender {
 
         // Apply authentication from push config
         if let Some(ref auth) = config.authentication
-            && let Some(ref credentials) = auth.credentials {
-                for scheme in &auth.schemes {
-                    match scheme.to_lowercase().as_str() {
-                        "bearer" => {
-                            req = req.header("Authorization", format!("Bearer {credentials}"));
-                            break;
-                        }
-                        "basic" => {
-                            req = req.header("Authorization", format!("Basic {credentials}"));
-                            break;
-                        }
-                        _ => {}
+            && let Some(ref credentials) = auth.credentials
+        {
+            for scheme in &auth.schemes {
+                match scheme.to_lowercase().as_str() {
+                    "bearer" => {
+                        req = req.header("Authorization", format!("Bearer {credentials}"));
+                        break;
                     }
+                    "basic" => {
+                        req = req.header("Authorization", format!("Basic {credentials}"));
+                        break;
+                    }
+                    _ => {}
                 }
             }
+        }
 
         match req.send().await {
             Ok(resp) => {

@@ -94,13 +94,13 @@ impl HTTPAuthSecurityScheme {
     }
 
     /// Creates a Bearer token authentication scheme.
-    #[must_use] 
+    #[must_use]
     pub fn bearer() -> Self {
         Self::new("Bearer")
     }
 
     /// Creates a Bearer JWT authentication scheme.
-    #[must_use] 
+    #[must_use]
     pub fn bearer_jwt() -> Self {
         Self {
             scheme: "Bearer".to_string(),
@@ -110,7 +110,7 @@ impl HTTPAuthSecurityScheme {
     }
 
     /// Creates a Basic authentication scheme.
-    #[must_use] 
+    #[must_use]
     pub fn basic() -> Self {
         Self::new("Basic")
     }
@@ -150,14 +150,12 @@ impl OpenIdConnectSecurityScheme {
 }
 
 /// Defines a security scheme using mTLS authentication.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct MutualTLSSecurityScheme {
     /// An optional description for the security scheme.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
-
 
 #[cfg(test)]
 mod tests {

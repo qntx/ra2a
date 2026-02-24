@@ -25,7 +25,7 @@ impl RequestMeta {
     /// Creates a new `RequestMeta` from a map of header-like key-value pairs.
     ///
     /// Keys are normalized to lower-case.
-    #[must_use] 
+    #[must_use]
     pub fn new(src: HashMap<String, Vec<String>>) -> Self {
         let kv = src
             .into_iter()
@@ -35,15 +35,17 @@ impl RequestMeta {
     }
 
     /// Creates an empty `RequestMeta`.
-    #[must_use] 
+    #[must_use]
     pub fn empty() -> Self {
         Self::default()
     }
 
     /// Performs a case-insensitive lookup.
-    #[must_use] 
+    #[must_use]
     pub fn get(&self, key: &str) -> Option<&[String]> {
-        self.kv.get(&key.to_lowercase()).map(std::vec::Vec::as_slice)
+        self.kv
+            .get(&key.to_lowercase())
+            .map(std::vec::Vec::as_slice)
     }
 
     /// Returns an iterator over all key-value pairs.
@@ -52,7 +54,7 @@ impl RequestMeta {
     }
 
     /// Merges additional metadata, creating a new `RequestMeta`.
-    #[must_use] 
+    #[must_use]
     pub fn with(&self, additional: HashMap<String, Vec<String>>) -> Self {
         if additional.is_empty() {
             return self.clone();
@@ -154,19 +156,19 @@ impl CallContext {
     }
 
     /// Returns the handler method name being executed.
-    #[must_use] 
+    #[must_use]
     pub fn method(&self) -> &str {
         &self.method
     }
 
     /// Returns the request metadata.
-    #[must_use] 
+    #[must_use]
     pub const fn request_meta(&self) -> &RequestMeta {
         &self.request_meta
     }
 
     /// Returns the list of activated extension URIs.
-    #[must_use] 
+    #[must_use]
     pub fn activated_extensions(&self) -> &[String] {
         &self.activated_extensions
     }
@@ -177,7 +179,7 @@ impl CallContext {
     }
 
     /// Checks if a specific extension is activated.
-    #[must_use] 
+    #[must_use]
     pub fn is_extension_active(&self, uri: &str) -> bool {
         self.activated_extensions.iter().any(|e| e == uri)
     }

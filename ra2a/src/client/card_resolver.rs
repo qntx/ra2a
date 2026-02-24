@@ -8,9 +8,6 @@ use tokio::sync::RwLock;
 use crate::error::{A2AError, Result};
 use crate::types::AgentCard;
 
-/// Well-known path for agent card discovery.
-pub const AGENT_CARD_WELL_KNOWN_PATH: &str = ".well-known/agent-card.json";
-
 /// Agent Card resolver for fetching agent cards from agents.
 #[derive(Debug, Clone)]
 pub struct A2ACardResolver {
@@ -27,7 +24,7 @@ pub struct A2ACardResolver {
 impl A2ACardResolver {
     /// Creates a new card resolver.
     pub fn new(http_client: HttpClient, base_url: impl Into<String>) -> Self {
-        Self::with_path(http_client, base_url, AGENT_CARD_WELL_KNOWN_PATH)
+        Self::with_path(http_client, base_url, crate::WELL_KNOWN_AGENT_CARD_PATH)
     }
 
     /// Creates a new card resolver with a custom agent card path.
@@ -48,7 +45,7 @@ impl A2ACardResolver {
     }
 
     /// Returns the full URL to the agent card.
-    #[must_use] 
+    #[must_use]
     pub fn card_url(&self) -> String {
         format!("{}/{}", self.base_url, self.agent_card_path)
     }
@@ -66,7 +63,10 @@ impl A2ACardResolver {
     where
         F: FnOnce(&AgentCard) -> Result<()>,
     {
-        let path = relative_path.map_or_else(|| self.agent_card_path.clone(), |p| p.trim_start_matches('/').to_string());
+        let path = relative_path.map_or_else(
+            || self.agent_card_path.clone(),
+            |p| p.trim_start_matches('/').to_string(),
+        );
 
         let target_url = format!("{}/{}", self.base_url, path);
 

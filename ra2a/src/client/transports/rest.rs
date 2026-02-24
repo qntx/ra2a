@@ -56,7 +56,7 @@ impl RestTransport {
             .map_err(|e| A2AError::Other(e.to_string()))?;
 
         let base_url = options.base_url.trim_end_matches('/').to_string();
-        let card_url = format!("{base_url}/.well-known/agent-card.json");
+        let card_url = crate::agent_card_url(&base_url);
 
         Ok(Self {
             client,

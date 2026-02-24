@@ -114,13 +114,13 @@ pub enum A2AError {
 
 impl A2AError {
     /// Returns `true` if this is a transport-level error (HTTP, JSON, connection).
-    #[must_use] 
+    #[must_use]
     pub const fn is_transport_error(&self) -> bool {
         matches!(self, Self::Http(_) | Self::Json(_) | Self::InvalidUrl(_))
     }
 
     /// Extracts the JSON-RPC error code if this is a JSON-RPC error.
-    #[must_use] 
+    #[must_use]
     pub const fn jsonrpc_code(&self) -> Option<i32> {
         if let Self::JsonRpc(e) = self {
             Some(e.code)
@@ -130,7 +130,7 @@ impl A2AError {
     }
 
     /// Converts this error to a [`JsonRpcError`] for transport serialization.
-    #[must_use] 
+    #[must_use]
     pub fn to_jsonrpc_error(&self) -> JsonRpcError {
         let (code, default_msg) = self.jsonrpc_error_code();
         let message = {
@@ -228,7 +228,7 @@ pub enum JsonRpcErrorCode {
 
 impl JsonRpcErrorCode {
     /// Returns the default message for this error code.
-    #[must_use] 
+    #[must_use]
     pub const fn default_message(&self) -> &'static str {
         match self {
             Self::ParseError => "Invalid JSON payload",
@@ -316,7 +316,7 @@ impl JsonRpcError {
     }
 
     /// Creates a parse error.
-    #[must_use] 
+    #[must_use]
     pub fn parse_error() -> Self {
         Self::new(
             JsonRpcErrorCode::ParseError,
@@ -330,7 +330,7 @@ impl JsonRpcError {
     }
 
     /// Creates a method not found error.
-    #[must_use] 
+    #[must_use]
     pub fn method_not_found(method: &str) -> Self {
         Self::new(
             JsonRpcErrorCode::MethodNotFound,
@@ -349,7 +349,7 @@ impl JsonRpcError {
     }
 
     /// Creates a task not found error.
-    #[must_use] 
+    #[must_use]
     pub fn task_not_found(task_id: &str) -> Self {
         Self::new(
             JsonRpcErrorCode::TaskNotFound,
@@ -358,7 +358,7 @@ impl JsonRpcError {
     }
 
     /// Creates a task not cancelable error.
-    #[must_use] 
+    #[must_use]
     pub fn task_not_cancelable(task_id: &str) -> Self {
         Self::new(
             JsonRpcErrorCode::TaskNotCancelable,
@@ -367,7 +367,7 @@ impl JsonRpcError {
     }
 
     /// Creates a push notification not supported error.
-    #[must_use] 
+    #[must_use]
     pub fn push_notification_not_supported() -> Self {
         Self::new(
             JsonRpcErrorCode::PushNotificationNotSupported,
@@ -376,7 +376,7 @@ impl JsonRpcError {
     }
 
     /// Creates an unsupported operation error.
-    #[must_use] 
+    #[must_use]
     pub fn unsupported_operation(operation: &str) -> Self {
         Self::new(
             JsonRpcErrorCode::UnsupportedOperation,
@@ -385,7 +385,7 @@ impl JsonRpcError {
     }
 
     /// Returns the error code as an enum variant.
-    #[must_use] 
+    #[must_use]
     pub fn error_code(&self) -> JsonRpcErrorCode {
         JsonRpcErrorCode::from(self.code)
     }

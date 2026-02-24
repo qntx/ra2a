@@ -47,8 +47,7 @@ impl From<proto::TaskState> for NativeTaskState {
 
 impl From<i32> for NativeTaskState {
     fn from(value: i32) -> Self {
-        proto::TaskState::try_from(value)
-            .map_or(Self::Unknown, Self::from)
+        proto::TaskState::try_from(value).map_or(Self::Unknown, Self::from)
     }
 }
 
@@ -73,8 +72,7 @@ impl From<proto::Role> for NativeRole {
 
 impl From<i32> for NativeRole {
     fn from(value: i32) -> Self {
-        proto::Role::try_from(value)
-            .map_or(Self::User, Self::from)
+        proto::Role::try_from(value).map_or(Self::User, Self::from)
     }
 }
 
@@ -82,7 +80,10 @@ impl From<NativePart> for proto::Part {
     fn from(part: NativePart) -> Self {
         match part {
             NativePart::Text(text_part) => {
-                let mut proto_part = Self { content: Some(proto::part::Content::Text(text_part.text)), ..Default::default() };
+                let mut proto_part = Self {
+                    content: Some(proto::part::Content::Text(text_part.text)),
+                    ..Default::default()
+                };
                 if let Some(metadata) = text_part.metadata {
                     proto_part.metadata = hashmap_to_struct(metadata);
                 }
@@ -183,7 +184,8 @@ impl From<proto::Part> for NativePart {
             }
             Some(proto::part::Content::Data(value)) => {
                 // Convert prost Value to HashMap
-                let data = if let Some(serde_json::Value::Object(map)) = prost_value_to_json(value) {
+                let data = if let Some(serde_json::Value::Object(map)) = prost_value_to_json(value)
+                {
                     map.into_iter().collect()
                 } else {
                     HashMap::new()
@@ -343,8 +345,10 @@ impl From<NativeTask> for proto::Task {
 
 impl From<proto::Task> for NativeTask {
     fn from(task: proto::Task) -> Self {
-        let status = task
-            .status.map_or_else(|| NativeTaskStatus::new(NativeTaskState::Unknown), NativeTaskStatus::from);
+        let status = task.status.map_or_else(
+            || NativeTaskStatus::new(NativeTaskState::Unknown),
+            NativeTaskStatus::from,
+        );
 
         let mut native = Self::new(task.id, task.context_id);
         native.status = status;
@@ -416,7 +420,7 @@ impl From<proto::PushNotificationConfig> for NativePushConfig {
 }
 
 /// Converts a `HashMap` metadata to a protobuf Struct.
-#[must_use] 
+#[must_use]
 pub fn hashmap_to_struct(map: HashMap<String, serde_json::Value>) -> Option<prost_types::Struct> {
     let fields: BTreeMap<String, prost_types::Value> = map
         .into_iter()
@@ -426,7 +430,7 @@ pub fn hashmap_to_struct(map: HashMap<String, serde_json::Value>) -> Option<pros
 }
 
 /// Converts a protobuf Struct to a `HashMap` metadata.
-#[must_use] 
+#[must_use]
 pub fn struct_to_hashmap(s: prost_types::Struct) -> Option<HashMap<String, serde_json::Value>> {
     let map: HashMap<String, serde_json::Value> = s
         .fields
@@ -437,7 +441,7 @@ pub fn struct_to_hashmap(s: prost_types::Struct) -> Option<HashMap<String, serde
 }
 
 /// Converts a JSON value to a protobuf Struct.
-#[must_use] 
+#[must_use]
 pub fn json_to_struct(value: serde_json::Value) -> Option<prost_types::Struct> {
     match value {
         serde_json::Value::Object(map) => {
@@ -452,7 +456,7 @@ pub fn json_to_struct(value: serde_json::Value) -> Option<prost_types::Struct> {
 }
 
 /// Converts a protobuf Struct to a JSON value.
-#[must_use] 
+#[must_use]
 pub fn struct_to_json(s: prost_types::Struct) -> Option<serde_json::Value> {
     let map: serde_json::Map<String, serde_json::Value> = s
         .fields

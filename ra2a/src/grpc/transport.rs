@@ -15,8 +15,8 @@ use super::proto::{
 };
 use crate::error::{A2AError, Result};
 use crate::types::{
-    Message as NativeMessage, MessageSendParams, Task as NativeTask,
-    TaskArtifactUpdateEvent, TaskIdParams, TaskQueryParams, TaskStatusUpdateEvent,
+    Message as NativeMessage, MessageSendParams, Task as NativeTask, TaskArtifactUpdateEvent,
+    TaskIdParams, TaskQueryParams, TaskStatusUpdateEvent,
 };
 
 /// gRPC transport for A2A client operations.
@@ -44,7 +44,7 @@ impl GrpcTransport {
     }
 
     /// Creates a new gRPC transport from an existing channel.
-    #[must_use] 
+    #[must_use]
     pub fn from_channel(channel: Channel) -> Self {
         Self {
             client: A2aServiceClient::new(channel),
@@ -218,12 +218,8 @@ fn convert_stream_response(response: proto::StreamResponse) -> Option<GrpcStream
                 || crate::types::TaskStatus::new(crate::types::TaskState::Unknown),
                 crate::types::TaskStatus::from,
             );
-            let mut event = TaskStatusUpdateEvent::new(
-                update.task_id,
-                update.context_id,
-                status,
-                false,
-            );
+            let mut event =
+                TaskStatusUpdateEvent::new(update.task_id, update.context_id, status, false);
             event.metadata = update.metadata.and_then(struct_to_hashmap);
             Some(GrpcStreamEvent::StatusUpdate(event))
         }

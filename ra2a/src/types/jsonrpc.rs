@@ -9,11 +9,6 @@ use serde::{Deserialize, Serialize};
 use super::{Message, Task};
 use crate::error::JsonRpcError;
 
-/// Helper for serde: skip serializing boolean fields when false.
-fn is_false(v: &bool) -> bool {
-    !v
-}
-
 /// The JSON-RPC protocol version.
 pub const JSONRPC_VERSION: &str = "2.0";
 
@@ -124,7 +119,7 @@ pub struct JsonRpcErrorResponse {
 
 impl JsonRpcErrorResponse {
     /// Creates a new error response.
-    #[must_use] 
+    #[must_use]
     pub fn new(id: Option<RequestId>, error: JsonRpcError) -> Self {
         Self {
             jsonrpc: JSONRPC_VERSION.to_string(),
@@ -149,7 +144,7 @@ pub struct MessageSendParams {
 
 impl MessageSendParams {
     /// Creates new send parameters with a message.
-    #[must_use] 
+    #[must_use]
     pub const fn new(message: Message) -> Self {
         Self {
             message,
@@ -159,7 +154,7 @@ impl MessageSendParams {
     }
 
     /// Sets the configuration.
-    #[must_use] 
+    #[must_use]
     pub fn with_configuration(mut self, config: MessageSendConfig) -> Self {
         self.configuration = Some(config);
         self
@@ -384,7 +379,7 @@ pub struct ListTasksRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_updated_after: Option<String>,
     /// Whether to include artifacts in the response.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::types::is_false")]
     pub include_artifacts: bool,
 }
 
@@ -546,7 +541,7 @@ pub enum A2ARequest {
 
 impl A2ARequest {
     /// Returns the method name of this request.
-    #[must_use] 
+    #[must_use]
     pub const fn method(&self) -> &'static str {
         match self {
             Self::SendMessage { .. } => "message/send",
@@ -563,7 +558,7 @@ impl A2ARequest {
     }
 
     /// Returns the request ID.
-    #[must_use] 
+    #[must_use]
     pub const fn id(&self) -> &RequestId {
         match self {
             Self::SendMessage { id, .. }
@@ -628,7 +623,7 @@ impl SseEvent {
     }
 
     /// Formats the event as SSE wire format.
-    #[must_use] 
+    #[must_use]
     pub fn to_sse_string(&self) -> String {
         let mut result = String::new();
         if let Some(ref event) = self.event {

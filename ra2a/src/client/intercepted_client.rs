@@ -6,8 +6,8 @@
 use async_trait::async_trait;
 
 use super::middleware::{
-    ClientCallInterceptor, ClientRequest, ClientResponse, CallMeta,
-    run_interceptors_before, run_interceptors_after,
+    CallMeta, ClientCallInterceptor, ClientRequest, ClientResponse, run_interceptors_after,
+    run_interceptors_before,
 };
 use super::{Client, EventStream};
 use crate::error::Result;
@@ -132,7 +132,10 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
         let mut resp = self.build_response(
             "message/send",
             None,
-            result.as_ref().err().map(|e| crate::error::A2AError::Other(e.to_string())),
+            result
+                .as_ref()
+                .err()
+                .map(|e| crate::error::A2AError::Other(e.to_string())),
         );
         run_interceptors_after(&self.interceptors, &mut resp).await?;
 
@@ -179,7 +182,10 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
         let mut resp = self.build_response(
             "tasks/resubscribe",
             None,
-            result.as_ref().err().map(|e| crate::error::A2AError::Other(e.to_string())),
+            result
+                .as_ref()
+                .err()
+                .map(|e| crate::error::A2AError::Other(e.to_string())),
         );
         run_interceptors_after(&self.interceptors, &mut resp).await?;
 
@@ -192,7 +198,8 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
     ) -> Result<Vec<TaskPushConfig>> {
         let payload = serde_json::to_value(&params).ok();
         self.intercept_unary("tasks/pushNotificationConfig/list", payload, || {
-            self.inner.list_task_push_notification_config(params.clone())
+            self.inner
+                .list_task_push_notification_config(params.clone())
         })
         .await
     }
@@ -205,12 +212,18 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
         let mut req = self.build_request("tasks/pushNotificationConfig/delete", payload);
         run_interceptors_before(&self.interceptors, &mut req).await?;
 
-        let result = self.inner.delete_task_push_notification_config(params).await;
+        let result = self
+            .inner
+            .delete_task_push_notification_config(params)
+            .await;
 
         let mut resp = self.build_response(
             "tasks/pushNotificationConfig/delete",
             None,
-            result.as_ref().err().map(|e| crate::error::A2AError::Other(e.to_string())),
+            result
+                .as_ref()
+                .err()
+                .map(|e| crate::error::A2AError::Other(e.to_string())),
         );
         run_interceptors_after(&self.interceptors, &mut resp).await?;
 
@@ -227,11 +240,8 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
             Ok(card) => (serde_json::to_value(card).ok(), None),
             Err(e) => (None, Some(crate::error::A2AError::Other(e.to_string()))),
         };
-        let mut resp = self.build_response(
-            "agent/getAuthenticatedExtendedCard",
-            resp_payload,
-            resp_err,
-        );
+        let mut resp =
+            self.build_response("agent/getAuthenticatedExtendedCard", resp_payload, resp_err);
         run_interceptors_after(&self.interceptors, &mut resp).await?;
 
         result
@@ -240,10 +250,11 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
     use crate::client::middleware::ClientCallInterceptor;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
 
     // A mock client for testing
     struct MockClient;
@@ -310,11 +321,10 @@ mod tests {
         let before = Arc::new(AtomicUsize::new(0));
         let after = Arc::new(AtomicUsize::new(0));
 
-        let client = InterceptedClient::new(MockClient)
-            .with_interceptor(CountingInterceptor {
-                before_count: Arc::clone(&before),
-                after_count: Arc::clone(&after),
-            });
+        let client = InterceptedClient::new(MockClient).with_interceptor(CountingInterceptor {
+            before_count: Arc::clone(&before),
+            after_count: Arc::clone(&after),
+        });
 
         // get_task should trigger before + after
         let _ = client.get_task(TaskQueryParams::new("t1")).await;

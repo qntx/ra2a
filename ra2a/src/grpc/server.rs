@@ -85,9 +85,10 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
                 ..Default::default()
             };
             if let Some(history_length) = config.history_length
-                && history_length > 0 {
-                    send_config.history_length = Some(history_length);
-                }
+                && history_length > 0
+            {
+                send_config.history_length = Some(history_length);
+            }
             if let Some(push_config) = config.push_notification_config {
                 send_config.push_notification_config = Some(NativePushConfig::from(push_config));
             }
@@ -145,9 +146,10 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
                 ..Default::default()
             };
             if let Some(history_length) = config.history_length
-                && history_length > 0 {
-                    send_config.history_length = Some(history_length);
-                }
+                && history_length > 0
+            {
+                send_config.history_length = Some(history_length);
+            }
             if !config.accepted_output_modes.is_empty() {
                 send_config.accepted_output_modes = Some(config.accepted_output_modes);
             }
@@ -207,9 +209,10 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
 
         let mut params = TaskQueryParams::new(&req.id);
         if let Some(history_length) = req.history_length
-            && history_length > 0 {
-                params.history_length = Some(history_length);
-            }
+            && history_length > 0
+        {
+            params.history_length = Some(history_length);
+        }
 
         let task = self
             .handler

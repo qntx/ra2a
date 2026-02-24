@@ -65,7 +65,10 @@ impl A2ASseEvent {
             }
             SseEventType::Task => {
                 let task: Task = serde_json::from_str(&self.data)?;
-                Ok(ClientEvent::TaskUpdate { task: Box::new(task), update: None })
+                Ok(ClientEvent::TaskUpdate {
+                    task: Box::new(task),
+                    update: None,
+                })
             }
             SseEventType::StatusUpdate => {
                 let event: TaskStatusUpdateEvent = serde_json::from_str(&self.data)?;
@@ -92,7 +95,10 @@ impl A2ASseEvent {
                     match v.get("kind").and_then(|k| k.as_str()) {
                         Some("task") => {
                             let task: Task = serde_json::from_value(v)?;
-                            Ok(ClientEvent::TaskUpdate { task: Box::new(task), update: None })
+                            Ok(ClientEvent::TaskUpdate {
+                                task: Box::new(task),
+                                update: None,
+                            })
                         }
                         Some("message") => {
                             let msg: Message = serde_json::from_value(v)?;

@@ -17,8 +17,7 @@ use crate::types::{
 pub type EventStream<T> = Pin<Box<dyn Stream<Item = Result<T>> + Send>>;
 
 /// Supported transport protocols.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TransportType {
     /// JSON-RPC over HTTP/HTTPS.
     #[default]
@@ -28,7 +27,6 @@ pub enum TransportType {
     /// gRPC transport.
     Grpc,
 }
-
 
 impl std::fmt::Display for TransportType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -163,7 +161,7 @@ impl TransportOptions {
     }
 
     /// Sets the request timeout.
-    #[must_use] 
+    #[must_use]
     pub const fn timeout(mut self, secs: u64) -> Self {
         self.timeout_secs = secs;
         self
@@ -186,7 +184,7 @@ impl TransportOptions {
     }
 
     /// Disables TLS verification (not recommended for production).
-    #[must_use] 
+    #[must_use]
     pub const fn danger_accept_invalid_certs(mut self) -> Self {
         self.verify_tls = false;
         self

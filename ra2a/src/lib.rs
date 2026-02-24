@@ -43,10 +43,11 @@ pub use error::{A2AError, Result};
 #[cfg(feature = "server")]
 pub use server::{
     AgentCardProducer, AgentExecutor, AuthenticatedUser, CallContext, CallInterceptor,
-    ConcurrencyConfig, DefaultRequestHandler, Event, EventQueue, HandlerBuilder, HttpPushSender,
-    InMemoryPushConfigStore, InterceptedHandler, PassthroughInterceptor, PushConfigStore,
-    PushSender, QueueManager, ReferencedTasksLoader, RequestContext, RequestContextInterceptor,
-    RequestHandler, RequestMeta, SendMessageResponse, User, EXTENSIONS_META_KEY,
+    ConcurrencyConfig, DefaultRequestHandler, EXTENSIONS_META_KEY, Event, EventQueue,
+    HandlerBuilder, HttpPushSender, InMemoryPushConfigStore, InterceptedHandler,
+    PassthroughInterceptor, PushConfigStore, PushSender, QueueManager, ReferencedTasksLoader,
+    RequestContext, RequestContextInterceptor, RequestHandler, RequestMeta, SendMessageResponse,
+    User,
 };
 pub use types::{
     A2ARequest, A2AResponse, AgentCapabilities, AgentCard, AgentSkill, Artifact,
@@ -61,6 +62,19 @@ pub const PROTOCOL_VERSION: &str = "0.3.0";
 
 /// Well-known path for the public agent card endpoint (aligned with Go's `WellKnownAgentCardPath`).
 pub const WELL_KNOWN_AGENT_CARD_PATH: &str = "/.well-known/agent-card.json";
+
+/// Constructs the full agent card URL from a base URL.
+///
+/// Handles trailing slashes: both `"https://example.com"` and
+/// `"https://example.com/"` produce `"https://example.com/.well-known/agent-card.json"`.
+#[must_use]
+pub fn agent_card_url(base_url: &str) -> String {
+    format!(
+        "{}{}",
+        base_url.trim_end_matches('/'),
+        WELL_KNOWN_AGENT_CARD_PATH
+    )
+}
 
 /// SDK version
 pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");

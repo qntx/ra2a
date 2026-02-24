@@ -29,7 +29,9 @@ impl CallMeta {
     /// Case-insensitive lookup. Returns `None` if not present.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&[String]> {
-        self.inner.get(&key.to_lowercase()).map(std::vec::Vec::as_slice)
+        self.inner
+            .get(&key.to_lowercase())
+            .map(std::vec::Vec::as_slice)
     }
 
     /// Appends values, skipping duplicates. Key matching is case-insensitive.
@@ -230,7 +232,7 @@ pub struct StaticCallMetaInjector {
 
 impl StaticCallMetaInjector {
     /// Creates a new injector that appends the given meta to every request.
-    #[must_use] 
+    #[must_use]
     pub const fn new(meta: CallMeta) -> Self {
         Self { meta }
     }
@@ -281,10 +283,8 @@ impl ClientCallInterceptor for ExtensionActivator {
             // No card available — assume all extensions are supported (same as Go)
             None => {
                 if !self.extension_uris.is_empty() {
-                    req.meta.append(
-                        crate::EXTENSIONS_META_KEY,
-                        &self.extension_uris,
-                    );
+                    req.meta
+                        .append(crate::EXTENSIONS_META_KEY, &self.extension_uris);
                 }
                 return Ok(());
             }
@@ -316,7 +316,10 @@ mod tests {
     fn test_call_meta() {
         let mut meta = CallMeta::new();
         meta.set("Content-Type", "application/json");
-        assert_eq!(meta.get("content-type"), Some(["application/json".to_string()].as_slice()));
+        assert_eq!(
+            meta.get("content-type"),
+            Some(["application/json".to_string()].as_slice())
+        );
 
         meta.append("x-custom", &["a".into(), "b".into()]);
         meta.append("X-Custom", &["b".into(), "c".into()]);
@@ -349,18 +352,30 @@ mod tests {
         #[async_trait]
         impl ClientCallInterceptor for OrderInterceptor {
             async fn before(&self, _req: &mut ClientRequest) -> crate::error::Result<()> {
-                self.log.lock().unwrap().push(format!("before:{}", self.name));
+                self.log
+                    .lock()
+                    .unwrap()
+                    .push(format!("before:{}", self.name));
                 Ok(())
             }
             async fn after(&self, _resp: &mut ClientResponse) -> crate::error::Result<()> {
-                self.log.lock().unwrap().push(format!("after:{}", self.name));
+                self.log
+                    .lock()
+                    .unwrap()
+                    .push(format!("after:{}", self.name));
                 Ok(())
             }
         }
 
         let interceptors: Vec<Box<dyn ClientCallInterceptor>> = vec![
-            Box::new(OrderInterceptor { name: "A".into(), log: Arc::clone(&log) }),
-            Box::new(OrderInterceptor { name: "B".into(), log: Arc::clone(&log) }),
+            Box::new(OrderInterceptor {
+                name: "A".into(),
+                log: Arc::clone(&log),
+            }),
+            Box::new(OrderInterceptor {
+                name: "B".into(),
+                log: Arc::clone(&log),
+            }),
         ];
 
         let mut req = ClientRequest {
@@ -369,7 +384,9 @@ mod tests {
             card: None,
             payload: None,
         };
-        run_interceptors_before(&interceptors, &mut req).await.unwrap();
+        run_interceptors_before(&interceptors, &mut req)
+            .await
+            .unwrap();
 
         let mut resp = ClientResponse {
             method: "test".into(),
@@ -378,7 +395,9 @@ mod tests {
             payload: None,
             error: None,
         };
-        run_interceptors_after(&interceptors, &mut resp).await.unwrap();
+        run_interceptors_after(&interceptors, &mut resp)
+            .await
+            .unwrap();
 
         let entries = log.lock().unwrap();
         assert_eq!(&*entries, &["before:A", "before:B", "after:B", "after:A"]);
@@ -393,8 +412,18 @@ mod tests {
         let mut card = AgentCard::builder("test", "http://localhost").build();
         card.capabilities = AgentCapabilities {
             extensions: vec![
-                AgentExtension { uri: "urn:ext:a".into(), description: None, required: false, params: None },
-                AgentExtension { uri: "urn:ext:c".into(), description: None, required: false, params: None },
+                AgentExtension {
+                    uri: "urn:ext:a".into(),
+                    description: None,
+                    required: false,
+                    params: None,
+                },
+                AgentExtension {
+                    uri: "urn:ext:c".into(),
+                    description: None,
+                    required: false,
+                    params: None,
+                },
             ],
             ..Default::default()
         };

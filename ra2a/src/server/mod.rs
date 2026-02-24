@@ -128,7 +128,7 @@ impl RequestContext {
     }
 
     /// Creates a new request context with auto-generated IDs.
-    #[must_use] 
+    #[must_use]
     pub fn create() -> Self {
         Self::new(
             uuid::Uuid::new_v4().to_string(),
@@ -165,7 +165,11 @@ impl ReferencedTasksLoader {
 #[async_trait]
 impl RequestContextInterceptor for ReferencedTasksLoader {
     async fn intercept(&self, ctx: &mut RequestContext) -> Result<()> {
-        let reference_ids = match ctx.message.as_ref().and_then(|m| m.reference_task_ids.as_ref()) {
+        let reference_ids = match ctx
+            .message
+            .as_ref()
+            .and_then(|m| m.reference_task_ids.as_ref())
+        {
             Some(ids) if !ids.is_empty() => ids.clone(),
             _ => return Ok(()),
         };
@@ -287,6 +291,9 @@ impl<E: AgentExecutor + 'static> HandlerBuilder<E> {
     pub fn build(self) -> InterceptedHandler {
         let mut handler = DefaultRequestHandler::new(self.executor);
 
+        if let Some(manager) = self.queue_manager {
+            handler = handler.with_queue_manager(manager);
+        }
         if let Some(store) = self.task_store {
             handler = handler.with_task_store(store);
         }
@@ -335,7 +342,10 @@ impl std::fmt::Debug for ConcurrencyConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConcurrencyConfig")
             .field("max_executions", &self.max_executions)
-            .field("get_max_executions", &self.get_max_executions.as_ref().map(|_| "..."))
+            .field(
+                "get_max_executions",
+                &self.get_max_executions.as_ref().map(|_| "..."),
+            )
             .finish()
     }
 }

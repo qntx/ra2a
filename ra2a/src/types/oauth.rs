@@ -25,7 +25,7 @@ pub struct OAuthFlows {
 
 impl OAuthFlows {
     /// Creates flows with authorization code configuration.
-    #[must_use] 
+    #[must_use]
     pub fn authorization_code(flow: AuthorizationCodeOAuthFlow) -> Self {
         Self {
             authorization_code: Some(flow),
@@ -34,7 +34,7 @@ impl OAuthFlows {
     }
 
     /// Creates flows with client credentials configuration.
-    #[must_use] 
+    #[must_use]
     pub fn client_credentials(flow: ClientCredentialsOAuthFlow) -> Self {
         Self {
             client_credentials: Some(flow),

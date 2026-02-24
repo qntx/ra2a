@@ -28,7 +28,7 @@ pub enum Event {
 
 impl Event {
     /// Returns the task ID from this event, if available.
-    #[must_use] 
+    #[must_use]
     pub fn task_id(&self) -> Option<&str> {
         match self {
             Self::StatusUpdate(e) => Some(&e.task_id),
@@ -39,7 +39,7 @@ impl Event {
     }
 
     /// Returns true if this is a final event (status update with `final = true`).
-    #[must_use] 
+    #[must_use]
     pub const fn is_final(&self) -> bool {
         match self {
             Self::StatusUpdate(e) => e.r#final,
@@ -50,7 +50,7 @@ impl Event {
     /// Returns true if this event represents a terminal condition that should
     /// stop the non-streaming event collection loop. Aligned with Go's
     /// `shouldInterruptNonStreaming` + final-event detection.
-    #[must_use] 
+    #[must_use]
     pub const fn is_terminal(&self) -> bool {
         match self {
             Self::StatusUpdate(e) => e.r#final || e.status.state.is_terminal(),
@@ -61,7 +61,7 @@ impl Event {
     }
 
     /// Returns the SSE event type string and JSON data for this event.
-    #[must_use] 
+    #[must_use]
     pub fn to_sse_data(&self) -> (String, String) {
         let (event_type, data) = match self {
             Self::StatusUpdate(e) => (
@@ -79,25 +79,25 @@ impl Event {
     }
 
     /// Creates an event from a task status update.
-    #[must_use] 
+    #[must_use]
     pub const fn status_update(event: TaskStatusUpdateEvent) -> Self {
         Self::StatusUpdate(event)
     }
 
     /// Creates an event from an artifact update.
-    #[must_use] 
+    #[must_use]
     pub const fn artifact_update(event: TaskArtifactUpdateEvent) -> Self {
         Self::ArtifactUpdate(event)
     }
 
     /// Creates an event from a task.
-    #[must_use] 
+    #[must_use]
     pub const fn task(task: Task) -> Self {
         Self::Task(task)
     }
 
     /// Creates an event from a message.
-    #[must_use] 
+    #[must_use]
     pub const fn message(message: Message) -> Self {
         Self::Message(message)
     }
@@ -111,7 +111,7 @@ pub struct EventQueue {
 
 impl EventQueue {
     /// Creates a new event queue with the specified capacity.
-    #[must_use] 
+    #[must_use]
     pub fn new(capacity: usize) -> Self {
         let (sender, _) = broadcast::channel(capacity);
         Self { sender }
@@ -126,13 +126,13 @@ impl EventQueue {
     }
 
     /// Subscribes to events from this queue.
-    #[must_use] 
+    #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
         self.sender.subscribe()
     }
 
     /// Returns the number of active subscribers.
-    #[must_use] 
+    #[must_use]
     pub fn subscriber_count(&self) -> usize {
         self.sender.receiver_count()
     }
@@ -144,36 +144,6 @@ impl Default for EventQueue {
     }
 }
 
-/// Error when no queue exists for a task.
-#[derive(Debug, Clone)]
-pub struct NoTaskQueue {
-    /// The task ID that has no queue.
-    pub task_id: String,
-}
-
-impl std::fmt::Display for NoTaskQueue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "No event queue exists for task: {}", self.task_id)
-    }
-}
-
-impl std::error::Error for NoTaskQueue {}
-
-/// Error when a queue already exists for a task.
-#[derive(Debug, Clone)]
-pub struct TaskQueueExists {
-    /// The task ID that already has a queue.
-    pub task_id: String,
-}
-
-impl std::fmt::Display for TaskQueueExists {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Event queue already exists for task: {}", self.task_id)
-    }
-}
-
-impl std::error::Error for TaskQueueExists {}
-
 /// Manages event queues for multiple tasks.
 #[derive(Debug, Default)]
 pub struct QueueManager {
@@ -183,13 +153,13 @@ pub struct QueueManager {
 
 impl QueueManager {
     /// Creates a new queue manager.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::with_capacity(100)
     }
 
     /// Creates a new queue manager with the specified queue capacity.
-    #[must_use] 
+    #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             queues: Arc::new(RwLock::new(HashMap::new())),
@@ -198,30 +168,22 @@ impl QueueManager {
     }
 
     /// Creates a new event queue for a task.
-    pub async fn create_queue(
-        &self,
-        task_id: &str,
-    ) -> std::result::Result<Arc<EventQueue>, TaskQueueExists> {
+    ///
+    /// Returns `None` if a queue already exists for this task.
+    pub async fn create_queue(&self, task_id: &str) -> Option<Arc<EventQueue>> {
         let mut queues = self.queues.write().await;
         if queues.contains_key(task_id) {
-            return Err(TaskQueueExists {
-                task_id: task_id.to_string(),
-            });
+            return None;
         }
         let queue = Arc::new(EventQueue::new(self.capacity));
         queues.insert(task_id.to_string(), Arc::clone(&queue));
-        Ok(queue)
+        Some(queue)
     }
 
     /// Gets an existing event queue for a task.
-    pub async fn get_queue(
-        &self,
-        task_id: &str,
-    ) -> std::result::Result<Arc<EventQueue>, NoTaskQueue> {
+    pub async fn get_queue(&self, task_id: &str) -> Option<Arc<EventQueue>> {
         let queues = self.queues.read().await;
-        queues.get(task_id).cloned().ok_or(NoTaskQueue {
-            task_id: task_id.to_string(),
-        })
+        queues.get(task_id).cloned()
     }
 
     /// Gets or creates an event queue for a task.
@@ -257,13 +219,10 @@ impl QueueManager {
         let queue = self
             .get_queue(task_id)
             .await
-            .map_err(|e| A2AError::Other(format!("No queue for task {task_id}: {e}")))?;
+            .ok_or_else(|| A2AError::Other(format!("No queue for task {task_id}")))?;
         queue.send(event)
     }
 }
-
-/// Type alias for backward compatibility.
-pub type InMemoryQueueManager = QueueManager;
 
 #[cfg(test)]
 mod tests {

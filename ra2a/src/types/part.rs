@@ -35,31 +35,31 @@ impl Part {
     }
 
     /// Creates a new data part.
-    #[must_use] 
+    #[must_use]
     pub const fn data(data: HashMap<String, serde_json::Value>) -> Self {
         Self::Data(DataPart::new(data))
     }
 
     /// Returns true if this is a text part.
-    #[must_use] 
+    #[must_use]
     pub const fn is_text(&self) -> bool {
         matches!(self, Self::Text(_))
     }
 
     /// Returns true if this is a file part.
-    #[must_use] 
+    #[must_use]
     pub const fn is_file(&self) -> bool {
         matches!(self, Self::File(_))
     }
 
     /// Returns true if this is a data part.
-    #[must_use] 
+    #[must_use]
     pub const fn is_data(&self) -> bool {
         matches!(self, Self::Data(_))
     }
 
     /// Returns the text content if this is a text part.
-    #[must_use] 
+    #[must_use]
     pub fn as_text(&self) -> Option<&str> {
         match self {
             Self::Text(p) => Some(&p.text),
@@ -88,7 +88,7 @@ impl TextPart {
     }
 
     /// Sets the metadata for this part.
-    #[must_use] 
+    #[must_use]
     pub fn with_metadata(mut self, metadata: HashMap<String, serde_json::Value>) -> Self {
         self.metadata = Some(metadata);
         self
@@ -141,12 +141,24 @@ pub enum FileContent {
     Uri(FileWithUri),
 }
 
-/// Common base fields for file content.
-pub trait FileBase {
+impl FileContent {
     /// Returns the MIME type of the file.
-    fn mime_type(&self) -> Option<&str>;
+    #[must_use]
+    pub fn mime_type(&self) -> Option<&str> {
+        match self {
+            Self::Bytes(f) => f.mime_type.as_deref(),
+            Self::Uri(f) => f.mime_type.as_deref(),
+        }
+    }
+
     /// Returns the name of the file.
-    fn name(&self) -> Option<&str>;
+    #[must_use]
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Self::Bytes(f) => f.name.as_deref(),
+            Self::Uri(f) => f.name.as_deref(),
+        }
+    }
 }
 
 /// Represents a file with its content provided as base64-encoded bytes.
@@ -161,16 +173,6 @@ pub struct FileWithBytes {
     /// An optional name for the file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-}
-
-impl FileBase for FileWithBytes {
-    fn mime_type(&self) -> Option<&str> {
-        self.mime_type.as_deref()
-    }
-
-    fn name(&self) -> Option<&str> {
-        self.name.as_deref()
-    }
 }
 
 impl FileWithBytes {
@@ -210,16 +212,6 @@ pub struct FileWithUri {
     pub name: Option<String>,
 }
 
-impl FileBase for FileWithUri {
-    fn mime_type(&self) -> Option<&str> {
-        self.mime_type.as_deref()
-    }
-
-    fn name(&self) -> Option<&str> {
-        self.name.as_deref()
-    }
-}
-
 impl FileWithUri {
     /// Creates a new file with URI content.
     pub fn new(uri: impl Into<String>) -> Self {
@@ -255,7 +247,7 @@ pub struct DataPart {
 
 impl DataPart {
     /// Creates a new data part.
-    #[must_use] 
+    #[must_use]
     pub const fn new(data: HashMap<String, serde_json::Value>) -> Self {
         Self {
             data,
@@ -264,7 +256,7 @@ impl DataPart {
     }
 
     /// Sets the metadata for this part.
-    #[must_use] 
+    #[must_use]
     pub fn with_metadata(mut self, metadata: HashMap<String, serde_json::Value>) -> Self {
         self.metadata = Some(metadata);
         self

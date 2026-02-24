@@ -89,10 +89,11 @@ fn print_response(response: &serde_json::Value) {
 
             if let Some(msg) = status.get("message")
                 && let Some(parts) = msg.get("parts")
-                    && let Some(first) = parts.as_array().and_then(|a| a.first())
-                        && let Some(text) = first.get("text") {
-                            println!("   Response: {}\n", text.as_str().unwrap_or(""));
-                        }
+                && let Some(first) = parts.as_array().and_then(|a| a.first())
+                && let Some(text) = first.get("text")
+            {
+                println!("   Response: {}\n", text.as_str().unwrap_or(""));
+            }
         }
     } else if let Some(error) = response.get("error") {
         println!("   Error: {error:?}\n");

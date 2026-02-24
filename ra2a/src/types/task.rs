@@ -4,21 +4,17 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use super::{Message, Part};
-
-/// Helper for serde: skip serializing boolean fields when false.
-#[must_use] 
-pub fn is_false(v: &bool) -> bool {
-    !v
-}
 
 /// Version of a task stored on the server, used for optimistic concurrency control.
 ///
 /// Aligned with Go's `TaskVersion` in `task_version.go`.
 /// A value of `0` (`MISSING`) means version tracking is not active.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct TaskVersion(pub i64);
 
 impl TaskVersion {
@@ -74,10 +70,9 @@ pub enum TaskState {
     Unknown,
 }
 
-
 impl TaskState {
     /// Returns true if this state indicates the task is still active.
-    #[must_use] 
+    #[must_use]
     pub const fn is_active(&self) -> bool {
         matches!(
             self,
@@ -86,7 +81,7 @@ impl TaskState {
     }
 
     /// Returns true if this state indicates the task has terminated.
-    #[must_use] 
+    #[must_use]
     pub const fn is_terminal(&self) -> bool {
         matches!(
             self,
@@ -110,7 +105,7 @@ pub struct TaskStatus {
 
 impl TaskStatus {
     /// Creates a new task status with the given state.
-    #[must_use] 
+    #[must_use]
     pub fn new(state: TaskState) -> Self {
         Self {
             state,
@@ -120,7 +115,7 @@ impl TaskStatus {
     }
 
     /// Creates a new task status with a message.
-    #[must_use] 
+    #[must_use]
     pub fn with_message(state: TaskState, message: Message) -> Self {
         Self {
             state,
@@ -130,19 +125,19 @@ impl TaskStatus {
     }
 
     /// Creates a submitted status.
-    #[must_use] 
+    #[must_use]
     pub fn submitted() -> Self {
         Self::new(TaskState::Submitted)
     }
 
     /// Creates a working status.
-    #[must_use] 
+    #[must_use]
     pub fn working() -> Self {
         Self::new(TaskState::Working)
     }
 
     /// Creates a completed status.
-    #[must_use] 
+    #[must_use]
     pub fn completed() -> Self {
         Self::new(TaskState::Completed)
     }
@@ -153,7 +148,7 @@ impl TaskStatus {
     }
 
     /// Creates an input-required status.
-    #[must_use] 
+    #[must_use]
     pub fn input_required() -> Self {
         Self::new(TaskState::InputRequired)
     }
@@ -167,11 +162,15 @@ impl Default for TaskStatus {
 
 /// Represents a single, stateful operation or conversation between a client and an agent.
 ///
-/// The `kind` field is injected during JSON serialization as `"task"` (aligned
-/// with Go's `Task.MarshalJSON`). It is not stored on the struct.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+/// The `kind` field is injected as `"task"` during JSON serialization (aligned
+/// with Go's `Task.MarshalJSON`). It is tolerated but ignored on deserialization.
+#[allow(clippy::manual_non_exhaustive)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
+    /// Discriminator injected as `"task"` on serialization.
+    #[serde(with = "super::kind_serde::task", default)]
+    kind: (),
     /// A unique identifier (UUID) for the task.
     pub id: String,
     /// A unique identifier for maintaining context across related tasks.
@@ -187,61 +186,24 @@ pub struct Task {
     /// Optional metadata for extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, serde_json::Value>>,
-
-    /// Ignored during deserialization; injected as `"task"` on serialization.
-    #[serde(default, skip_serializing)]
-    #[allow(dead_code)]
-    kind: Option<String>,
-}
-
-impl Serialize for Task {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct TaskWithKind<'a> {
-            kind: &'static str,
-            id: &'a str,
-            context_id: &'a str,
-            status: &'a TaskStatus,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            history: &'a Option<Vec<Message>>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            artifacts: &'a Option<Vec<Artifact>>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            metadata: &'a Option<HashMap<String, serde_json::Value>>,
-        }
-        TaskWithKind {
-            kind: "task",
-            id: &self.id,
-            context_id: &self.context_id,
-            status: &self.status,
-            history: &self.history,
-            artifacts: &self.artifacts,
-            metadata: &self.metadata,
-        }
-        .serialize(serializer)
-    }
 }
 
 impl Task {
     /// Creates a new task with the given ID and context ID.
     pub fn new(id: impl Into<String>, context_id: impl Into<String>) -> Self {
         Self {
+            kind: (),
             id: id.into(),
             context_id: context_id.into(),
             status: TaskStatus::submitted(),
             history: None,
             artifacts: None,
             metadata: None,
-            kind: None,
         }
     }
 
     /// Creates a new task with auto-generated IDs.
-    #[must_use] 
+    #[must_use]
     pub fn create() -> Self {
         let id = uuid::Uuid::new_v4().to_string();
         let context_id = uuid::Uuid::new_v4().to_string();
@@ -249,14 +211,14 @@ impl Task {
     }
 
     /// Sets the status of this task.
-    #[must_use] 
+    #[must_use]
     pub fn with_status(mut self, status: TaskStatus) -> Self {
         self.status = status;
         self
     }
 
     /// Sets the history for this task.
-    #[must_use] 
+    #[must_use]
     pub fn with_history(mut self, history: Vec<Message>) -> Self {
         self.history = Some(history);
         self
@@ -272,7 +234,7 @@ impl Task {
     }
 
     /// Sets the artifacts for this task.
-    #[must_use] 
+    #[must_use]
     pub fn with_artifacts(mut self, artifacts: Vec<Artifact>) -> Self {
         self.artifacts = Some(artifacts);
         self
@@ -288,26 +250,26 @@ impl Task {
     }
 
     /// Sets the metadata for this task.
-    #[must_use] 
+    #[must_use]
     pub fn with_metadata(mut self, metadata: HashMap<String, serde_json::Value>) -> Self {
         self.metadata = Some(metadata);
         self
     }
 
     /// Returns true if the task is in an active state.
-    #[must_use] 
+    #[must_use]
     pub const fn is_active(&self) -> bool {
         self.status.state.is_active()
     }
 
     /// Returns true if the task is in a terminal state.
-    #[must_use] 
+    #[must_use]
     pub const fn is_terminal(&self) -> bool {
         self.status.state.is_terminal()
     }
 
     /// Returns the current state of the task.
-    #[must_use] 
+    #[must_use]
     pub const fn state(&self) -> TaskState {
         self.status.state
     }
@@ -323,13 +285,13 @@ impl Task {
     }
 
     /// Returns the last message in the task's history.
-    #[must_use] 
+    #[must_use]
     pub fn last_message(&self) -> Option<&Message> {
         self.history.as_ref().and_then(|h| h.last())
     }
 
     /// Returns the last user message in the task's history.
-    #[must_use] 
+    #[must_use]
     pub fn last_user_message(&self) -> Option<&Message> {
         self.history
             .as_ref()
@@ -337,7 +299,7 @@ impl Task {
     }
 
     /// Returns the last agent message in the task's history.
-    #[must_use] 
+    #[must_use]
     pub fn last_agent_message(&self) -> Option<&Message> {
         self.history
             .as_ref()
@@ -345,7 +307,7 @@ impl Task {
     }
 
     /// Finds an artifact by its ID.
-    #[must_use] 
+    #[must_use]
     pub fn artifact_by_id(&self, artifact_id: &str) -> Option<&Artifact> {
         self.artifacts
             .as_ref()
@@ -353,7 +315,7 @@ impl Task {
     }
 
     /// Returns `true` if the task is waiting for user input.
-    #[must_use] 
+    #[must_use]
     pub const fn is_waiting_for_input(&self) -> bool {
         matches!(
             self.status.state,
@@ -362,13 +324,13 @@ impl Task {
     }
 
     /// Validates that the task is in the expected state.
-    #[must_use] 
+    #[must_use]
     pub fn is_in_state(&self, expected: TaskState) -> bool {
         self.status.state == expected
     }
 
     /// Validates that the task is in one of the expected states.
-    #[must_use] 
+    #[must_use]
     pub fn is_in_any_state(&self, expected: &[TaskState]) -> bool {
         expected.contains(&self.status.state)
     }
@@ -388,10 +350,11 @@ impl Task {
     /// If `len` is `None` or the history is shorter, this is a no-op.
     pub fn truncate_history(&mut self, len: Option<usize>) {
         if let (Some(max), Some(history)) = (len, self.history.as_mut())
-            && history.len() > max {
-                let start = history.len() - max;
-                *history = history.split_off(start);
-            }
+            && history.len() > max
+        {
+            let start = history.len() - max;
+            *history = history.split_off(start);
+        }
     }
 
     /// Appends artifact data from an update event.
@@ -424,7 +387,7 @@ impl Task {
     }
 
     /// Creates a [`TaskStatusUpdateEvent`] from the current task state.
-    #[must_use] 
+    #[must_use]
     pub fn status_update_event(&self, is_final: bool) -> TaskStatusUpdateEvent {
         TaskStatusUpdateEvent::new(&self.id, &self.context_id, self.status.clone(), is_final)
     }
@@ -472,7 +435,7 @@ impl Artifact {
     }
 
     /// Creates a new artifact with an auto-generated ID.
-    #[must_use] 
+    #[must_use]
     pub fn create(parts: Vec<Part>) -> Self {
         Self::new(uuid::Uuid::new_v4().to_string(), parts)
     }
@@ -504,9 +467,13 @@ impl Artifact {
 ///
 /// The `kind` field is injected as `"status-update"` during serialization
 /// (aligned with Go's `TaskStatusUpdateEvent.MarshalJSON`).
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[allow(clippy::manual_non_exhaustive)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskStatusUpdateEvent {
+    /// Discriminator injected as `"status-update"` on serialization.
+    #[serde(with = "super::kind_serde::status_update", default)]
+    kind: (),
     /// The ID of the task that was updated.
     pub task_id: String,
     /// The context ID associated with the task.
@@ -518,39 +485,6 @@ pub struct TaskStatusUpdateEvent {
     /// Optional metadata for extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, serde_json::Value>>,
-
-    /// Ignored during deserialization; injected as `"status-update"` on serialization.
-    #[serde(default, skip_serializing)]
-    #[allow(dead_code)]
-    kind: Option<String>,
-}
-
-impl Serialize for TaskStatusUpdateEvent {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Helper<'a> {
-            kind: &'static str,
-            task_id: &'a str,
-            context_id: &'a str,
-            status: &'a TaskStatus,
-            r#final: bool,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            metadata: &'a Option<HashMap<String, serde_json::Value>>,
-        }
-        Helper {
-            kind: "status-update",
-            task_id: &self.task_id,
-            context_id: &self.context_id,
-            status: &self.status,
-            r#final: self.r#final,
-            metadata: &self.metadata,
-        }
-        .serialize(serializer)
-    }
 }
 
 impl TaskStatusUpdateEvent {
@@ -562,12 +496,12 @@ impl TaskStatusUpdateEvent {
         r#final: bool,
     ) -> Self {
         Self {
+            kind: (),
             task_id: task_id.into(),
             context_id: context_id.into(),
             status,
             r#final,
             metadata: None,
-            kind: None,
         }
     }
 }
@@ -576,9 +510,13 @@ impl TaskStatusUpdateEvent {
 ///
 /// The `kind` field is injected as `"artifact-update"` during serialization
 /// (aligned with Go's `TaskArtifactUpdateEvent.MarshalJSON`).
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[allow(clippy::manual_non_exhaustive)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskArtifactUpdateEvent {
+    /// Discriminator injected as `"artifact-update"` on serialization.
+    #[serde(with = "super::kind_serde::artifact_update", default)]
+    kind: (),
     /// The ID of the task this artifact belongs to.
     pub task_id: String,
     /// The context ID associated with the task.
@@ -586,51 +524,14 @@ pub struct TaskArtifactUpdateEvent {
     /// The artifact that was generated or updated.
     pub artifact: Artifact,
     /// If true, the content should be appended to a previous artifact.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "crate::types::is_false")]
     pub append: bool,
     /// If true, this is the final chunk of the artifact.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "crate::types::is_false")]
     pub last_chunk: bool,
     /// Optional metadata for extensions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, serde_json::Value>>,
-
-    /// Ignored during deserialization; injected as `"artifact-update"` on serialization.
-    #[serde(default, skip_serializing)]
-    #[allow(dead_code)]
-    kind: Option<String>,
-}
-
-impl Serialize for TaskArtifactUpdateEvent {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Helper<'a> {
-            kind: &'static str,
-            task_id: &'a str,
-            context_id: &'a str,
-            artifact: &'a Artifact,
-            #[serde(skip_serializing_if = "crate::types::task::is_false")]
-            append: bool,
-            #[serde(skip_serializing_if = "crate::types::task::is_false")]
-            last_chunk: bool,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            metadata: &'a Option<HashMap<String, serde_json::Value>>,
-        }
-        Helper {
-            kind: "artifact-update",
-            task_id: &self.task_id,
-            context_id: &self.context_id,
-            artifact: &self.artifact,
-            append: self.append,
-            last_chunk: self.last_chunk,
-            metadata: &self.metadata,
-        }
-        .serialize(serializer)
-    }
 }
 
 impl TaskArtifactUpdateEvent {
@@ -641,13 +542,13 @@ impl TaskArtifactUpdateEvent {
         artifact: Artifact,
     ) -> Self {
         Self {
+            kind: (),
             task_id: task_id.into(),
             context_id: context_id.into(),
             artifact,
             append: false,
             last_chunk: false,
             metadata: None,
-            kind: None,
         }
     }
 }

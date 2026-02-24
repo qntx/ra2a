@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::SecurityScheme;
 
 /// Supported A2A transport protocols.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum TransportProtocol {
     /// JSON-RPC over HTTP.
     #[serde(rename = "JSONRPC")]
@@ -24,7 +23,6 @@ pub enum TransportProtocol {
     #[serde(rename = "HTTP+JSON")]
     HttpJson,
 }
-
 
 /// The `AgentCard` is a self-describing manifest for an agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -70,7 +68,7 @@ pub struct AgentCard {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub security: Option<Vec<HashMap<String, Vec<String>>>>,
     /// If true, the agent can provide an extended card to authenticated users.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::types::is_false")]
     pub supports_authenticated_extended_card: bool,
     /// JSON Web Signatures computed for this `AgentCard`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -84,25 +82,25 @@ impl AgentCard {
     }
 
     /// Returns true if the agent supports streaming.
-    #[must_use] 
+    #[must_use]
     pub const fn supports_streaming(&self) -> bool {
         self.capabilities.streaming
     }
 
     /// Returns true if the agent supports push notifications.
-    #[must_use] 
+    #[must_use]
     pub const fn supports_push_notifications(&self) -> bool {
         self.capabilities.push_notifications
     }
 
     /// Finds a skill by its ID.
-    #[must_use] 
+    #[must_use]
     pub fn find_skill(&self, skill_id: &str) -> Option<&AgentSkill> {
         self.skills.iter().find(|s| s.id == skill_id)
     }
 
     /// Returns all skill IDs.
-    #[must_use] 
+    #[must_use]
     pub fn skill_ids(&self) -> Vec<&str> {
         self.skills.iter().map(|s| s.id.as_str()).collect()
     }
@@ -154,57 +152,52 @@ impl AgentCardBuilder {
     }
 
     /// Sets the capabilities.
-    #[must_use] 
+    #[must_use]
     pub fn capabilities(mut self, capabilities: AgentCapabilities) -> Self {
         self.card.capabilities = capabilities;
         self
     }
 
     /// Adds a skill.
-    #[must_use] 
+    #[must_use]
     pub fn skill(mut self, skill: AgentSkill) -> Self {
         self.card.skills.push(skill);
         self
     }
 
     /// Sets multiple skills.
-    #[must_use] 
+    #[must_use]
     pub fn skills(mut self, skills: Vec<AgentSkill>) -> Self {
         self.card.skills = skills;
         self
     }
 
     /// Sets the input modes.
-    #[must_use] 
+    #[must_use]
     pub fn input_modes(mut self, modes: Vec<String>) -> Self {
         self.card.default_input_modes = modes;
         self
     }
 
     /// Sets the output modes.
-    #[must_use] 
+    #[must_use]
     pub fn output_modes(mut self, modes: Vec<String>) -> Self {
         self.card.default_output_modes = modes;
         self
     }
 
     /// Sets the provider.
-    #[must_use] 
+    #[must_use]
     pub fn provider(mut self, provider: AgentProvider) -> Self {
         self.card.provider = Some(provider);
         self
     }
 
     /// Builds the `AgentCard`.
-    #[must_use] 
+    #[must_use]
     pub fn build(self) -> AgentCard {
         self.card
     }
-}
-
-/// Helper to check if a bool is false, used for serde `skip_serializing_if`.
-fn is_false(v: &bool) -> bool {
-    !v
 }
 
 /// Defines optional capabilities supported by an agent.
@@ -215,13 +208,13 @@ fn is_false(v: &bool) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct AgentCapabilities {
     /// Indicates if the agent supports Server-Sent Events (SSE) for streaming.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::types::is_false")]
     pub streaming: bool,
     /// Indicates if the agent supports push notifications.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::types::is_false")]
     pub push_notifications: bool,
     /// Indicates if the agent provides state transition history.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::types::is_false")]
     pub state_transition_history: bool,
     /// A list of protocol extensions supported by the agent.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -230,7 +223,7 @@ pub struct AgentCapabilities {
 
 impl AgentCapabilities {
     /// Creates new capabilities with streaming enabled.
-    #[must_use] 
+    #[must_use]
     pub fn with_streaming() -> Self {
         Self {
             streaming: true,
@@ -239,7 +232,7 @@ impl AgentCapabilities {
     }
 
     /// Creates new capabilities with push notifications enabled.
-    #[must_use] 
+    #[must_use]
     pub fn with_push_notifications() -> Self {
         Self {
             push_notifications: true,
@@ -295,7 +288,7 @@ impl AgentSkill {
     }
 
     /// Sets the examples for this skill.
-    #[must_use] 
+    #[must_use]
     pub fn with_examples(mut self, examples: Vec<String>) -> Self {
         self.examples = Some(examples);
         self
@@ -311,7 +304,7 @@ pub struct AgentExtension {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// If true, the client must understand the extension.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::types::is_false")]
     pub required: bool,
     /// Optional extension-specific configuration parameters.
     #[serde(skip_serializing_if = "Option::is_none")]

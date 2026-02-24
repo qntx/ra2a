@@ -43,7 +43,7 @@ impl A2AClient {
     /// Creates a new A2A client with custom configuration.
     pub fn with_config(base_url: impl Into<String>, config: ClientConfig) -> Result<Self> {
         let base_url = base_url.into();
-        let card_url = format!("{}/.well-known/agent-card.json", base_url.trim_end_matches('/'));
+        let card_url = crate::agent_card_url(&base_url);
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
@@ -77,10 +77,7 @@ impl A2AClient {
             .build()
             .map_err(|e| A2AError::Other(e.to_string()))?;
 
-        let card_url = format!(
-            "{}/.well-known/agent-card.json",
-            transport.base_url.trim_end_matches('/')
-        );
+        let card_url = crate::agent_card_url(&transport.base_url);
 
         Ok(Self {
             http_client,
@@ -92,13 +89,13 @@ impl A2AClient {
     }
 
     /// Returns the base URL of the agent.
-    #[must_use] 
+    #[must_use]
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
 
     /// Returns the client configuration.
-    #[must_use] 
+    #[must_use]
     pub const fn config(&self) -> &ClientConfig {
         &self.config
     }
@@ -153,7 +150,10 @@ impl Client for A2AClient {
 
         // Convert the result to a stream of events
         let event = match result {
-            SendMessageResult::Task(task) => ClientEvent::TaskUpdate { task: Box::new(task), update: None },
+            SendMessageResult::Task(task) => ClientEvent::TaskUpdate {
+                task: Box::new(task),
+                update: None,
+            },
             SendMessageResult::Message(msg) => ClientEvent::Message(msg),
         };
 
@@ -186,7 +186,10 @@ impl Client for A2AClient {
     async fn resubscribe(&self, params: TaskIdParams) -> Result<EventStream> {
         // For non-streaming client, we just get the current task state
         let task = self.get_task(TaskQueryParams::new(&params.id)).await?;
-        let event = ClientEvent::TaskUpdate { task: Box::new(task), update: None };
+        let event = ClientEvent::TaskUpdate {
+            task: Box::new(task),
+            update: None,
+        };
         let stream = stream::once(async move { Ok(event) });
         Ok(Box::pin(stream))
     }
@@ -235,7 +238,7 @@ impl A2AClientBuilder {
     }
 
     /// Sets the client configuration.
-    #[must_use] 
+    #[must_use]
     pub fn config(mut self, config: ClientConfig) -> Self {
         self.config = config;
         self
@@ -258,14 +261,14 @@ impl A2AClientBuilder {
     }
 
     /// Sets the request timeout.
-    #[must_use] 
+    #[must_use]
     pub const fn timeout(mut self, secs: u64) -> Self {
         self.timeout_secs = Some(secs);
         self
     }
 
     /// Enables or disables streaming.
-    #[must_use] 
+    #[must_use]
     pub const fn streaming(mut self, enabled: bool) -> Self {
         self.config.streaming = enabled;
         self
@@ -291,10 +294,7 @@ impl A2AClientBuilder {
             .build()
             .map_err(|e| A2AError::Other(e.to_string()))?;
 
-        let card_url = format!(
-            "{}/.well-known/agent-card.json",
-            self.base_url.trim_end_matches('/')
-        );
+        let card_url = crate::agent_card_url(&self.base_url);
 
         Ok(A2AClient {
             http_client,

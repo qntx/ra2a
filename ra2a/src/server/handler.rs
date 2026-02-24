@@ -105,10 +105,13 @@ impl From<Message> for SendMessageResponse {
 /// [`RequestHandler`](super::RequestHandler) method and returns the serialized response.
 pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<String> {
     // Parse the request envelope
-    let request: JsonRpcRequest<serde_json::Value> = if let Ok(req) = serde_json::from_str(request_body) { req } else {
-        let error_response = JsonRpcErrorResponse::new(None, JsonRpcError::parse_error());
-        return Ok(serde_json::to_string(&error_response)?);
-    };
+    let request: JsonRpcRequest<serde_json::Value> =
+        if let Ok(req) = serde_json::from_str(request_body) {
+            req
+        } else {
+            let error_response = JsonRpcErrorResponse::new(None, JsonRpcError::parse_error());
+            return Ok(serde_json::to_string(&error_response)?);
+        };
 
     let id = request.id.clone();
     let handler = &state.handler;

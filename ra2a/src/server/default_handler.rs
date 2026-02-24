@@ -50,17 +50,12 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
         }
     }
 
-    /// Creates a new handler with a shared queue manager.
-    pub fn with_queue_manager(executor: E, queue_manager: Arc<QueueManager>) -> Self {
-        Self {
-            executor: Arc::new(executor),
-            task_store: Arc::new(InMemoryTaskStore::new()),
-            queue_manager,
-            push_config_store: Arc::new(InMemoryPushConfigStore::new()),
-            push_sender: None,
-            req_context_interceptors: Vec::new(),
-            running_tasks: Arc::new(RwLock::new(HashMap::new())),
-        }
+    /// Sets a custom queue manager (default: in-memory).
+    ///
+    /// Aligned with Go's `WithEventQueueManager`.
+    pub fn with_queue_manager(mut self, manager: Arc<QueueManager>) -> Self {
+        self.queue_manager = manager;
+        self
     }
 
     /// Sets a custom task store (default: in-memory).
@@ -96,7 +91,7 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
     }
 
     /// Returns the agent card.
-    #[must_use] 
+    #[must_use]
     pub fn agent_card(&self) -> &crate::types::AgentCard {
         self.executor.agent_card()
     }
@@ -177,20 +172,22 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
 
         // Reject if task is in terminal state
         if let Some(ref t) = stored_task
-            && t.status.state.is_terminal() {
-                return Err(JsonRpcError::invalid_params(format!(
-                    "Task {} is in terminal state: {:?}",
-                    task_id, t.status.state
-                ))
-                .into());
-            }
+            && t.status.state.is_terminal()
+        {
+            return Err(JsonRpcError::invalid_params(format!(
+                "Task {} is in terminal state: {:?}",
+                task_id, t.status.state
+            ))
+            .into());
+        }
 
         // Store push notification config if provided
         if let Some(ref config) = params.configuration
             && let Some(ref push_config) = config.push_notification_config
-                && let Err(e) = self.save_push_config(&task_id, push_config).await {
-                    warn!(error = %e, "Failed to save push config");
-                }
+            && let Err(e) = self.save_push_config(&task_id, push_config).await
+        {
+            warn!(error = %e, "Failed to save push config");
+        }
 
         // Build RequestContext (aligned with Go's RequestContext)
         let mut ctx = RequestContext::new(&task_id, &context_id);
@@ -221,7 +218,9 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
                 // Emit a failed task event
                 let mut task = Task::new(&ctx.task_id, &ctx.context_id);
                 task.status = TaskStatus::failed(e.to_string());
-                let _ = task_store.save(&task, None, crate::types::TaskVersion::MISSING).await;
+                let _ = task_store
+                    .save(&task, None, crate::types::TaskVersion::MISSING)
+                    .await;
                 let _ = queue.send(Event::Task(task));
             }
         });
@@ -274,13 +273,14 @@ impl<E: AgentExecutor + 'static> DefaultRequestHandler<E> {
                     // Check shouldInterruptNonStreaming conditions
                     if let Some((task_id, should_interrupt)) =
                         Self::should_interrupt_non_streaming(is_non_blocking, &event)
-                        && should_interrupt {
-                            let t = self
-                                .get_task_internal(&task_id)
-                                .await
-                                .unwrap_or_else(|| Task::new(&task_id, ""));
-                            return Ok(SendMessageResponse::Task(t));
-                        }
+                        && should_interrupt
+                    {
+                        let t = self
+                            .get_task_internal(&task_id)
+                            .await
+                            .unwrap_or_else(|| Task::new(&task_id, ""));
+                        return Ok(SendMessageResponse::Task(t));
+                    }
 
                     if event.is_terminal() {
                         return match event {
@@ -412,9 +412,10 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
 
         // Apply history length
         if let SendMessageResponse::Task(ref mut t) = result
-            && let Some(ref config) = params.configuration {
-                Self::apply_history_length(t, config.history_length);
-            }
+            && let Some(ref config) = params.configuration
+        {
+            Self::apply_history_length(t, config.history_length);
+        }
 
         self.queue_manager.remove_queue(&task_id).await;
         info!(task_id = %task_id, "Message send completed");
@@ -489,7 +490,9 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
                 error!(error = %e, task_id = %tid, "Cancel execution failed");
                 let mut t = Task::new(&tid, &ctx.context_id);
                 t.status = TaskStatus::failed(e.to_string());
-                let _ = task_store.save(&t, None, crate::types::TaskVersion::MISSING).await;
+                let _ = task_store
+                    .save(&t, None, crate::types::TaskVersion::MISSING)
+                    .await;
                 let _ = q.send(Event::Task(t));
             }
         });
@@ -526,7 +529,7 @@ impl<E: AgentExecutor + 'static> RequestHandler for DefaultRequestHandler<E> {
             .queue_manager
             .get_queue(&params.id)
             .await
-            .map_err(|_| JsonRpcError::task_not_found(&params.id))?;
+            .ok_or_else(|| JsonRpcError::task_not_found(&params.id))?;
 
         let receiver = queue.subscribe();
         let stream = futures::stream::unfold(receiver, |mut rx| async move {
