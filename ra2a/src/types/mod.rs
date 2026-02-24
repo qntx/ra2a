@@ -20,11 +20,10 @@ pub use agent::{
     ImplicitOAuthFlow, MutualTlsSecurityScheme, OAuth2SecurityScheme, OAuthFlows,
     OpenIdConnectSecurityScheme, PasswordOAuthFlow, SecurityScheme, TransportProtocol,
 };
-// -- JSON-RPC wire types --
+// -- Request parameter types --
 pub use jsonrpc::{
-    A2AResponse, GetAuthenticatedExtendedCardParams, JSONRPC_VERSION, JsonRpcErrorResponse,
-    JsonRpcRequest, JsonRpcResponse, JsonRpcSuccessResponse, ListTasksRequest, ListTasksResponse,
-    MessageSendConfig, MessageSendParams, RequestId, TaskIdParams, TaskQueryParams,
+    GetAuthenticatedExtendedCardParams, ListTasksRequest, ListTasksResponse, MessageSendConfig,
+    MessageSendParams, TaskIdParams, TaskQueryParams,
 };
 // -- Message --
 pub use message::{Message, Role};

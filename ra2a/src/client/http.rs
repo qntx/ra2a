@@ -14,10 +14,11 @@ use tracing::{debug, instrument};
 
 use super::{Client, ClientConfig, ClientEvent, EventStream};
 use crate::error::{A2AError, Result};
+use crate::jsonrpc::{self, JsonRpcRequest, JsonRpcResponse};
 use crate::types::{
-    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcRequest,
-    JsonRpcResponse, ListTaskPushConfigParams, Message, MessageSendConfig, MessageSendParams,
-    SendMessageResult, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
+    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
+    Message, MessageSendConfig, MessageSendParams, SendMessageResult, Task, TaskIdParams,
+    TaskPushConfig, TaskQueryParams,
 };
 
 /// Unified HTTP-based A2A client with optional SSE streaming.
@@ -128,7 +129,7 @@ impl A2AClient {
     async fn send_non_streaming(&self, message: Message) -> Result<EventStream> {
         let params = MessageSendParams::new(message);
         let request: JsonRpcRequest<MessageSendParams> =
-            JsonRpcRequest::new("message/send", params);
+            JsonRpcRequest::new(jsonrpc::METHOD_MESSAGE_SEND, params);
 
         let result: SendMessageResult = self.send_request(request).await?;
 
@@ -161,7 +162,7 @@ impl A2AClient {
         }
 
         let request: JsonRpcRequest<MessageSendParams> =
-            JsonRpcRequest::new("message/stream", params);
+            JsonRpcRequest::new(jsonrpc::METHOD_MESSAGE_STREAM, params);
         let body = serde_json::to_string(&request)?;
 
         debug!("Sending streaming request to {}", self.base_url);
@@ -212,27 +213,29 @@ impl Client for A2AClient {
 
     #[instrument(skip(self))]
     async fn get_task(&self, params: TaskQueryParams) -> Result<Task> {
-        let request: JsonRpcRequest<TaskQueryParams> = JsonRpcRequest::new("tasks/get", params);
+        let request: JsonRpcRequest<TaskQueryParams> =
+            JsonRpcRequest::new(jsonrpc::METHOD_TASKS_GET, params);
         self.send_request(request).await
     }
 
     #[instrument(skip(self))]
     async fn cancel_task(&self, params: TaskIdParams) -> Result<Task> {
-        let request: JsonRpcRequest<TaskIdParams> = JsonRpcRequest::new("tasks/cancel", params);
+        let request: JsonRpcRequest<TaskIdParams> =
+            JsonRpcRequest::new(jsonrpc::METHOD_TASKS_CANCEL, params);
         self.send_request(request).await
     }
 
     #[instrument(skip(self))]
     async fn set_task_callback(&self, config: TaskPushConfig) -> Result<TaskPushConfig> {
         let request: JsonRpcRequest<TaskPushConfig> =
-            JsonRpcRequest::new("tasks/pushNotificationConfig/set", config);
+            JsonRpcRequest::new(jsonrpc::METHOD_PUSH_CONFIG_SET, config);
         self.send_request(request).await
     }
 
     #[instrument(skip(self))]
     async fn get_task_callback(&self, params: GetTaskPushConfigParams) -> Result<TaskPushConfig> {
         let request: JsonRpcRequest<GetTaskPushConfigParams> =
-            JsonRpcRequest::new("tasks/pushNotificationConfig/get", params);
+            JsonRpcRequest::new(jsonrpc::METHOD_PUSH_CONFIG_GET, params);
         self.send_request(request).await
     }
 
@@ -248,7 +251,7 @@ impl Client for A2AClient {
         }
 
         let request: JsonRpcRequest<TaskIdParams> =
-            JsonRpcRequest::new("tasks/resubscribe", params);
+            JsonRpcRequest::new(jsonrpc::METHOD_TASKS_RESUBSCRIBE, params);
         let body = serde_json::to_string(&request)?;
 
         let response = self
@@ -280,7 +283,7 @@ impl Client for A2AClient {
         params: ListTaskPushConfigParams,
     ) -> Result<Vec<TaskPushConfig>> {
         let request: JsonRpcRequest<ListTaskPushConfigParams> =
-            JsonRpcRequest::new("tasks/pushNotificationConfig/list", params);
+            JsonRpcRequest::new(jsonrpc::METHOD_PUSH_CONFIG_LIST, params);
         self.send_request(request).await
     }
 
@@ -290,7 +293,7 @@ impl Client for A2AClient {
         params: DeleteTaskPushConfigParams,
     ) -> Result<()> {
         let request: JsonRpcRequest<DeleteTaskPushConfigParams> =
-            JsonRpcRequest::new("tasks/pushNotificationConfig/delete", params);
+            JsonRpcRequest::new(jsonrpc::METHOD_PUSH_CONFIG_DELETE, params);
         self.send_request(request).await
     }
 

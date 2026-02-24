@@ -85,6 +85,10 @@ pub enum A2AError {
     #[error("permission denied: {0}")]
     Unauthorized(String),
 
+    /// Optimistic concurrency control failed during task update.
+    #[error("concurrent task modification")]
+    ConcurrentTaskModification,
+
     // === Transport Errors ===
     /// JSON-RPC protocol error received from remote.
     #[error("JSON-RPC error: {0}")]
@@ -183,6 +187,10 @@ impl A2AError {
             ),
             Self::Unauthenticated(_) => (JsonRpcErrorCode::Unauthenticated, "Unauthenticated"),
             Self::Unauthorized(_) => (JsonRpcErrorCode::Unauthorized, "Permission denied"),
+            Self::ConcurrentTaskModification => (
+                JsonRpcErrorCode::ConcurrentTaskModification,
+                "Concurrent task modification",
+            ),
             _ => (JsonRpcErrorCode::InternalError, "Internal error"),
         }
     }
@@ -224,6 +232,8 @@ pub enum JsonRpcErrorCode {
     Unauthenticated = -31401,
     /// Caller does not have permission to execute the specified operation.
     Unauthorized = -31403,
+    /// Optimistic concurrency control failed.
+    ConcurrentTaskModification = -32008,
 }
 
 impl JsonRpcErrorCode {
@@ -248,6 +258,7 @@ impl JsonRpcErrorCode {
             }
             Self::Unauthenticated => "Unauthenticated",
             Self::Unauthorized => "Permission denied",
+            Self::ConcurrentTaskModification => "Concurrent task modification",
         }
     }
 }
@@ -269,6 +280,7 @@ impl From<i32> for JsonRpcErrorCode {
             -32007 => Self::AuthenticatedExtendedCardNotConfigured,
             -31401 => Self::Unauthenticated,
             -31403 => Self::Unauthorized,
+            -32008 => Self::ConcurrentTaskModification,
             _ => Self::InternalError,
         }
     }

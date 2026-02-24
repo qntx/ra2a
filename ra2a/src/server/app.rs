@@ -218,7 +218,8 @@ async fn handle_sse_stream(State(state): State<ServerState>, body: String) -> Re
 
     use super::handler::parse_params;
     use crate::error::JsonRpcError;
-    use crate::types::{JsonRpcRequest, MessageSendParams, TaskIdParams};
+    use crate::jsonrpc::{self, JsonRpcRequest};
+    use crate::types::{MessageSendParams, TaskIdParams};
 
     // Parse the JSON-RPC request envelope
     let request: JsonRpcRequest<serde_json::Value> = match serde_json::from_str(&body) {
@@ -233,13 +234,13 @@ async fn handle_sse_stream(State(state): State<ServerState>, body: String) -> Re
 
     // Dispatch to the appropriate streaming method (Go: handleStreamingRequest)
     let event_stream = match request.method.as_str() {
-        "message/stream" => match parse_params::<MessageSendParams>(&request) {
+        jsonrpc::METHOD_MESSAGE_STREAM => match parse_params::<MessageSendParams>(&request) {
             Ok(p) => handler.on_message_stream(p).await,
             Err(e) => {
                 return sse_jsonrpc_error_response(Some(&request_id), e.to_jsonrpc_error());
             }
         },
-        "tasks/resubscribe" => match parse_params::<TaskIdParams>(&request) {
+        jsonrpc::METHOD_TASKS_RESUBSCRIBE => match parse_params::<TaskIdParams>(&request) {
             Ok(p) => handler.on_resubscribe(p).await,
             Err(e) => {
                 return sse_jsonrpc_error_response(Some(&request_id), e.to_jsonrpc_error());
@@ -288,7 +289,7 @@ async fn handle_sse_stream(State(state): State<ServerState>, body: String) -> Re
 
 /// Builds a plain JSON-RPC error HTTP response for SSE setup failures.
 fn sse_jsonrpc_error_response(
-    id: Option<&crate::types::RequestId>,
+    id: Option<&crate::jsonrpc::RequestId>,
     error: crate::error::JsonRpcError,
 ) -> Response {
     let resp = serde_json::json!({

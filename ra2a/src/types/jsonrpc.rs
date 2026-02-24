@@ -1,131 +1,11 @@
-//! JSON-RPC 2.0 types for the A2A protocol.
+//! A2A protocol request parameter types.
 //!
-//! Defines the request and response structures for JSON-RPC communication.
+//! These are the structured parameter types used in A2A method calls.
+//! Aligned with Go's core types in `core.go`.
 
 use serde::{Deserialize, Serialize};
 
 use super::{Message, Metadata, PushConfig, Task};
-use crate::error::JsonRpcError;
-
-/// The JSON-RPC protocol version.
-pub const JSONRPC_VERSION: &str = "2.0";
-
-/// A unique identifier for a JSON-RPC request.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum RequestId {
-    /// String identifier.
-    String(String),
-    /// Numeric identifier.
-    Number(i64),
-}
-
-impl From<String> for RequestId {
-    fn from(s: String) -> Self {
-        Self::String(s)
-    }
-}
-
-impl From<&str> for RequestId {
-    fn from(s: &str) -> Self {
-        Self::String(s.to_string())
-    }
-}
-
-impl From<i64> for RequestId {
-    fn from(n: i64) -> Self {
-        Self::Number(n)
-    }
-}
-
-impl Default for RequestId {
-    fn default() -> Self {
-        Self::String(uuid::Uuid::new_v4().to_string())
-    }
-}
-
-/// Represents a JSON-RPC 2.0 Request object.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JsonRpcRequest<P> {
-    /// The version of the JSON-RPC protocol (always "2.0").
-    pub jsonrpc: String,
-    /// A unique identifier for this request.
-    pub id: RequestId,
-    /// The method name to be invoked.
-    pub method: String,
-    /// The parameters for the method invocation.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub params: Option<P>,
-}
-
-impl<P> JsonRpcRequest<P> {
-    /// Creates a new JSON-RPC request.
-    pub fn new(method: impl Into<String>, params: P) -> Self {
-        Self {
-            jsonrpc: JSONRPC_VERSION.to_string(),
-            id: RequestId::default(),
-            method: method.into(),
-            params: Some(params),
-        }
-    }
-
-    /// Creates a new JSON-RPC request with a specific ID.
-    pub fn with_id(id: impl Into<RequestId>, method: impl Into<String>, params: P) -> Self {
-        Self {
-            jsonrpc: JSONRPC_VERSION.to_string(),
-            id: id.into(),
-            method: method.into(),
-            params: Some(params),
-        }
-    }
-}
-
-/// Represents a successful JSON-RPC 2.0 Response object.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JsonRpcSuccessResponse<R> {
-    /// The version of the JSON-RPC protocol (always "2.0").
-    pub jsonrpc: String,
-    /// The identifier established by the client.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<RequestId>,
-    /// The result of the method invocation.
-    pub result: R,
-}
-
-impl<R> JsonRpcSuccessResponse<R> {
-    /// Creates a new successful response.
-    pub fn new(id: Option<RequestId>, result: R) -> Self {
-        Self {
-            jsonrpc: JSONRPC_VERSION.to_string(),
-            id,
-            result,
-        }
-    }
-}
-
-/// Represents a JSON-RPC 2.0 Error Response object.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JsonRpcErrorResponse {
-    /// The version of the JSON-RPC protocol (always "2.0").
-    pub jsonrpc: String,
-    /// The identifier established by the client.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<RequestId>,
-    /// An object describing the error.
-    pub error: JsonRpcError,
-}
-
-impl JsonRpcErrorResponse {
-    /// Creates a new error response.
-    #[must_use]
-    pub fn new(id: Option<RequestId>, error: JsonRpcError) -> Self {
-        Self {
-            jsonrpc: JSONRPC_VERSION.to_string(),
-            id,
-            error,
-        }
-    }
-}
 
 /// Parameters for the message/send request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -277,73 +157,29 @@ pub struct ListTasksResponse {
     pub next_page_token: Option<String>,
 }
 
-/// A union type representing any JSON-RPC response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum JsonRpcResponse<R> {
-    /// A successful response.
-    Success(JsonRpcSuccessResponse<R>),
-    /// An error response.
-    Error(JsonRpcErrorResponse),
-}
-
-impl<R> JsonRpcResponse<R> {
-    /// Returns true if this is a success response.
-    pub const fn is_success(&self) -> bool {
-        matches!(self, Self::Success(_))
-    }
-
-    /// Returns true if this is an error response.
-    pub const fn is_error(&self) -> bool {
-        matches!(self, Self::Error(_))
-    }
-}
-
-/// A JSON-RPC 2.0 response that is either a success or error.
-pub type A2AResponse = JsonRpcResponse<serde_json::Value>;
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::{Part, Role};
 
     #[test]
-    fn test_request_id_from_string() {
-        let id: RequestId = "test-123".into();
-        assert_eq!(id, RequestId::String("test-123".to_string()));
-    }
-
-    #[test]
-    fn test_request_id_from_number() {
-        let id: RequestId = 42i64.into();
-        assert_eq!(id, RequestId::Number(42));
-    }
-
-    #[test]
-    fn test_send_message_request() {
+    fn test_message_send_params() {
         let message = Message::new("msg-1", Role::User, vec![Part::text("Hello")]);
         let params = MessageSendParams::new(message);
-        let request: JsonRpcRequest<MessageSendParams> =
-            JsonRpcRequest::new("message/send", params);
-
-        assert_eq!(request.method, "message/send");
-        assert_eq!(request.jsonrpc, "2.0");
+        assert_eq!(params.message.message_id, "msg-1");
     }
 
     #[test]
-    fn test_json_rpc_response_serialization() {
-        let task = Task::new("task-1", "ctx-1");
-        let response = JsonRpcSuccessResponse::new(Some(RequestId::String("1".to_string())), task);
-        let json = serde_json::to_string(&response).unwrap();
-        assert!(json.contains("\"jsonrpc\":\"2.0\""));
-        assert!(json.contains("\"result\""));
+    fn test_task_query_params() {
+        let params = TaskQueryParams::new("task-1");
+        assert_eq!(params.id, "task-1");
+        assert!(params.history_length.is_none());
     }
 
     #[test]
-    fn test_a2a_response_is_error() {
-        let error = JsonRpcError::task_not_found("test-123");
-        let response: A2AResponse = JsonRpcResponse::Error(JsonRpcErrorResponse::new(None, error));
-        assert!(response.is_error());
-        assert!(!response.is_success());
+    fn test_list_tasks_request_default() {
+        let req = ListTasksRequest::default();
+        assert!(req.context_id.is_none());
+        assert!(!req.include_artifacts);
     }
 }

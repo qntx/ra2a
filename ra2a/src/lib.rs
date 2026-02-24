@@ -18,6 +18,7 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 
 pub mod error;
+pub(crate) mod jsonrpc;
 pub mod types;
 
 #[cfg(feature = "client")]

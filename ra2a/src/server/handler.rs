@@ -12,11 +12,11 @@ use futures::Stream;
 use super::ServerState;
 use super::events::Event;
 use crate::error::{JsonRpcError, Result};
+use crate::jsonrpc::{self, JsonRpcErrorResponse, JsonRpcRequest, JsonRpcSuccessResponse};
 use crate::types::{
-    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcErrorResponse,
-    JsonRpcRequest, JsonRpcSuccessResponse, ListTaskPushConfigParams, ListTasksRequest,
-    ListTasksResponse, MessageSendParams, SendMessageResult, Task, TaskIdParams, TaskPushConfig,
-    TaskQueryParams,
+    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
+    ListTasksRequest, ListTasksResponse, MessageSendParams, SendMessageResult, Task, TaskIdParams,
+    TaskPushConfig, TaskQueryParams,
 };
 
 /// A boxed stream of events for streaming responses.
@@ -112,53 +112,52 @@ pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<S
 
     // Dispatch to the appropriate handler method
     let result: Result<String> = match request.method.as_str() {
-        "message/send" => {
+        jsonrpc::METHOD_MESSAGE_SEND => {
             let params = parse_params::<MessageSendParams>(&request)?;
             let resp = handler.on_message_send(params).await?;
             serialize_success(&id, &resp)
         }
-        "tasks/get" => {
+        jsonrpc::METHOD_TASKS_GET => {
             let params = parse_params::<TaskQueryParams>(&request)?;
             let task = handler.on_get_task(params).await?;
             serialize_success(&id, &task)
         }
-        "tasks/cancel" => {
+        jsonrpc::METHOD_TASKS_CANCEL => {
             let params = parse_params::<TaskIdParams>(&request)?;
             let task = handler.on_cancel_task(params).await?;
             serialize_success(&id, &task)
         }
-        // Streaming methods (message/stream, tasks/resubscribe) are handled
-        // exclusively by the SSE endpoint, aligned with Go's handleStreamingRequest.
-        "message/stream" | "tasks/resubscribe" => Err(JsonRpcError::invalid_request(
-            "Streaming methods must be called via the SSE endpoint",
-        )
-        .into()),
-        "tasks/list" => {
+        // Streaming methods are handled exclusively by the SSE endpoint.
+        jsonrpc::METHOD_MESSAGE_STREAM | jsonrpc::METHOD_TASKS_RESUBSCRIBE => Err(
+            JsonRpcError::invalid_request("Streaming methods must be called via the SSE endpoint")
+                .into(),
+        ),
+        jsonrpc::METHOD_TASKS_LIST => {
             let params = parse_params::<ListTasksRequest>(&request)?;
             let resp = handler.on_list_tasks(params).await?;
             serialize_success(&id, &resp)
         }
-        "tasks/pushNotificationConfig/set" => {
+        jsonrpc::METHOD_PUSH_CONFIG_SET => {
             let params = parse_params::<TaskPushConfig>(&request)?;
             let config = handler.on_set_task_push_config(params).await?;
             serialize_success(&id, &config)
         }
-        "tasks/pushNotificationConfig/get" => {
+        jsonrpc::METHOD_PUSH_CONFIG_GET => {
             let params = parse_params::<GetTaskPushConfigParams>(&request)?;
             let config = handler.on_get_task_push_config(params).await?;
             serialize_success(&id, &config)
         }
-        "tasks/pushNotificationConfig/list" => {
+        jsonrpc::METHOD_PUSH_CONFIG_LIST => {
             let params = parse_params::<ListTaskPushConfigParams>(&request)?;
             let configs = handler.on_list_task_push_config(params).await?;
             serialize_success(&id, &configs)
         }
-        "tasks/pushNotificationConfig/delete" => {
+        jsonrpc::METHOD_PUSH_CONFIG_DELETE => {
             let params = parse_params::<DeleteTaskPushConfigParams>(&request)?;
             handler.on_delete_task_push_config(params).await?;
             serialize_success(&id, &serde_json::Value::Null)
         }
-        "agent/getAuthenticatedExtendedCard" => {
+        jsonrpc::METHOD_GET_EXTENDED_AGENT_CARD => {
             let card = handler.on_get_extended_agent_card().await?;
             serialize_success(&id, &card)
         }
@@ -189,7 +188,7 @@ pub(crate) fn parse_params<T: serde::de::DeserializeOwned>(
 
 /// Serializes a success response.
 fn serialize_success<T: serde::Serialize>(
-    id: &crate::types::RequestId,
+    id: &crate::jsonrpc::RequestId,
     result: &T,
 ) -> Result<String> {
     let response = JsonRpcSuccessResponse::new(Some(id.clone()), result);

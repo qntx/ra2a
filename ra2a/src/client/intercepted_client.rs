@@ -11,6 +11,7 @@ use super::middleware::{
 };
 use super::{Client, EventStream};
 use crate::error::Result;
+use crate::jsonrpc;
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
     Message, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
@@ -124,13 +125,13 @@ impl<C: Client> InterceptedClient<C> {
 impl<C: Client + 'static> Client for InterceptedClient<C> {
     async fn send_message(&self, message: Message) -> Result<EventStream> {
         let payload = serde_json::to_value(&message).ok();
-        let mut req = self.build_request("message/send", payload);
+        let mut req = self.build_request(jsonrpc::METHOD_MESSAGE_SEND, payload);
         run_interceptors_before(&self.interceptors, &mut req).await?;
 
         let result = self.inner.send_message(message).await;
 
         let mut resp = self.build_response(
-            "message/send",
+            jsonrpc::METHOD_MESSAGE_SEND,
             None,
             result
                 .as_ref()
@@ -144,13 +145,15 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
 
     async fn get_task(&self, params: TaskQueryParams) -> Result<Task> {
         let payload = serde_json::to_value(&params).ok();
-        self.intercept_unary("tasks/get", payload, || self.inner.get_task(params.clone()))
-            .await
+        self.intercept_unary(jsonrpc::METHOD_TASKS_GET, payload, || {
+            self.inner.get_task(params.clone())
+        })
+        .await
     }
 
     async fn cancel_task(&self, params: TaskIdParams) -> Result<Task> {
         let payload = serde_json::to_value(&params).ok();
-        self.intercept_unary("tasks/cancel", payload, || {
+        self.intercept_unary(jsonrpc::METHOD_TASKS_CANCEL, payload, || {
             self.inner.cancel_task(params.clone())
         })
         .await
@@ -158,7 +161,7 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
 
     async fn set_task_callback(&self, config: TaskPushConfig) -> Result<TaskPushConfig> {
         let payload = serde_json::to_value(&config).ok();
-        self.intercept_unary("tasks/pushNotificationConfig/set", payload, || {
+        self.intercept_unary(jsonrpc::METHOD_PUSH_CONFIG_SET, payload, || {
             self.inner.set_task_callback(config.clone())
         })
         .await
@@ -166,7 +169,7 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
 
     async fn get_task_callback(&self, params: GetTaskPushConfigParams) -> Result<TaskPushConfig> {
         let payload = serde_json::to_value(&params).ok();
-        self.intercept_unary("tasks/pushNotificationConfig/get", payload, || {
+        self.intercept_unary(jsonrpc::METHOD_PUSH_CONFIG_GET, payload, || {
             self.inner.get_task_callback(params.clone())
         })
         .await
@@ -174,13 +177,13 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
 
     async fn resubscribe(&self, params: TaskIdParams) -> Result<EventStream> {
         let payload = serde_json::to_value(&params).ok();
-        let mut req = self.build_request("tasks/resubscribe", payload);
+        let mut req = self.build_request(jsonrpc::METHOD_TASKS_RESUBSCRIBE, payload);
         run_interceptors_before(&self.interceptors, &mut req).await?;
 
         let result = self.inner.resubscribe(params).await;
 
         let mut resp = self.build_response(
-            "tasks/resubscribe",
+            jsonrpc::METHOD_TASKS_RESUBSCRIBE,
             None,
             result
                 .as_ref()
@@ -197,7 +200,7 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
         params: ListTaskPushConfigParams,
     ) -> Result<Vec<TaskPushConfig>> {
         let payload = serde_json::to_value(&params).ok();
-        self.intercept_unary("tasks/pushNotificationConfig/list", payload, || {
+        self.intercept_unary(jsonrpc::METHOD_PUSH_CONFIG_LIST, payload, || {
             self.inner
                 .list_task_push_notification_config(params.clone())
         })
@@ -209,7 +212,7 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
         params: DeleteTaskPushConfigParams,
     ) -> Result<()> {
         let payload = serde_json::to_value(&params).ok();
-        let mut req = self.build_request("tasks/pushNotificationConfig/delete", payload);
+        let mut req = self.build_request(jsonrpc::METHOD_PUSH_CONFIG_DELETE, payload);
         run_interceptors_before(&self.interceptors, &mut req).await?;
 
         let result = self
@@ -218,7 +221,7 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
             .await;
 
         let mut resp = self.build_response(
-            "tasks/pushNotificationConfig/delete",
+            jsonrpc::METHOD_PUSH_CONFIG_DELETE,
             None,
             result
                 .as_ref()
@@ -231,7 +234,7 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
     }
 
     async fn get_agent_card(&self) -> Result<AgentCard> {
-        let mut req = self.build_request("agent/getAuthenticatedExtendedCard", None);
+        let mut req = self.build_request(jsonrpc::METHOD_GET_EXTENDED_AGENT_CARD, None);
         run_interceptors_before(&self.interceptors, &mut req).await?;
 
         let result = self.inner.get_agent_card().await;
@@ -240,8 +243,11 @@ impl<C: Client + 'static> Client for InterceptedClient<C> {
             Ok(card) => (serde_json::to_value(card).ok(), None),
             Err(e) => (None, Some(crate::error::A2AError::Other(e.to_string()))),
         };
-        let mut resp =
-            self.build_response("agent/getAuthenticatedExtendedCard", resp_payload, resp_err);
+        let mut resp = self.build_response(
+            jsonrpc::METHOD_GET_EXTENDED_AGENT_CARD,
+            resp_payload,
+            resp_err,
+        );
         run_interceptors_after(&self.interceptors, &mut resp).await?;
 
         result

@@ -10,10 +10,11 @@ use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 
 use super::{ClientTransport, EventStream, StreamEvent, TransportOptions, TransportType};
 use crate::error::{A2AError, Result};
+use crate::jsonrpc::{self, JsonRpcRequest, JsonRpcResponse};
 use crate::types::{
-    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, JsonRpcRequest,
-    JsonRpcResponse, ListTaskPushConfigParams, Message, MessageSendParams, SendMessageResult, Task,
-    TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig, TaskQueryParams, TaskStatusUpdateEvent,
+    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
+    Message, MessageSendParams, SendMessageResult, Task, TaskArtifactUpdateEvent, TaskIdParams,
+    TaskPushConfig, TaskQueryParams, TaskStatusUpdateEvent,
 };
 
 /// JSON-RPC transport for A2A protocol.
@@ -263,7 +264,9 @@ impl ClientTransport for JsonRpcTransport {
 
     async fn send_message(&self, message: Message) -> Result<SendMessageResult> {
         let params = MessageSendParams::new(message);
-        let result: SendMessageResult = self.send_request("message/send", params).await?;
+        let result: SendMessageResult = self
+            .send_request(jsonrpc::METHOD_MESSAGE_SEND, params)
+            .await?;
 
         Ok(match result {
             SendMessageResult::Task(task) => SendMessageResult::Task(task),
@@ -273,22 +276,24 @@ impl ClientTransport for JsonRpcTransport {
 
     async fn send_message_streaming(&self, message: Message) -> Result<EventStream<StreamEvent>> {
         let params = MessageSendParams::new(message);
-        self.send_streaming_request("message/stream", params).await
+        self.send_streaming_request(jsonrpc::METHOD_MESSAGE_STREAM, params)
+            .await
     }
 
     async fn get_task(&self, params: TaskQueryParams) -> Result<Task> {
-        self.send_request("tasks/get", params).await
+        self.send_request(jsonrpc::METHOD_TASKS_GET, params).await
     }
 
     async fn cancel_task(&self, params: TaskIdParams) -> Result<Task> {
-        self.send_request("tasks/cancel", params).await
+        self.send_request(jsonrpc::METHOD_TASKS_CANCEL, params)
+            .await
     }
 
     async fn set_task_push_notification_config(
         &self,
         config: TaskPushConfig,
     ) -> Result<TaskPushConfig> {
-        self.send_request("tasks/pushNotificationConfig/set", config)
+        self.send_request(jsonrpc::METHOD_PUSH_CONFIG_SET, config)
             .await
     }
 
@@ -296,7 +301,7 @@ impl ClientTransport for JsonRpcTransport {
         &self,
         params: GetTaskPushConfigParams,
     ) -> Result<TaskPushConfig> {
-        self.send_request("tasks/pushNotificationConfig/get", params)
+        self.send_request(jsonrpc::METHOD_PUSH_CONFIG_GET, params)
             .await
     }
 
@@ -304,7 +309,7 @@ impl ClientTransport for JsonRpcTransport {
         &self,
         params: ListTaskPushConfigParams,
     ) -> Result<Vec<TaskPushConfig>> {
-        self.send_request("tasks/pushNotificationConfig/list", params)
+        self.send_request(jsonrpc::METHOD_PUSH_CONFIG_LIST, params)
             .await
     }
 
@@ -312,12 +317,12 @@ impl ClientTransport for JsonRpcTransport {
         &self,
         params: DeleteTaskPushConfigParams,
     ) -> Result<()> {
-        self.send_request("tasks/pushNotificationConfig/delete", params)
+        self.send_request(jsonrpc::METHOD_PUSH_CONFIG_DELETE, params)
             .await
     }
 
     async fn resubscribe(&self, params: TaskIdParams) -> Result<EventStream<StreamEvent>> {
-        self.send_streaming_request("tasks/resubscribe", params)
+        self.send_streaming_request(jsonrpc::METHOD_TASKS_RESUBSCRIBE, params)
             .await
     }
 

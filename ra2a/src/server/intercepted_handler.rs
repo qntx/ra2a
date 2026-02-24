@@ -12,6 +12,7 @@ use futures::StreamExt;
 use super::handler::{EventStream, RequestHandler};
 use super::middleware::{CallContext, CallInterceptor, Request, RequestMeta, Response};
 use crate::error::{A2AError, Result};
+use crate::jsonrpc;
 use crate::types::{
     AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
     ListTasksRequest, ListTasksResponse, MessageSendParams, SendMessageResult, Task, TaskIdParams,
@@ -139,54 +140,52 @@ impl RequestHandler for InterceptedHandler {
     async fn on_message_send(&self, params: MessageSendParams) -> Result<SendMessageResult> {
         let inner = Arc::clone(&self.inner);
         let p = params.clone();
-        self.intercept_unary("message/send", params, async move {
+        self.intercept_unary(jsonrpc::METHOD_MESSAGE_SEND, params, async move {
             inner.on_message_send(p).await
         })
         .await
     }
 
     async fn on_message_stream(&self, params: MessageSendParams) -> Result<EventStream> {
-        let mut ctx = CallContext::new("message/stream", RequestMeta::empty());
+        let mut ctx = CallContext::new(jsonrpc::METHOD_MESSAGE_STREAM, RequestMeta::empty());
         let mut req = Request::new(params.clone());
         self.run_before(&mut ctx, &mut req).await?;
 
         let stream = self.inner.on_message_stream(params).await?;
-        Ok(self.wrap_stream("message/stream", stream))
+        Ok(self.wrap_stream(jsonrpc::METHOD_MESSAGE_STREAM, stream))
     }
 
     async fn on_get_task(&self, params: TaskQueryParams) -> Result<Task> {
         let inner = Arc::clone(&self.inner);
         let p = params.clone();
-        self.intercept_unary(
-            "tasks/get",
-            params,
-            async move { inner.on_get_task(p).await },
-        )
+        self.intercept_unary(jsonrpc::METHOD_TASKS_GET, params, async move {
+            inner.on_get_task(p).await
+        })
         .await
     }
 
     async fn on_cancel_task(&self, params: TaskIdParams) -> Result<Task> {
         let inner = Arc::clone(&self.inner);
         let p = params.clone();
-        self.intercept_unary("tasks/cancel", params, async move {
+        self.intercept_unary(jsonrpc::METHOD_TASKS_CANCEL, params, async move {
             inner.on_cancel_task(p).await
         })
         .await
     }
 
     async fn on_resubscribe(&self, params: TaskIdParams) -> Result<EventStream> {
-        let mut ctx = CallContext::new("tasks/resubscribe", RequestMeta::empty());
+        let mut ctx = CallContext::new(jsonrpc::METHOD_TASKS_RESUBSCRIBE, RequestMeta::empty());
         let mut req = Request::new(params.clone());
         self.run_before(&mut ctx, &mut req).await?;
 
         let stream = self.inner.on_resubscribe(params).await?;
-        Ok(self.wrap_stream("tasks/resubscribe", stream))
+        Ok(self.wrap_stream(jsonrpc::METHOD_TASKS_RESUBSCRIBE, stream))
     }
 
     async fn on_set_task_push_config(&self, params: TaskPushConfig) -> Result<TaskPushConfig> {
         let inner = Arc::clone(&self.inner);
         let p = params.clone();
-        self.intercept_unary("tasks/pushNotificationConfig/set", params, async move {
+        self.intercept_unary(jsonrpc::METHOD_PUSH_CONFIG_SET, params, async move {
             inner.on_set_task_push_config(p).await
         })
         .await
@@ -198,7 +197,7 @@ impl RequestHandler for InterceptedHandler {
     ) -> Result<TaskPushConfig> {
         let inner = Arc::clone(&self.inner);
         let p = params.clone();
-        self.intercept_unary("tasks/pushNotificationConfig/get", params, async move {
+        self.intercept_unary(jsonrpc::METHOD_PUSH_CONFIG_GET, params, async move {
             inner.on_get_task_push_config(p).await
         })
         .await
@@ -210,7 +209,7 @@ impl RequestHandler for InterceptedHandler {
     ) -> Result<Vec<TaskPushConfig>> {
         let inner = Arc::clone(&self.inner);
         let p = params.clone();
-        self.intercept_unary("tasks/pushNotificationConfig/list", params, async move {
+        self.intercept_unary(jsonrpc::METHOD_PUSH_CONFIG_LIST, params, async move {
             inner.on_list_task_push_config(p).await
         })
         .await
@@ -219,7 +218,7 @@ impl RequestHandler for InterceptedHandler {
     async fn on_delete_task_push_config(&self, params: DeleteTaskPushConfigParams) -> Result<()> {
         let inner = Arc::clone(&self.inner);
         let p = params.clone();
-        self.intercept_unary("tasks/pushNotificationConfig/delete", params, async move {
+        self.intercept_unary(jsonrpc::METHOD_PUSH_CONFIG_DELETE, params, async move {
             inner.on_delete_task_push_config(p).await
         })
         .await
@@ -228,16 +227,17 @@ impl RequestHandler for InterceptedHandler {
     async fn on_list_tasks(&self, params: ListTasksRequest) -> Result<ListTasksResponse> {
         let inner = Arc::clone(&self.inner);
         let p = params.clone();
-        self.intercept_unary(
-            "tasks/list",
-            params,
-            async move { inner.on_list_tasks(p).await },
-        )
+        self.intercept_unary(jsonrpc::METHOD_TASKS_LIST, params, async move {
+            inner.on_list_tasks(p).await
+        })
         .await
     }
 
     async fn on_get_extended_agent_card(&self) -> Result<AgentCard> {
-        let mut ctx = CallContext::new("agent/getAuthenticatedExtendedCard", RequestMeta::empty());
+        let mut ctx = CallContext::new(
+            jsonrpc::METHOD_GET_EXTENDED_AGENT_CARD,
+            RequestMeta::empty(),
+        );
         let mut req = Request::new(());
         self.run_before(&mut ctx, &mut req).await?;
 
