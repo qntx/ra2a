@@ -81,6 +81,8 @@ impl CallMeta {
 pub struct Request {
     /// The method being called (e.g. `"SendMessage"`).
     pub method: String,
+    /// The base URL of the agent interface.
+    pub base_url: String,
     /// Metadata to attach as HTTP headers on the outgoing request.
     pub meta: CallMeta,
     /// The agent card, if already resolved.
@@ -96,6 +98,8 @@ pub struct Request {
 pub struct Response {
     /// The method that was called.
     pub method: String,
+    /// The base URL of the agent interface.
+    pub base_url: String,
     /// Metadata from response headers.
     pub meta: CallMeta,
     /// The agent card, if resolved.
@@ -130,3 +134,40 @@ pub struct PassthroughInterceptor;
 
 #[async_trait]
 impl CallInterceptor for PassthroughInterceptor {}
+
+/// A [`CallInterceptor`] that attaches static metadata to all outgoing requests.
+///
+/// Aligned with Go's `NewStaticCallMetaInjector`. Useful for injecting
+/// fixed headers (e.g. API keys, tracing IDs) into every request.
+///
+/// # Example
+///
+/// ```
+/// use ra2a::client::{CallMeta, StaticCallMetaInjector, Client};
+///
+/// let mut meta = CallMeta::default();
+/// meta.append("x-api-key", "my-secret");
+/// // client.with_interceptor(StaticCallMetaInjector::new(meta));
+/// ```
+pub struct StaticCallMetaInjector {
+    inject: CallMeta,
+}
+
+impl StaticCallMetaInjector {
+    /// Creates a new injector that appends the given metadata to every request.
+    pub fn new(meta: CallMeta) -> Self {
+        Self { inject: meta }
+    }
+}
+
+#[async_trait]
+impl CallInterceptor for StaticCallMetaInjector {
+    async fn before(&self, req: &mut Request) -> Result<()> {
+        for (key, values) in self.inject.iter() {
+            for value in values {
+                req.meta.append(key, value);
+            }
+        }
+        Ok(())
+    }
+}

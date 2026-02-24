@@ -9,11 +9,13 @@ mod jsonrpc;
 
 use std::any::Any;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 pub use interceptor::{
-    CALL_META, CallInterceptor, CallMeta, PassthroughInterceptor, Request, Response, call_meta,
+    CALL_META, CallInterceptor, CallMeta, PassthroughInterceptor, Request, Response,
+    StaticCallMetaInjector, call_meta,
 };
 pub use jsonrpc::{JsonRpcTransport, TransportConfig};
 
@@ -112,9 +114,10 @@ pub struct ClientConfig {
 /// ```
 pub struct Client {
     transport: Box<dyn Transport>,
-    interceptors: Vec<Box<dyn CallInterceptor>>,
+    interceptors: Vec<Arc<dyn CallInterceptor>>,
     card: std::sync::RwLock<Option<AgentCard>>,
     config: ClientConfig,
+    base_url: String,
 }
 
 impl Client {
@@ -125,13 +128,17 @@ impl Client {
             interceptors: Vec::new(),
             card: std::sync::RwLock::new(None),
             config: ClientConfig::default(),
+            base_url: String::new(),
         }
     }
 
     /// Creates a client from a base URL using [`JsonRpcTransport`].
     pub fn from_url(base_url: impl Into<String>) -> Result<Self> {
-        let transport = JsonRpcTransport::from_url(base_url)?;
-        Ok(Self::new(Box::new(transport)))
+        let url: String = base_url.into();
+        let transport = JsonRpcTransport::from_url(&url)?;
+        let mut client = Self::new(Box::new(transport));
+        client.base_url = url;
+        Ok(client)
     }
 
     /// Sets client configuration.
@@ -142,13 +149,13 @@ impl Client {
 
     /// Adds a call interceptor.
     pub fn with_interceptor(mut self, interceptor: impl CallInterceptor + 'static) -> Self {
-        self.interceptors.push(Box::new(interceptor));
+        self.interceptors.push(Arc::new(interceptor));
         self
     }
 
     /// Adds a call interceptor after creation.
     pub fn add_interceptor(&mut self, interceptor: impl CallInterceptor + 'static) {
-        self.interceptors.push(Box::new(interceptor));
+        self.interceptors.push(Arc::new(interceptor));
     }
 
     /// Caches an agent card for capability checks.
@@ -175,6 +182,7 @@ impl Client {
         }
         let mut req = Request {
             method: method.to_string(),
+            base_url: self.base_url.clone(),
             meta: CallMeta::default(),
             card: self.card(),
             payload: Box::new(payload),
@@ -207,14 +215,18 @@ impl Client {
             Ok(r) => (Some(Box::new(r) as Box<dyn Any + Send>), None),
             Err(e) => (None, Some(e)),
         };
+        // Carry forward the CallMeta set by intercept_before (mirrors Go's CallMetaFrom(ctx))
+        let meta = call_meta().unwrap_or_default();
         let mut resp = Response {
             method: method.to_string(),
-            meta: CallMeta::default(),
+            base_url: self.base_url.clone(),
+            meta,
             card: self.card(),
             payload,
             err,
         };
-        for interceptor in self.interceptors.iter().rev() {
+        // Go's interceptAfter iterates forward (matching implementation, not doc)
+        for interceptor in &self.interceptors {
             interceptor.after(&mut resp).await?;
         }
         if let Some(err) = resp.err {
@@ -231,6 +243,55 @@ impl Client {
                 "no response payload after interceptor".into(),
             )),
         }
+    }
+
+    /// Wraps an event stream to apply `after` interceptors on each event.
+    ///
+    /// Aligned with Go's per-event `interceptAfter` in streaming methods
+    /// (`SendStreamingMessage`, `ResubscribeToTask`).
+    fn wrap_stream(&self, method: &'static str, stream: EventStream) -> EventStream {
+        if self.interceptors.is_empty() {
+            return stream;
+        }
+        let interceptors = self.interceptors.clone();
+        let card = self.card();
+        let base_url = self.base_url.clone();
+        let wrapped = stream.then(move |event_result| {
+            let interceptors = interceptors.clone();
+            let card = card.clone();
+            let base_url = base_url.clone();
+            async move {
+                let (payload, err) = match event_result {
+                    Ok(event) => (Some(Box::new(event) as Box<dyn Any + Send>), None),
+                    Err(e) => (None, Some(e)),
+                };
+                let meta = call_meta().unwrap_or_default();
+                let mut resp = Response {
+                    method: method.to_string(),
+                    base_url,
+                    meta,
+                    card,
+                    payload,
+                    err,
+                };
+                for interceptor in &interceptors {
+                    interceptor.after(&mut resp).await?;
+                }
+                if let Some(err) = resp.err {
+                    return Err(err);
+                }
+                match resp.payload {
+                    Some(p) => match p.downcast::<Event>() {
+                        Ok(e) => Ok(*e),
+                        Err(_) => Err(A2AError::Other(
+                            "interceptor changed event payload type".into(),
+                        )),
+                    },
+                    None => Err(A2AError::Other("no event payload after interceptor".into())),
+                }
+            }
+        });
+        Box::pin(wrapped)
     }
 
     /// Applies default config to outgoing send params (push config,
@@ -276,6 +337,9 @@ impl Client {
     /// If the cached agent card indicates the agent does not support streaming,
     /// falls back to a non-streaming `send_message` and wraps the result as a
     /// single-element stream.
+    ///
+    /// Each event in the stream is individually passed through `after` interceptors,
+    /// matching Go's per-event `interceptAfter` behavior.
     pub async fn send_message_stream(&self, params: &MessageSendParams) -> Result<EventStream> {
         let params = self.with_default_send_config(params, true);
         let (params, meta) = self
@@ -295,15 +359,15 @@ impl Client {
                 SendMessageResult::Message(m) => Event::Message(m),
             };
             let stream: EventStream = Box::pin(futures::stream::once(async move { Ok(event) }));
-            return Ok(stream);
+            return Ok(self.wrap_stream("SendStreamingMessage", stream));
         }
 
-        let result = CALL_META
+        let stream = CALL_META
             .scope(meta, async {
                 self.transport.send_message_stream(&params).await
             })
-            .await;
-        self.intercept_after("SendStreamingMessage", result).await
+            .await?;
+        Ok(self.wrap_stream("SendStreamingMessage", stream))
     }
 
     /// Retrieves a task. Corresponds to `tasks/get`.
@@ -334,14 +398,16 @@ impl Client {
     }
 
     /// Resubscribes to a task's event stream. Corresponds to `tasks/resubscribe`.
+    ///
+    /// Each event in the stream is individually passed through `after` interceptors.
     pub async fn resubscribe(&self, params: &TaskIdParams) -> Result<EventStream> {
         let (params, meta) = self
             .intercept_before("ResubscribeToTask", params.clone())
             .await?;
-        let result = CALL_META
+        let stream = CALL_META
             .scope(meta, async { self.transport.resubscribe(&params).await })
-            .await;
-        self.intercept_after("ResubscribeToTask", result).await
+            .await?;
+        Ok(self.wrap_stream("ResubscribeToTask", stream))
     }
 
     /// Sets push notification config. Corresponds to `tasks/pushNotificationConfig/set`.
