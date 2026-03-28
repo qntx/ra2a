@@ -446,6 +446,7 @@ fn inject_matching_metadata(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use ra2a::client::{CallInterceptor as _, CallMeta};
     use ra2a::types::{AgentCapabilities, AgentCard, AgentExtension};
@@ -464,7 +465,7 @@ mod tests {
                         uri: (*u).into(),
                         description: String::new(),
                         required: false,
-                        params: Default::default(),
+                        params: HashMap::default(),
                     })
                     .collect(),
                 ..AgentCapabilities::default()

@@ -11,14 +11,13 @@ pub fn is_extension_supported(card: Option<&AgentCard>, ext_uri: &str) -> bool {
         // No card available — assume server supports all extensions.
         return true;
     };
-    c.capabilities
-        .extensions
-        .iter()
-        .any(|e| e.uri == ext_uri)
+    c.capabilities.extensions.iter().any(|e| e.uri == ext_uri)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use ra2a::types::{AgentCapabilities, AgentCard, AgentExtension};
 
     use super::*;
@@ -58,7 +57,7 @@ mod tests {
                         uri: u.into(),
                         description: String::new(),
                         required: false,
-                        params: Default::default(),
+                        params: HashMap::default(),
                     })
                     .collect(),
                 ..AgentCapabilities::default()
