@@ -278,19 +278,20 @@ impl Client {
 
         // Fallback: if agent doesn't support streaming, use non-streaming call
         if let Some(ref card) = self.card()
-            && !card.supports_streaming() {
-                let result = SERVICE_PARAMS
-                    .scope(sp.clone(), async {
-                        self.transport.send_message(&sp, &req).await
-                    })
-                    .await;
-                let result = self.intercept_after("SendStreamingMessage", result).await?;
-                let event = match result {
-                    SendMessageResponse::Task(t) => StreamResponse::Task(t),
-                    SendMessageResponse::Message(m) => StreamResponse::Message(m),
-                };
-                return Ok(Box::pin(futures::stream::once(async move { Ok(event) })));
-            }
+            && !card.supports_streaming()
+        {
+            let result = SERVICE_PARAMS
+                .scope(sp.clone(), async {
+                    self.transport.send_message(&sp, &req).await
+                })
+                .await;
+            let result = self.intercept_after("SendStreamingMessage", result).await?;
+            let event = match result {
+                SendMessageResponse::Task(t) => StreamResponse::Task(t),
+                SendMessageResponse::Message(m) => StreamResponse::Message(m),
+            };
+            return Ok(Box::pin(futures::stream::once(async move { Ok(event) })));
+        }
 
         let stream = SERVICE_PARAMS
             .scope(sp.clone(), async {
@@ -351,9 +352,10 @@ impl Client {
     /// extended cards.
     pub async fn get_agent_card(&self) -> Result<AgentCard> {
         if let Some(ref card) = self.card()
-            && !card.supports_extended_card() {
-                return Ok(card.clone());
-            }
+            && !card.supports_extended_card()
+        {
+            return Ok(card.clone());
+        }
 
         let result = self.transport.get_agent_card().await;
         let card = self.intercept_after("GetAgentCard", result).await?;

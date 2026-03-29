@@ -4,7 +4,7 @@
 //! `cargo run --example client --features client`
 
 use ra2a::client::Client;
-use ra2a::types::{Message, MessageSendParams, Part, SendMessageResult};
+use ra2a::types::{Message, Part, SendMessageRequest, SendMessageResponse};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -16,16 +16,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Send a message (non-streaming)
     let msg = Message::user(vec![Part::text("Hello!")]);
-    let params = MessageSendParams::new(msg);
+    let params = SendMessageRequest::new(msg);
     let result = client.send_message(&params).await?;
 
     match result {
-        SendMessageResult::Task(task) => {
+        SendMessageResponse::Task(task) => {
             let state = &task.status.state;
             let reply = task.status.message.as_ref().and_then(|m| m.text_content());
             println!("[{state:?}] {}", reply.unwrap_or_default());
         }
-        SendMessageResult::Message(msg) => {
+        SendMessageResponse::Message(msg) => {
             println!("{}", msg.text_content().unwrap_or_default());
         }
     }

@@ -252,24 +252,26 @@ impl PushSender for HttpPushSender {
 
             // Attach verification token header (Go: X-A2A-Notification-Token)
             if let Some(ref token) = config.token
-                && !token.is_empty() {
-                    req = req.header("X-A2A-Notification-Token", token);
-                }
+                && !token.is_empty()
+            {
+                req = req.header("X-A2A-Notification-Token", token);
+            }
 
             if let Some(ref auth) = config.authentication
                 && let Some(ref credentials) = auth.credentials
-                    && !credentials.is_empty() {
-                        let scheme = auth.scheme.to_lowercase();
-                        match scheme.as_str() {
-                            "bearer" => {
-                                req = req.header("Authorization", format!("Bearer {credentials}"));
-                            }
-                            "basic" => {
-                                req = req.header("Authorization", format!("Basic {credentials}"));
-                            }
-                            _ => {}
-                        }
+                && !credentials.is_empty()
+            {
+                let scheme = auth.scheme.to_lowercase();
+                match scheme.as_str() {
+                    "bearer" => {
+                        req = req.header("Authorization", format!("Bearer {credentials}"));
                     }
+                    "basic" => {
+                        req = req.header("Authorization", format!("Basic {credentials}"));
+                    }
+                    _ => {}
+                }
+            }
 
             match req.send().await {
                 Ok(resp) => {

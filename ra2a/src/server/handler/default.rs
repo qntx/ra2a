@@ -222,18 +222,20 @@ impl DefaultRequestHandler {
         };
 
         if let Some(ref t) = stored_task
-            && t.status.state.is_terminal() {
-                return Err(A2AError::InvalidParams(format!(
-                    "Task {} is in terminal state: {:?}",
-                    task_id, t.status.state
-                )));
-            }
+            && t.status.state.is_terminal()
+        {
+            return Err(A2AError::InvalidParams(format!(
+                "Task {} is in terminal state: {:?}",
+                task_id, t.status.state
+            )));
+        }
 
         if let Some(ref config) = params.configuration
             && let Some(ref push_config) = config.push_notification_config
-                && let Err(e) = self.save_push_config(&task_id, push_config).await {
-                    warn!(error = %e, "Failed to save push config");
-                }
+            && let Err(e) = self.save_push_config(&task_id, push_config).await
+        {
+            warn!(error = %e, "Failed to save push config");
+        }
 
         let mut ctx = RequestContext::new(&task_id, &context_id);
         ctx.message = Some(message.clone());

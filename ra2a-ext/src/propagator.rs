@@ -249,9 +249,10 @@ fn extract_metadata(
     out: &mut HashMap<String, serde_json::Value>,
 ) {
     if let Some(params) = req.downcast_ref::<ra2a::SendMessageRequest>()
-        && let Some(ref meta) = params.metadata {
-            collect_matching_metadata(meta, requested, predicate, out);
-        }
+        && let Some(ref meta) = params.metadata
+    {
+        collect_matching_metadata(meta, requested, predicate, out);
+    }
 }
 
 /// Collects metadata entries that pass the predicate.

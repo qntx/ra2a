@@ -11,7 +11,10 @@ use std::pin::Pin;
 use ra2a::{
     error::Result,
     server::{AgentExecutor, Event, EventQueue, RequestContext, ServerState, a2a_router},
-    types::{AgentCard, AgentSkill, Message, Part, Task, TaskState, TaskStatus},
+    types::{
+        AgentCard, AgentInterface, AgentSkill, Message, Part, Task, TaskState, TaskStatus,
+        TransportProtocol,
+    },
 };
 
 struct EchoAgent;
@@ -57,8 +60,14 @@ impl AgentExecutor for EchoAgent {
 async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let mut card = AgentCard::new("Echo Agent", "http://localhost:8080");
-    card.description = "A simple echo agent for demonstration.".into();
+    let mut card = AgentCard::new(
+        "Echo Agent",
+        "A simple echo agent for demonstration.",
+        vec![AgentInterface::new(
+            "http://localhost:8080",
+            TransportProtocol::new(TransportProtocol::JSONRPC),
+        )],
+    );
     card.skills.push(AgentSkill::new(
         "echo",
         "Echo",
