@@ -95,6 +95,15 @@ struct ListTasksQuery {
     include_artifacts: Option<bool>,
 }
 
+/// Extracts tenant from the `x-a2a-tenant` header injected by [`super::http::inject_tenant_header`].
+fn tenant_from_headers(headers: &axum::http::HeaderMap) -> Option<String> {
+    headers
+        .get("x-a2a-tenant")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+}
+
 fn rest_error_response(err: &A2AError, task_id: Option<&str>) -> Response {
     let rest_err = err.to_rest_error(task_id);
     let status =
@@ -166,7 +175,7 @@ async fn handle_get_task(
     let meta = super::RequestMeta::from_header_map(&headers);
     let task_id = path.id;
     let req = GetTaskRequest {
-        tenant: None,
+        tenant: tenant_from_headers(&headers),
         id: TaskId::from(task_id.as_str()),
         history_length: query.history_length,
     };
@@ -186,7 +195,7 @@ async fn handle_list_tasks(
 ) -> Response {
     let meta = super::RequestMeta::from_header_map(&headers);
     let req = ListTasksRequest {
-        tenant: None,
+        tenant: tenant_from_headers(&headers),
         context_id: query.context_id,
         status: query.status.map(|s| TaskState::from_state_str(&s)),
         page_size: query.page_size,
@@ -211,7 +220,7 @@ async fn handle_cancel_task(
 ) -> Response {
     let meta = super::RequestMeta::from_header_map(&headers);
     let req = CancelTaskRequest {
-        tenant: None,
+        tenant: tenant_from_headers(&headers),
         id: TaskId::from(path.id.as_str()),
         metadata: None,
     };
@@ -235,7 +244,7 @@ async fn handle_subscribe_to_task(
 
     let meta = super::RequestMeta::from_header_map(&headers);
     let req = SubscribeToTaskRequest {
-        tenant: None,
+        tenant: tenant_from_headers(&headers),
         id: TaskId::from(path.id.as_str()),
     };
     let stream_result = super::REQUEST_META
@@ -291,7 +300,7 @@ async fn handle_get_push_config(
 ) -> Response {
     let meta = super::RequestMeta::from_header_map(&headers);
     let req = GetTaskPushNotificationConfigRequest {
-        tenant: None,
+        tenant: tenant_from_headers(&headers),
         task_id: TaskId::from(path.id.as_str()),
         id: path.config_id,
     };
@@ -313,7 +322,7 @@ async fn handle_list_push_configs(
 ) -> Response {
     let meta = super::RequestMeta::from_header_map(&headers);
     let req = ListTaskPushNotificationConfigsRequest {
-        tenant: None,
+        tenant: tenant_from_headers(&headers),
         task_id: TaskId::from(path.id.as_str()),
         page_size: None,
         page_token: None,
@@ -336,7 +345,7 @@ async fn handle_delete_push_config(
 ) -> Response {
     let meta = super::RequestMeta::from_header_map(&headers);
     let req = DeleteTaskPushNotificationConfigRequest {
-        tenant: None,
+        tenant: tenant_from_headers(&headers),
         task_id: TaskId::from(path.id.as_str()),
         id: path.config_id,
     };
@@ -359,7 +368,9 @@ async fn handle_get_extended_agent_card(
     headers: axum::http::HeaderMap,
 ) -> Response {
     let meta = super::RequestMeta::from_header_map(&headers);
-    let req = GetExtendedAgentCardRequest { tenant: None };
+    let req = GetExtendedAgentCardRequest {
+        tenant: tenant_from_headers(&headers),
+    };
     let result = super::REQUEST_META
         .scope(meta, async {
             state.handler.on_get_extended_agent_card(req).await

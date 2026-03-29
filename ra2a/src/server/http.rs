@@ -74,12 +74,29 @@ pub fn a2a_tenant_router(state: ServerState) -> Router {
     let tenant_routes = Router::new()
         .route("/", post(handle_tenant_jsonrpc))
         .route("/stream", post(handle_tenant_sse))
-        .merge(rest);
+        .merge(rest)
+        .layer(axum::middleware::from_fn(inject_tenant_header));
 
     Router::new()
         .merge(base)
         .nest("/{tenant}", tenant_routes)
         .with_state(state)
+}
+
+/// Axum middleware that extracts `{tenant}` from the matched path and injects
+/// it as an `x-a2a-tenant` request header so REST handlers can read it via
+/// [`RequestMeta::from_header_map`](super::RequestMeta::from_header_map).
+async fn inject_tenant_header(
+    Path(params): Path<std::collections::HashMap<String, String>>,
+    mut req: axum::http::Request<Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    if let Some(tenant) = params.get("tenant")
+        && let Ok(val) = axum::http::HeaderValue::from_str(tenant)
+    {
+        req.headers_mut().insert("x-a2a-tenant", val);
+    }
+    next.run(req).await
 }
 
 /// Axum handler for the agent card well-known endpoint.
