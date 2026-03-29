@@ -9,6 +9,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use super::event::EventQueue;
+use super::middleware::User;
 use super::task_store::TaskStore;
 use crate::error::Result;
 use crate::types::{Message, Task};
@@ -60,6 +61,12 @@ pub struct RequestContext {
     pub related_tasks: Vec<Task>,
     /// Additional metadata from the request.
     pub metadata: crate::types::Metadata,
+    /// The authenticated user for this request. Aligned with Go's `ExecutorContext.User`.
+    pub user: Arc<dyn User>,
+    /// The tenant ID extracted from the request path or metadata.
+    pub tenant: Option<String>,
+    /// A2A service parameters (protocol version, extensions) from request headers.
+    pub service_params: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl RequestContext {
@@ -72,6 +79,9 @@ impl RequestContext {
             stored_task: None,
             related_tasks: Vec::new(),
             metadata: std::collections::HashMap::new(),
+            user: Arc::new(super::middleware::UnauthenticatedUser),
+            tenant: None,
+            service_params: std::collections::HashMap::new(),
         }
     }
 

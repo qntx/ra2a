@@ -15,7 +15,7 @@
 //! ```
 
 use axum::{
-    Json, Router,
+    Router,
     body::Body,
     extract::{Path, State},
     http::{StatusCode, header},
@@ -24,7 +24,6 @@ use axum::{
 };
 
 use super::{ServerState, handle_request};
-use crate::types::AgentCard;
 
 /// Returns an Axum [`Router`] with JSON-RPC protocol binding endpoints.
 ///
@@ -102,13 +101,23 @@ async fn inject_tenant_header(
 /// Axum handler for the agent card well-known endpoint.
 ///
 /// Calls the [`AgentCardProducer`](super::AgentCardProducer) to generate the card.
+/// Includes CORS headers (`Access-Control-Allow-Origin: *`) for browser discovery.
 /// Equivalent to Go SDK's `NewStaticAgentCardHandler`.
-pub async fn handle_agent_card(
-    State(state): State<ServerState>,
-) -> Result<Json<AgentCard>, StatusCode> {
+pub async fn handle_agent_card(State(state): State<ServerState>) -> Response {
     match state.card_producer.card().await {
-        Ok(card) => Ok(Json(card)),
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(card) => {
+            let body = serde_json::to_string(&card).unwrap_or_default();
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                .body(Body::from(body))
+                .unwrap()
+        }
+        Err(_) => Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::empty())
+            .unwrap(),
     }
 }
 

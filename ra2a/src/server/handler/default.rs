@@ -247,6 +247,12 @@ impl DefaultRequestHandler {
         ctx.message = Some(message.clone());
         ctx.stored_task = stored_task;
         ctx.metadata = params.metadata.clone().unwrap_or_default();
+        ctx.tenant = params.tenant.clone();
+
+        let meta = super::super::request_meta();
+        for (k, v) in meta.iter() {
+            ctx.service_params.insert(k.to_owned(), v.to_vec());
+        }
 
         for interceptor in &self.req_context_interceptors {
             interceptor.intercept(&mut ctx).await?;

@@ -109,16 +109,25 @@ impl TaskStore for InMemoryTaskStore {
         &'a self,
         task: &'a Task,
         _event: Option<&'a Event>,
-        _prev: TaskVersion,
+        prev: TaskVersion,
     ) -> Pin<Box<dyn Future<Output = Result<TaskVersion>> + Send + 'a>> {
         Box::pin(async move {
+            let mut tasks = self.tasks.write().await;
+            let key = task.id.as_str().to_owned();
+
+            if let Some(existing) = tasks.get(&key)
+                && prev != TaskVersion::MISSING
+                && prev != existing.version
+            {
+                return Err(crate::error::A2AError::ConcurrentTaskModification);
+            }
+
             let ver = TaskVersion(
                 self.next_version
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             );
-            let mut tasks = self.tasks.write().await;
             tasks.insert(
-                task.id.as_str().to_owned(),
+                key,
                 VersionedTask {
                     task: task.clone(),
                     version: ver,
