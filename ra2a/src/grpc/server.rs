@@ -3,7 +3,6 @@
 //! This module provides a gRPC server that wraps a `RequestHandler` to implement
 //! the generated `A2aService` trait.
 
-use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -26,9 +25,7 @@ use crate::types::{
     AgentCard, CancelTaskRequest as NativeCancelTaskRequest,
     CreateTaskPushNotificationConfigRequest as NativeCreatePushReq,
     DeleteTaskPushNotificationConfigRequest as NativeDeletePushReq,
-    GetExtendedAgentCardRequest as NativeGetExtCardReq,
-    GetTaskPushNotificationConfigRequest as NativeGetPushReq,
-    GetTaskRequest as NativeGetTaskReq,
+    GetTaskPushNotificationConfigRequest as NativeGetPushReq, GetTaskRequest as NativeGetTaskReq,
     ListTaskPushNotificationConfigRequest as NativeListPushReq,
     ListTasksRequest as NativeListTasksReq, Message as NativeMessage,
     PushNotificationConfig as NativePushConfig, SendMessageConfiguration,
@@ -202,7 +199,11 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeGetTaskReq {
-            tenant: if req.tenant.is_empty() { None } else { Some(req.tenant) },
+            tenant: if req.tenant.is_empty() {
+                None
+            } else {
+                Some(req.tenant)
+            },
             id: TaskId::from(req.id.as_str()),
             history_length: req.history_length,
         };
@@ -223,11 +224,23 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeListTasksReq {
-            tenant: if req.tenant.is_empty() { None } else { Some(req.tenant) },
-            context_id: if req.context_id.is_empty() { None } else { Some(req.context_id) },
+            tenant: if req.tenant.is_empty() {
+                None
+            } else {
+                Some(req.tenant)
+            },
+            context_id: if req.context_id.is_empty() {
+                None
+            } else {
+                Some(req.context_id)
+            },
             status: None,
             page_size: req.page_size,
-            page_token: if req.page_token.is_empty() { None } else { Some(req.page_token) },
+            page_token: if req.page_token.is_empty() {
+                None
+            } else {
+                Some(req.page_token)
+            },
             history_length: req.history_length,
             status_timestamp_after: None,
             include_artifacts: req.include_artifacts,
@@ -256,7 +269,11 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeCancelTaskRequest {
-            tenant: if req.tenant.is_empty() { None } else { Some(req.tenant) },
+            tenant: if req.tenant.is_empty() {
+                None
+            } else {
+                Some(req.tenant)
+            },
             id: TaskId::from(req.id.as_str()),
         };
 
@@ -276,7 +293,11 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeSubscribeReq {
-            tenant: if req.tenant.is_empty() { None } else { Some(req.tenant) },
+            tenant: if req.tenant.is_empty() {
+                None
+            } else {
+                Some(req.tenant)
+            },
             id: TaskId::from(req.id.as_str()),
         };
 
@@ -328,7 +349,11 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
             .ok_or_else(|| Status::invalid_argument("config is required"))?;
 
         let native_req = NativeCreatePushReq {
-            tenant: if req.tenant.is_empty() { None } else { Some(req.tenant) },
+            tenant: if req.tenant.is_empty() {
+                None
+            } else {
+                Some(req.tenant)
+            },
             task_id: TaskId::from(req.task_id.as_str()),
             config_id: req.config_id,
             config,
@@ -357,7 +382,11 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeGetPushReq {
-            tenant: if req.tenant.is_empty() { None } else { Some(req.tenant) },
+            tenant: if req.tenant.is_empty() {
+                None
+            } else {
+                Some(req.tenant)
+            },
             task_id: TaskId::from(req.task_id.as_str()),
             id: req.id,
         };
@@ -385,10 +414,22 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeListPushReq {
-            tenant: if req.tenant.is_empty() { None } else { Some(req.tenant) },
+            tenant: if req.tenant.is_empty() {
+                None
+            } else {
+                Some(req.tenant)
+            },
             task_id: TaskId::from(req.task_id.as_str()),
-            page_size: if req.page_size > 0 { Some(req.page_size) } else { None },
-            page_token: if req.page_token.is_empty() { None } else { Some(req.page_token) },
+            page_size: if req.page_size > 0 {
+                Some(req.page_size)
+            } else {
+                None
+            },
+            page_token: if req.page_token.is_empty() {
+                None
+            } else {
+                Some(req.page_token)
+            },
         };
 
         let result = self
@@ -446,7 +487,11 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeDeletePushReq {
-            tenant: if req.tenant.is_empty() { None } else { Some(req.tenant) },
+            tenant: if req.tenant.is_empty() {
+                None
+            } else {
+                Some(req.tenant)
+            },
             task_id: TaskId::from(req.task_id.as_str()),
             id: req.id,
         };

@@ -7,7 +7,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use ra2a::EXTENSIONS_META_KEY;
+use ra2a::SVC_PARAM_EXTENSIONS;
 use ra2a::client::{CallInterceptor, Request};
 use ra2a::error::Result;
 
@@ -58,7 +58,7 @@ impl CallInterceptor for ExtensionActivator {
 
             for uri in &self.extension_uris {
                 if is_extension_supported(req.card.as_ref(), uri) {
-                    req.meta.append(EXTENSIONS_META_KEY, uri.clone());
+                    req.service_params.append(SVC_PARAM_EXTENSIONS, uri.clone());
                 }
             }
             Ok(())
@@ -69,41 +69,42 @@ impl CallInterceptor for ExtensionActivator {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::collections::HashMap;
-
-    use ra2a::client::CallMeta;
-    use ra2a::types::{AgentCapabilities, AgentCard, AgentExtension};
+    use ra2a::client::ServiceParams;
+    use ra2a::types::{
+        AgentCapabilities, AgentCard, AgentExtension, AgentInterface, TransportProtocol,
+    };
 
     use super::*;
 
     fn make_card(uris: &[&str]) -> AgentCard {
-        AgentCard {
-            name: "test".into(),
-            url: "https://example.com".into(),
-            version: "1.0".into(),
-            capabilities: AgentCapabilities {
-                extensions: uris
-                    .iter()
-                    .map(|u| AgentExtension {
-                        uri: (*u).into(),
-                        description: String::new(),
-                        required: false,
-                        params: HashMap::default(),
-                    })
-                    .collect(),
-                ..AgentCapabilities::default()
-            },
-            skills: vec![],
-            ..AgentCard::default()
-        }
+        let mut card = AgentCard::new(
+            "test",
+            "test agent",
+            vec![AgentInterface::new(
+                "https://example.com",
+                TransportProtocol::new("JSONRPC"),
+            )],
+        );
+        card.capabilities = AgentCapabilities {
+            extensions: uris
+                .iter()
+                .map(|u| AgentExtension {
+                    uri: (*u).into(),
+                    description: None,
+                    required: false,
+                    params: None,
+                })
+                .collect(),
+            ..AgentCapabilities::default()
+        };
+        card
     }
 
     fn make_request(card: Option<AgentCard>) -> Request {
         Request {
             method: "message/send".into(),
-            base_url: "https://example.com".into(),
-            meta: CallMeta::default(),
             card,
+            service_params: ServiceParams::default(),
             payload: Box::new(()),
         }
     }
@@ -120,7 +121,7 @@ mod tests {
 
         activator.before(&mut req).await.unwrap();
 
-        let vals = req.meta.get_all(EXTENSIONS_META_KEY);
+        let vals = req.service_params.get_all(SVC_PARAM_EXTENSIONS);
         assert_eq!(vals, &["urn:a2a:ext:duration"]);
     }
 
@@ -132,7 +133,7 @@ mod tests {
         let mut req = make_request(None);
         activator.before(&mut req).await.unwrap();
 
-        let vals = req.meta.get_all(EXTENSIONS_META_KEY);
+        let vals = req.service_params.get_all(SVC_PARAM_EXTENSIONS);
         assert_eq!(vals, &["urn:a2a:ext:a", "urn:a2a:ext:b"]);
     }
 
@@ -145,7 +146,7 @@ mod tests {
 
         activator.before(&mut req).await.unwrap();
 
-        let vals = req.meta.get_all(EXTENSIONS_META_KEY);
+        let vals = req.service_params.get_all(SVC_PARAM_EXTENSIONS);
         assert!(vals.is_empty());
     }
 }

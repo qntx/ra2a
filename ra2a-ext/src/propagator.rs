@@ -24,7 +24,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use ra2a::EXTENSIONS_META_KEY;
+use ra2a::SVC_PARAM_EXTENSIONS;
 use ra2a::error::A2AError;
 use ra2a::types::AgentCard;
 
@@ -165,9 +165,9 @@ impl ServerPropagator {
             Arc::new(|requested_uris: &[String], key: &str| requested_uris.iter().any(|u| u == key))
         });
 
-        let header_predicate = config
-            .header_predicate
-            .unwrap_or_else(|| Arc::new(|key: &str| key.eq_ignore_ascii_case(EXTENSIONS_META_KEY)));
+        let header_predicate = config.header_predicate.unwrap_or_else(|| {
+            Arc::new(|key: &str| key.eq_ignore_ascii_case(SVC_PARAM_EXTENSIONS))
+        });
 
         Self {
             metadata_predicate,
@@ -219,7 +219,7 @@ impl ra2a::server::CallInterceptor for ServerPropagator {
             }
 
             // Also activate extensions in the CallContext for downstream use.
-            if let Some(ext_values) = prop_ctx.request_headers.get(EXTENSIONS_META_KEY) {
+            if let Some(ext_values) = prop_ctx.request_headers.get(SVC_PARAM_EXTENSIONS) {
                 for uri in ext_values {
                     ctx.activate_extension(uri);
                 }
@@ -248,14 +248,10 @@ fn extract_metadata(
     predicate: &ServerMetadataPredicate,
     out: &mut HashMap<String, serde_json::Value>,
 ) {
-    // Try each known param type that carries metadata.
-    if let Some(params) = req.downcast_ref::<ra2a::MessageSendParams>() {
-        collect_matching_metadata(&params.metadata, requested, predicate, out);
-    } else if let Some(params) = req.downcast_ref::<ra2a::TaskQueryParams>() {
-        collect_matching_metadata(&params.metadata, requested, predicate, out);
-    } else if let Some(params) = req.downcast_ref::<ra2a::TaskIdParams>() {
-        collect_matching_metadata(&params.metadata, requested, predicate, out);
-    }
+    if let Some(params) = req.downcast_ref::<ra2a::SendMessageRequest>()
+        && let Some(ref meta) = params.metadata {
+            collect_matching_metadata(meta, requested, predicate, out);
+        }
 }
 
 /// Collects metadata entries that pass the predicate.
@@ -345,7 +341,7 @@ impl ClientPropagator {
 
         let header_predicate = config.header_predicate.unwrap_or_else(|| {
             Arc::new(|card: Option<&AgentCard>, key: &str, val: &str| {
-                if !key.eq_ignore_ascii_case(EXTENSIONS_META_KEY) {
+                if !key.eq_ignore_ascii_case(SVC_PARAM_EXTENSIONS) {
                     return false;
                 }
                 is_extension_supported(card, val)
@@ -384,7 +380,7 @@ impl ra2a::client::CallInterceptor for ClientPropagator {
             // Collect requested URIs from propagated headers for the predicate.
             let requested: Vec<String> = prop_ctx
                 .request_headers
-                .get(EXTENSIONS_META_KEY)
+                .get(SVC_PARAM_EXTENSIONS)
                 .cloned()
                 .unwrap_or_default();
 
@@ -403,7 +399,7 @@ impl ra2a::client::CallInterceptor for ClientPropagator {
             for (header_name, header_values) in &prop_ctx.request_headers {
                 for header_value in header_values {
                     if (self.header_predicate)(req.card.as_ref(), header_name, header_value) {
-                        req.meta.append(header_name, header_value);
+                        req.service_params.append(header_name, header_value);
                     }
                 }
             }
@@ -421,12 +417,9 @@ fn inject_metadata(
     requested: &[String],
     predicate: &ClientMetadataPredicate,
 ) {
-    if let Some(params) = payload.downcast_mut::<ra2a::MessageSendParams>() {
-        inject_matching_metadata(&mut params.metadata, metadata, card, requested, predicate);
-    } else if let Some(params) = payload.downcast_mut::<ra2a::TaskQueryParams>() {
-        inject_matching_metadata(&mut params.metadata, metadata, card, requested, predicate);
-    } else if let Some(params) = payload.downcast_mut::<ra2a::TaskIdParams>() {
-        inject_matching_metadata(&mut params.metadata, metadata, card, requested, predicate);
+    if let Some(params) = payload.downcast_mut::<ra2a::SendMessageRequest>() {
+        let meta = params.metadata.get_or_insert_with(Default::default);
+        inject_matching_metadata(meta, metadata, card, requested, predicate);
     }
 }
 
@@ -448,31 +441,35 @@ fn inject_matching_metadata(
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use ra2a::client::{CallInterceptor as _, CallMeta};
-    use ra2a::types::{AgentCapabilities, AgentCard, AgentExtension};
+    use ra2a::client::{CallInterceptor as _, ServiceParams};
+    use ra2a::types::{
+        AgentCapabilities, AgentCard, AgentExtension, AgentInterface, TransportProtocol,
+    };
 
     use super::*;
 
     fn make_card(uris: &[&str]) -> AgentCard {
-        AgentCard {
-            name: "test".into(),
-            url: "https://example.com".into(),
-            version: "1.0".into(),
-            capabilities: AgentCapabilities {
-                extensions: uris
-                    .iter()
-                    .map(|u| AgentExtension {
-                        uri: (*u).into(),
-                        description: String::new(),
-                        required: false,
-                        params: HashMap::default(),
-                    })
-                    .collect(),
-                ..AgentCapabilities::default()
-            },
-            skills: vec![],
-            ..AgentCard::default()
-        }
+        let mut card = AgentCard::new(
+            "test",
+            "test agent",
+            vec![AgentInterface::new(
+                "https://example.com",
+                TransportProtocol::new("JSONRPC"),
+            )],
+        );
+        card.capabilities = AgentCapabilities {
+            extensions: uris
+                .iter()
+                .map(|u| AgentExtension {
+                    uri: (*u).into(),
+                    description: None,
+                    required: false,
+                    params: None,
+                })
+                .collect(),
+            ..AgentCapabilities::default()
+        };
+        card
     }
 
     #[tokio::test]
@@ -482,26 +479,24 @@ mod tests {
 
         let mut prop_ctx = PropagatorContext::default();
         prop_ctx.request_headers.insert(
-            EXTENSIONS_META_KEY.to_owned(),
+            SVC_PARAM_EXTENSIONS.to_owned(),
             vec!["urn:a2a:ext:duration".into()],
         );
 
         let mut req = ra2a::client::Request {
             method: "message/send".into(),
-            base_url: "https://example.com".into(),
-            meta: CallMeta::default(),
+            service_params: ServiceParams::default(),
             card: Some(card),
             payload: Box::new(()),
         };
 
-        // Run within propagator context scope.
         prop_ctx
             .scope(async {
                 propagator.before(&mut req).await.unwrap();
             })
             .await;
 
-        let vals = req.meta.get_all(EXTENSIONS_META_KEY);
+        let vals = req.service_params.get_all(SVC_PARAM_EXTENSIONS);
         assert_eq!(vals, &["urn:a2a:ext:duration"]);
     }
 
@@ -512,14 +507,13 @@ mod tests {
 
         let mut prop_ctx = PropagatorContext::default();
         prop_ctx.request_headers.insert(
-            EXTENSIONS_META_KEY.to_owned(),
+            SVC_PARAM_EXTENSIONS.to_owned(),
             vec!["urn:a2a:ext:duration".into()],
         );
 
         let mut req = ra2a::client::Request {
             method: "message/send".into(),
-            base_url: "https://example.com".into(),
-            meta: CallMeta::default(),
+            service_params: ServiceParams::default(),
             card: Some(card),
             payload: Box::new(()),
         };
@@ -530,7 +524,7 @@ mod tests {
             })
             .await;
 
-        let vals = req.meta.get_all(EXTENSIONS_META_KEY);
+        let vals = req.service_params.get_all(SVC_PARAM_EXTENSIONS);
         assert!(vals.is_empty());
     }
 
@@ -540,15 +534,13 @@ mod tests {
 
         let mut req = ra2a::client::Request {
             method: "message/send".into(),
-            base_url: "https://example.com".into(),
-            meta: CallMeta::default(),
+            service_params: ServiceParams::default(),
             card: None,
             payload: Box::new(()),
         };
 
-        // No PropagatorContext in scope — should be a no-op.
         propagator.before(&mut req).await.unwrap();
-        assert!(req.meta.is_empty());
+        assert!(req.service_params.is_empty());
     }
 
     #[tokio::test]

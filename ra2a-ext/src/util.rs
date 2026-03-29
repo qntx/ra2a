@@ -16,8 +16,6 @@ pub fn is_extension_supported(card: Option<&AgentCard>, ext_uri: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use ra2a::types::{AgentCapabilities, AgentCard, AgentExtension};
 
     use super::*;
@@ -46,24 +44,27 @@ mod tests {
     }
 
     fn card_with_extensions(uris: Vec<&str>) -> AgentCard {
-        AgentCard {
-            name: "test".into(),
-            url: "https://example.com".into(),
-            version: "1.0".into(),
-            capabilities: AgentCapabilities {
-                extensions: uris
-                    .into_iter()
-                    .map(|u| AgentExtension {
-                        uri: u.into(),
-                        description: String::new(),
-                        required: false,
-                        params: HashMap::default(),
-                    })
-                    .collect(),
-                ..AgentCapabilities::default()
-            },
-            skills: vec![],
-            ..AgentCard::default()
-        }
+        use ra2a::types::AgentInterface;
+        let mut card = AgentCard::new(
+            "test",
+            "test agent",
+            vec![AgentInterface::new(
+                "https://example.com",
+                ra2a::types::TransportProtocol::new("JSONRPC"),
+            )],
+        );
+        card.capabilities = AgentCapabilities {
+            extensions: uris
+                .into_iter()
+                .map(|u| AgentExtension {
+                    uri: u.into(),
+                    description: None,
+                    required: false,
+                    params: None,
+                })
+                .collect(),
+            ..AgentCapabilities::default()
+        };
+        card
     }
 }

@@ -251,15 +251,14 @@ impl PushSender for HttpPushSender {
                 .body(json_data);
 
             // Attach verification token header (Go: X-A2A-Notification-Token)
-            if let Some(ref token) = config.token {
-                if !token.is_empty() {
+            if let Some(ref token) = config.token
+                && !token.is_empty() {
                     req = req.header("X-A2A-Notification-Token", token);
                 }
-            }
 
-            if let Some(ref auth) = config.authentication {
-                if let Some(ref credentials) = auth.credentials {
-                    if !credentials.is_empty() {
+            if let Some(ref auth) = config.authentication
+                && let Some(ref credentials) = auth.credentials
+                    && !credentials.is_empty() {
                         let scheme = auth.scheme.to_lowercase();
                         match scheme.as_str() {
                             "bearer" => {
@@ -271,8 +270,6 @@ impl PushSender for HttpPushSender {
                             _ => {}
                         }
                     }
-                }
-            }
 
             match req.send().await {
                 Ok(resp) => {

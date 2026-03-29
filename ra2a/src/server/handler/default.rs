@@ -221,22 +221,19 @@ impl DefaultRequestHandler {
             ),
         };
 
-        if let Some(ref t) = stored_task {
-            if t.status.state.is_terminal() {
+        if let Some(ref t) = stored_task
+            && t.status.state.is_terminal() {
                 return Err(A2AError::InvalidParams(format!(
                     "Task {} is in terminal state: {:?}",
                     task_id, t.status.state
                 )));
             }
-        }
 
-        if let Some(ref config) = params.configuration {
-            if let Some(ref push_config) = config.push_notification_config {
-                if let Err(e) = self.save_push_config(&task_id, push_config).await {
+        if let Some(ref config) = params.configuration
+            && let Some(ref push_config) = config.push_notification_config
+                && let Err(e) = self.save_push_config(&task_id, push_config).await {
                     warn!(error = %e, "Failed to save push config");
                 }
-            }
-        }
 
         let mut ctx = RequestContext::new(&task_id, &context_id);
         ctx.message = Some(message.clone());
@@ -450,7 +447,7 @@ impl RequestHandler for DefaultRequestHandler {
             self.spawn_execution(ctx, Arc::clone(&queue));
 
             // Collect events until terminal
-            let is_non_blocking = params.configuration.as_ref().map_or(true, |c| !c.blocking);
+            let is_non_blocking = params.configuration.as_ref().is_none_or(|c| !c.blocking);
             let mut result = self.collect_result(rx, is_non_blocking).await?;
 
             // Apply history length

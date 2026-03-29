@@ -7,10 +7,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::proto;
 use crate::types::{
-    Artifact as NativeArtifact, ArtifactId, AuthenticationInfo, ContextId, Message as NativeMessage,
-    MessageId, Part as NativePart, PartContent, PushNotificationConfig as NativePushConfig,
-    Role as NativeRole, Task as NativeTask, TaskId, TaskState as NativeTaskState,
-    TaskStatus as NativeTaskStatus,
+    Artifact as NativeArtifact, ArtifactId, AuthenticationInfo, ContextId,
+    Message as NativeMessage, MessageId, Part as NativePart, PartContent,
+    PushNotificationConfig as NativePushConfig, Role as NativeRole, Task as NativeTask, TaskId,
+    TaskState as NativeTaskState, TaskStatus as NativeTaskStatus,
 };
 
 impl From<NativeTaskState> for proto::TaskState {

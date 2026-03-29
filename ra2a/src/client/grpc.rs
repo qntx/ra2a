@@ -13,18 +13,18 @@ use futures::Stream;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
 
-use super::{EventStream, Transport};
+use super::{EventStream, ServiceParams, Transport};
 use crate::error::{A2AError, Result};
 use crate::grpc::convert::{hashmap_to_struct, struct_to_hashmap};
-use crate::grpc::proto::{
-    self, CancelTaskRequest, GetTaskRequest, SendMessageRequest, SubscribeToTaskRequest,
-    a2a_service_client::A2aServiceClient,
-};
+use crate::grpc::proto::{self, a2a_service_client::A2aServiceClient};
 use crate::types::{
-    AgentCard, Artifact, DeleteTaskPushConfigParams, Event, GetTaskPushConfigParams,
-    ListTaskPushConfigParams, ListTasksRequest, ListTasksResponse, Message, MessageSendParams,
-    SendMessageResult, Task, TaskArtifactUpdateEvent, TaskIdParams, TaskPushConfig,
-    TaskQueryParams, TaskState, TaskStatus, TaskStatusUpdateEvent,
+    AgentCard, Artifact, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
+    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
+    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
+    ListTaskPushNotificationConfigResponse, ListTasksRequest, ListTasksResponse, Message,
+    SendMessageRequest, SendMessageResponse, StreamResponse, SubscribeToTaskRequest, Task,
+    TaskArtifactUpdateEvent, TaskPushNotificationConfig, TaskState, TaskStatus,
+    TaskStatusUpdateEvent,
 };
 
 /// gRPC transport for A2A client operations.
@@ -69,12 +69,11 @@ impl GrpcTransport {
         }
     }
 
-    /// Builds a proto `SendMessageRequest` from native params.
-    fn build_send_request(params: &MessageSendParams) -> SendMessageRequest {
-        let message = proto::Message::from(params.message.clone());
+    /// Builds a proto `SendMessageRequest` from native request.
+    fn build_send_request(req: &SendMessageRequest) -> proto::SendMessageRequest {
+        let message = proto::Message::from(req.message.clone());
         let configuration =
-            params
-                .configuration
+            req.configuration
                 .as_ref()
                 .map(|config| proto::SendMessageConfiguration {
                     accepted_output_modes: config.accepted_output_modes.clone(),
@@ -83,16 +82,12 @@ impl GrpcTransport {
                         .as_ref()
                         .map(|pc| proto::PushNotificationConfig::from(pc.clone())),
                     history_length: config.history_length,
-                    blocking: config.blocking.unwrap_or(false),
+                    blocking: config.blocking,
                 });
-        let metadata = if params.metadata.is_empty() {
-            None
-        } else {
-            hashmap_to_struct(params.metadata.clone())
-        };
+        let metadata = req.metadata.clone().and_then(hashmap_to_struct);
 
-        SendMessageRequest {
-            tenant: String::new(),
+        proto::SendMessageRequest {
+            tenant: req.tenant.clone().unwrap_or_default(),
             message: Some(message),
             configuration,
             metadata,
@@ -103,10 +98,11 @@ impl GrpcTransport {
 impl Transport for GrpcTransport {
     fn send_message<'a>(
         &'a self,
-        params: &'a MessageSendParams,
-    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResult>> + Send + 'a>> {
+        _params: &'a ServiceParams,
+        req: &'a SendMessageRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResponse>> + Send + 'a>> {
         Box::pin(async move {
-            let request = Self::build_send_request(params);
+            let request = Self::build_send_request(req);
             let response = self
                 .client
                 .lock()
@@ -117,22 +113,23 @@ impl Transport for GrpcTransport {
 
             match response.into_inner().payload {
                 Some(proto::send_message_response::Payload::Task(task)) => {
-                    Ok(SendMessageResult::Task(Task::from(task)))
+                    Ok(SendMessageResponse::Task(Task::from(task)))
                 }
                 Some(proto::send_message_response::Payload::Message(msg)) => {
-                    Ok(SendMessageResult::Message(Message::from(msg)))
+                    Ok(SendMessageResponse::Message(Message::from(msg)))
                 }
                 None => Err(A2AError::InternalError("empty gRPC response".into())),
             }
         })
     }
 
-    fn send_message_stream<'a>(
+    fn send_streaming_message<'a>(
         &'a self,
-        params: &'a MessageSendParams,
+        _params: &'a ServiceParams,
+        req: &'a SendMessageRequest,
     ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + 'a>> {
         Box::pin(async move {
-            let request = Self::build_send_request(params);
+            let request = Self::build_send_request(req);
             let response = self
                 .client
                 .lock()
@@ -149,13 +146,14 @@ impl Transport for GrpcTransport {
 
     fn get_task<'a>(
         &'a self,
-        params: &'a TaskQueryParams,
+        _params: &'a ServiceParams,
+        req: &'a GetTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + 'a>> {
         Box::pin(async move {
-            let request = GetTaskRequest {
-                tenant: String::new(),
-                id: params.id.clone(),
-                history_length: params.history_length,
+            let request = proto::GetTaskRequest {
+                tenant: req.tenant.clone().unwrap_or_default(),
+                id: req.id.to_string(),
+                history_length: req.history_length,
             };
             let response = self
                 .client
@@ -170,24 +168,25 @@ impl Transport for GrpcTransport {
 
     fn list_tasks<'a>(
         &'a self,
-        _params: &'a ListTasksRequest,
+        _params: &'a ServiceParams,
+        _req: &'a ListTasksRequest,
     ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + 'a>> {
         Box::pin(async move {
-            // gRPC proto does not define a ListTasks RPC yet
             Err(A2AError::UnsupportedOperation(
-                "list_tasks not available over gRPC".into(),
+                "list_tasks not yet available over gRPC".into(),
             ))
         })
     }
 
     fn cancel_task<'a>(
         &'a self,
-        params: &'a TaskIdParams,
+        _params: &'a ServiceParams,
+        req: &'a CancelTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + 'a>> {
         Box::pin(async move {
-            let request = CancelTaskRequest {
-                tenant: String::new(),
-                id: params.id.clone(),
+            let request = proto::CancelTaskRequest {
+                tenant: req.tenant.clone().unwrap_or_default(),
+                id: req.id.to_string(),
             };
             let response = self
                 .client
@@ -200,14 +199,15 @@ impl Transport for GrpcTransport {
         })
     }
 
-    fn resubscribe<'a>(
+    fn subscribe_to_task<'a>(
         &'a self,
-        params: &'a TaskIdParams,
+        _params: &'a ServiceParams,
+        req: &'a SubscribeToTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + 'a>> {
         Box::pin(async move {
-            let request = SubscribeToTaskRequest {
-                tenant: String::new(),
-                id: params.id.clone(),
+            let request = proto::SubscribeToTaskRequest {
+                tenant: req.tenant.clone().unwrap_or_default(),
+                id: req.id.to_string(),
             };
             let response = self
                 .client
@@ -223,46 +223,63 @@ impl Transport for GrpcTransport {
         })
     }
 
-    fn set_task_push_config<'a>(
+    fn create_task_push_config<'a>(
         &'a self,
-        _params: &'a TaskPushConfig,
-    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + 'a>> {
+        _params: &'a ServiceParams,
+        _req: &'a CreateTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + 'a>> {
         Box::pin(async move {
             Err(A2AError::UnsupportedOperation(
-                "push config not available over gRPC".into(),
+                "push config not yet available over gRPC client".into(),
             ))
         })
     }
 
     fn get_task_push_config<'a>(
         &'a self,
-        _params: &'a GetTaskPushConfigParams,
-    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + 'a>> {
+        _params: &'a ServiceParams,
+        _req: &'a GetTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + 'a>> {
         Box::pin(async move {
             Err(A2AError::UnsupportedOperation(
-                "push config not available over gRPC".into(),
+                "push config not yet available over gRPC client".into(),
             ))
         })
     }
 
-    fn list_task_push_config<'a>(
+    fn list_task_push_configs<'a>(
         &'a self,
-        _params: &'a ListTaskPushConfigParams,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<TaskPushConfig>>> + Send + 'a>> {
+        _params: &'a ServiceParams,
+        _req: &'a ListTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigResponse>> + Send + 'a>>
+    {
         Box::pin(async move {
             Err(A2AError::UnsupportedOperation(
-                "push config not available over gRPC".into(),
+                "push config not yet available over gRPC client".into(),
             ))
         })
     }
 
     fn delete_task_push_config<'a>(
         &'a self,
-        _params: &'a DeleteTaskPushConfigParams,
+        _params: &'a ServiceParams,
+        _req: &'a DeleteTaskPushNotificationConfigRequest,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async move {
             Err(A2AError::UnsupportedOperation(
-                "push config not available over gRPC".into(),
+                "push config not yet available over gRPC client".into(),
+            ))
+        })
+    }
+
+    fn get_extended_agent_card<'a>(
+        &'a self,
+        _params: &'a ServiceParams,
+        _req: &'a GetExtendedAgentCardRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<AgentCard>> + Send + 'a>> {
+        Box::pin(async move {
+            Err(A2AError::UnsupportedOperation(
+                "extended agent card not yet available over gRPC client".into(),
             ))
         })
     }
@@ -276,20 +293,19 @@ impl Transport for GrpcTransport {
     }
 }
 
-/// Adapts a tonic streaming response into a [`Stream`] of [`Event`]s.
+/// Adapts a tonic streaming response into a [`Stream`] of [`StreamResponse`]s.
 struct GrpcEventStream {
     inner: tonic::Streaming<proto::StreamResponse>,
 }
 
 impl Stream for GrpcEventStream {
-    type Item = Result<Event>;
+    type Item = Result<StreamResponse>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match Pin::new(&mut self.inner).poll_next(cx) {
             Poll::Ready(Some(Ok(response))) => match convert_stream_response(response) {
                 Some(event) => Poll::Ready(Some(Ok(event))),
                 None => {
-                    // Skip unknown payload types, poll again
                     cx.waker().wake_by_ref();
                     Poll::Pending
                 }
@@ -301,34 +317,26 @@ impl Stream for GrpcEventStream {
     }
 }
 
-/// Converts a proto `StreamResponse` to a native [`Event`].
-fn convert_stream_response(response: proto::StreamResponse) -> Option<Event> {
+fn convert_stream_response(response: proto::StreamResponse) -> Option<StreamResponse> {
     match response.payload {
         Some(proto::stream_response::Payload::StatusUpdate(update)) => {
             let status = update
                 .status
-                .map_or_else(|| TaskStatus::new(TaskState::Unknown), TaskStatus::from);
-            let mut event =
-                TaskStatusUpdateEvent::new(update.task_id, update.context_id, status, false);
-            event.metadata = update
-                .metadata
-                .and_then(struct_to_hashmap)
-                .unwrap_or_default();
-            Some(Event::StatusUpdate(event))
+                .map_or_else(|| TaskStatus::new(TaskState::Unspecified), TaskStatus::from);
+            let mut event = TaskStatusUpdateEvent::new(update.task_id, update.context_id, status);
+            event.metadata = update.metadata.and_then(struct_to_hashmap);
+            Some(StreamResponse::StatusUpdate(event))
         }
         Some(proto::stream_response::Payload::ArtifactUpdate(update)) => {
             let artifact = update
                 .artifact
-                .map_or_else(|| Artifact::new("", vec![]), Artifact::from);
+                .map_or_else(|| Artifact::create(vec![]), Artifact::from);
             let mut event =
                 TaskArtifactUpdateEvent::new(update.task_id, update.context_id, artifact);
             event.append = update.append;
             event.last_chunk = update.last_chunk;
-            event.metadata = update
-                .metadata
-                .and_then(struct_to_hashmap)
-                .unwrap_or_default();
-            Some(Event::ArtifactUpdate(event))
+            event.metadata = update.metadata.and_then(struct_to_hashmap);
+            Some(StreamResponse::ArtifactUpdate(event))
         }
         _ => None,
     }
