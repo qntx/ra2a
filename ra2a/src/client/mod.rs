@@ -290,7 +290,7 @@ impl Client {
                 SendMessageResponse::Task(t) => StreamResponse::Task(t),
                 SendMessageResponse::Message(m) => StreamResponse::Message(m),
             };
-            return Ok(Box::pin(futures::stream::once(async move { Ok(event) })));
+            return Ok(Box::pin(futures::stream::once(async move { Ok(event) })) as EventStream);
         }
 
         let stream = SERVICE_PARAMS
