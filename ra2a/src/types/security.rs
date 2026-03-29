@@ -188,6 +188,12 @@ pub enum OAuthFlow {
     ClientCredentials(ClientCredentialsOAuthFlow),
     /// Device Code flow (RFC 8628).
     DeviceCode(DeviceCodeOAuthFlow),
+    /// Implicit flow (deprecated — use Authorization Code + PKCE).
+    #[deprecated = "Use Authorization Code + PKCE instead"]
+    Implicit(ImplicitOAuthFlow),
+    /// Resource Owner Password flow (deprecated — use Authorization Code + PKCE or Device Code).
+    #[deprecated = "Use Authorization Code + PKCE or Device Code"]
+    Password(PasswordOAuthFlow),
 }
 
 impl Serialize for OAuthFlow {
@@ -197,6 +203,10 @@ impl Serialize for OAuthFlow {
             Self::AuthorizationCode(v) => map.serialize_entry("authorizationCode", v)?,
             Self::ClientCredentials(v) => map.serialize_entry("clientCredentials", v)?,
             Self::DeviceCode(v) => map.serialize_entry("deviceCode", v)?,
+            #[allow(deprecated)]
+            Self::Implicit(v) => map.serialize_entry("implicit", v)?,
+            #[allow(deprecated)]
+            Self::Password(v) => map.serialize_entry("password", v)?,
         }
         map.end()
     }
@@ -217,9 +227,19 @@ impl<'de> Deserialize<'de> for OAuthFlow {
             Ok(Self::DeviceCode(
                 serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
             ))
+        } else if let Some(v) = raw.get("implicit") {
+            #[allow(deprecated)]
+            Ok(Self::Implicit(
+                serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
+            ))
+        } else if let Some(v) = raw.get("password") {
+            #[allow(deprecated)]
+            Ok(Self::Password(
+                serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
+            ))
         } else {
             Err(de::Error::custom(
-                "OAuthFlow must contain one of: authorizationCode, clientCredentials, deviceCode",
+                "OAuthFlow must contain one of: authorizationCode, clientCredentials, deviceCode, implicit, password",
             ))
         }
     }
@@ -274,6 +294,38 @@ pub struct DeviceCodeOAuthFlow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_url: Option<String>,
     /// Available scopes.
+    pub scopes: HashMap<String, String>,
+}
+
+/// Deprecated: OAuth 2.0 Implicit flow.
+///
+/// Maps to proto `ImplicitOAuthFlow`. Use Authorization Code + PKCE instead.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImplicitOAuthFlow {
+    /// The authorization URL.
+    pub authorization_url: String,
+    /// The refresh URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_url: Option<String>,
+    /// Available scopes.
+    #[serde(default)]
+    pub scopes: HashMap<String, String>,
+}
+
+/// Deprecated: OAuth 2.0 Resource Owner Password flow.
+///
+/// Maps to proto `PasswordOAuthFlow`. Use Authorization Code + PKCE or Device Code instead.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PasswordOAuthFlow {
+    /// The token URL.
+    pub token_url: String,
+    /// The refresh URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_url: Option<String>,
+    /// Available scopes.
+    #[serde(default)]
     pub scopes: HashMap<String, String>,
 }
 
