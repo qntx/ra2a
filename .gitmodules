@@ -1,3 +1,6 @@
 [submodule "ra2a/proto/googleapis"]
 	path = ra2a/proto/googleapis
 	url = https://github.com/googleapis/googleapis.git
+[submodule "ra2a/proto/a2a"]
+	path = ra2a/proto/a2a
+	url = https://github.com/a2aproject/A2A.git
