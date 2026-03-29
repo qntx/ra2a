@@ -27,11 +27,10 @@ pub use jsonrpc::{JsonRpcTransport, TransportConfig};
 
 use crate::error::{A2AError, Result};
 use crate::types::{
-    AgentCard, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
-    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
-    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
-    ListTaskPushNotificationConfigResponse, ListTasksRequest, ListTasksResponse,
-    PushNotificationConfig, SendMessageRequest, SendMessageResponse, StreamResponse,
+    AgentCard, CancelTaskRequest, DeleteTaskPushNotificationConfigRequest,
+    GetExtendedAgentCardRequest, GetTaskPushNotificationConfigRequest, GetTaskRequest,
+    ListTaskPushNotificationConfigsRequest, ListTaskPushNotificationConfigsResponse,
+    ListTasksRequest, ListTasksResponse, SendMessageRequest, SendMessageResponse, StreamResponse,
     SubscribeToTaskRequest, Task, TaskPushNotificationConfig, TransportProtocol,
 };
 
@@ -89,7 +88,7 @@ pub trait Transport: Send + Sync {
     fn create_task_push_config<'a>(
         &'a self,
         params: &'a ServiceParams,
-        req: &'a CreateTaskPushNotificationConfigRequest,
+        req: &'a TaskPushNotificationConfig,
     ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + 'a>>;
 
     /// Gets a push notification config.
@@ -103,8 +102,8 @@ pub trait Transport: Send + Sync {
     fn list_task_push_configs<'a>(
         &'a self,
         params: &'a ServiceParams,
-        req: &'a ListTaskPushNotificationConfigRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigResponse>> + Send + 'a>>;
+        req: &'a ListTaskPushNotificationConfigsRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigsResponse>> + Send + 'a>>;
 
     /// Deletes a push notification config.
     fn delete_task_push_config<'a>(
@@ -133,7 +132,7 @@ pub trait Transport: Send + Sync {
 #[derive(Debug, Clone, Default)]
 pub struct ClientConfig {
     /// Default push notification configuration applied to every task.
-    pub push_config: Option<PushNotificationConfig>,
+    pub push_config: Option<TaskPushNotificationConfig>,
     /// MIME types passed with every message.
     pub accepted_output_modes: Vec<String>,
     /// Preferred transport protocols for transport selection.

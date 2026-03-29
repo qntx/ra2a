@@ -25,12 +25,12 @@ pub struct ListTasksResponse {
     pub total_size: i32,
 }
 
-/// Response for `ListTaskPushNotificationConfig`.
+/// Response for `ListTaskPushNotificationConfigs`.
 ///
-/// Maps to proto `ListTaskPushNotificationConfigResponse`.
+/// Maps to proto `ListTaskPushNotificationConfigsResponse`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct ListTaskPushNotificationConfigResponse {
+pub struct ListTaskPushNotificationConfigsResponse {
     /// The list of push notification configurations.
     #[serde(default)]
     pub configs: Vec<TaskPushNotificationConfig>,

@@ -22,10 +22,9 @@ use crate::server::task_store::TaskVersion;
 use crate::server::task_store::{InMemoryTaskStore, TaskStore};
 use crate::server::{AgentExecutor, RequestContext, RequestContextInterceptor};
 use crate::types::{
-    CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
-    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
-    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
-    ListTaskPushNotificationConfigResponse, ListTasksRequest, ListTasksResponse,
+    CancelTaskRequest, DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
+    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigsRequest,
+    ListTaskPushNotificationConfigsResponse, ListTasksRequest, ListTasksResponse,
     PushNotificationConfig, SendMessageRequest, SendMessageResponse, SubscribeToTaskRequest, Task,
     TaskPushNotificationConfig, TaskStatus,
 };
@@ -231,10 +230,17 @@ impl DefaultRequestHandler {
         }
 
         if let Some(ref config) = params.configuration
-            && let Some(ref push_config) = config.push_notification_config
-            && let Err(e) = self.save_push_config(&task_id, push_config).await
+            && let Some(ref tpc) = config.task_push_notification_config
         {
-            warn!(error = %e, "Failed to save push config");
+            let push_config = PushNotificationConfig {
+                id: tpc.id.clone(),
+                url: tpc.url.clone(),
+                token: tpc.token.clone(),
+                authentication: tpc.authentication.clone(),
+            };
+            if let Err(e) = self.save_push_config(&task_id, &push_config).await {
+                warn!(error = %e, "Failed to save push config");
+            }
         }
 
         let mut ctx = RequestContext::new(&task_id, &context_id);
@@ -449,7 +455,7 @@ impl RequestHandler for DefaultRequestHandler {
             self.spawn_execution(ctx, Arc::clone(&queue));
 
             // Collect events until terminal
-            let is_non_blocking = params.configuration.as_ref().is_none_or(|c| !c.blocking);
+            let is_non_blocking = params.configuration.as_ref().is_none_or(|c| c.return_immediately);
             let mut result = self.collect_result(rx, is_non_blocking).await?;
 
             // Apply history length
@@ -614,26 +620,36 @@ impl RequestHandler for DefaultRequestHandler {
 
     fn on_create_task_push_config(
         &self,
-        params: CreateTaskPushNotificationConfigRequest,
+        params: TaskPushNotificationConfig,
     ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + '_>> {
         Box::pin(async move {
             let card = &self.agent_card;
             if !card.supports_push_notifications() {
                 return Err(A2AError::PushNotificationNotSupported);
             }
-            self.get_task_internal(&params.task_id)
+            let task_id_str = params
+                .task_id
+                .as_ref()
+                .map(|t| t.to_string())
+                .unwrap_or_default();
+            self.get_task_internal(&task_id_str)
                 .await
-                .ok_or_else(|| A2AError::TaskNotFound(params.task_id.to_string()))?;
+                .ok_or_else(|| A2AError::TaskNotFound(task_id_str.clone()))?;
 
-            let saved = self
-                .push_config_store
-                .save(&params.task_id, &params.config)
-                .await?;
+            let push_config = PushNotificationConfig {
+                id: params.id.clone(),
+                url: params.url.clone(),
+                token: params.token.clone(),
+                authentication: params.authentication.clone(),
+            };
+            let saved = self.push_config_store.save(&task_id_str, &push_config).await?;
             Ok(TaskPushNotificationConfig {
-                id: params.config_id,
-                task_id: params.task_id,
-                push_notification_config: saved,
                 tenant: params.tenant,
+                id: saved.id,
+                task_id: params.task_id,
+                url: saved.url,
+                token: saved.token,
+                authentication: saved.authentication,
             })
         })
     }
@@ -656,18 +672,20 @@ impl RequestHandler for DefaultRequestHandler {
                 .get(&params.task_id, &params.id)
                 .await?;
             Ok(TaskPushNotificationConfig {
-                id: params.id,
-                task_id: params.task_id,
-                push_notification_config: config,
                 tenant: params.tenant,
+                id: Some(params.id),
+                task_id: Some(params.task_id),
+                url: config.url,
+                token: config.token,
+                authentication: config.authentication,
             })
         })
     }
 
     fn on_list_task_push_configs(
         &self,
-        params: ListTaskPushNotificationConfigRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigResponse>> + Send + '_>>
+        params: ListTaskPushNotificationConfigsRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigsResponse>> + Send + '_>>
     {
         Box::pin(async move {
             let card = &self.agent_card;
@@ -679,15 +697,17 @@ impl RequestHandler for DefaultRequestHandler {
                 .ok_or_else(|| A2AError::TaskNotFound(params.task_id.to_string()))?;
 
             let configs = self.push_config_store.list(&params.task_id).await?;
-            Ok(ListTaskPushNotificationConfigResponse {
+            Ok(ListTaskPushNotificationConfigsResponse {
                 configs: configs
                     .into_iter()
                     .enumerate()
                     .map(|(i, c)| TaskPushNotificationConfig {
-                        id: c.id.clone().unwrap_or_else(|| i.to_string()),
-                        task_id: params.task_id.clone(),
-                        push_notification_config: c,
                         tenant: params.tenant.clone(),
+                        id: Some(c.id.clone().unwrap_or_else(|| i.to_string())),
+                        task_id: Some(params.task_id.clone()),
+                        url: c.url,
+                        token: c.token,
+                        authentication: c.authentication,
                     })
                     .collect(),
                 next_page_token: None,

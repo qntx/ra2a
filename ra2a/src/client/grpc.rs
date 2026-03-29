@@ -18,13 +18,12 @@ use crate::error::{A2AError, Result};
 use crate::grpc::convert::{hashmap_to_struct, struct_to_hashmap};
 use crate::grpc::proto::{self, a2a_service_client::A2aServiceClient};
 use crate::types::{
-    AgentCard, Artifact, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
-    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
-    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
-    ListTaskPushNotificationConfigResponse, ListTasksRequest, ListTasksResponse, Message,
-    SendMessageRequest, SendMessageResponse, StreamResponse, SubscribeToTaskRequest, Task,
-    TaskArtifactUpdateEvent, TaskPushNotificationConfig, TaskState, TaskStatus,
-    TaskStatusUpdateEvent,
+    AgentCard, Artifact, CancelTaskRequest, DeleteTaskPushNotificationConfigRequest,
+    GetExtendedAgentCardRequest, GetTaskPushNotificationConfigRequest, GetTaskRequest,
+    ListTaskPushNotificationConfigsRequest, ListTaskPushNotificationConfigsResponse,
+    ListTasksRequest, ListTasksResponse, Message, SendMessageRequest, SendMessageResponse,
+    StreamResponse, SubscribeToTaskRequest, Task, TaskArtifactUpdateEvent,
+    TaskPushNotificationConfig, TaskState, TaskStatus, TaskStatusUpdateEvent,
 };
 
 /// gRPC transport for A2A client operations.
@@ -77,12 +76,24 @@ impl GrpcTransport {
                 .as_ref()
                 .map(|config| proto::SendMessageConfiguration {
                     accepted_output_modes: config.accepted_output_modes.clone(),
-                    push_notification_config: config
-                        .push_notification_config
+                    task_push_notification_config: config
+                        .task_push_notification_config
                         .as_ref()
-                        .map(|pc| proto::PushNotificationConfig::from(pc.clone())),
+                        .map(|tpc| proto::TaskPushNotificationConfig {
+                            tenant: tpc.tenant.clone().unwrap_or_default(),
+                            id: tpc.id.clone().unwrap_or_default(),
+                            task_id: tpc.task_id.as_ref().map(|t| t.to_string()).unwrap_or_default(),
+                            url: tpc.url.clone(),
+                            token: tpc.token.clone().unwrap_or_default(),
+                            authentication: tpc.authentication.as_ref().map(|a| {
+                                proto::AuthenticationInfo {
+                                    scheme: a.scheme.clone(),
+                                    credentials: a.credentials.clone().unwrap_or_default(),
+                                }
+                            }),
+                        }),
                     history_length: config.history_length,
-                    blocking: config.blocking,
+                    return_immediately: config.return_immediately,
                 });
         let metadata = req.metadata.clone().and_then(hashmap_to_struct);
 
@@ -226,7 +237,7 @@ impl Transport for GrpcTransport {
     fn create_task_push_config<'a>(
         &'a self,
         _params: &'a ServiceParams,
-        _req: &'a CreateTaskPushNotificationConfigRequest,
+        _req: &'a TaskPushNotificationConfig,
     ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + 'a>> {
         Box::pin(async move {
             Err(A2AError::UnsupportedOperation(
@@ -250,8 +261,8 @@ impl Transport for GrpcTransport {
     fn list_task_push_configs<'a>(
         &'a self,
         _params: &'a ServiceParams,
-        _req: &'a ListTaskPushNotificationConfigRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigResponse>> + Send + 'a>>
+        _req: &'a ListTaskPushNotificationConfigsRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigsResponse>> + Send + 'a>>
     {
         Box::pin(async move {
             Err(A2AError::UnsupportedOperation(

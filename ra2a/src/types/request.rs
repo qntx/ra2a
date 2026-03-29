@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::id::TaskId;
-use super::{Message, Metadata, PushNotificationConfig, TaskState};
+use super::{Message, Metadata, TaskPushNotificationConfig, TaskState};
 
 /// Configuration of a send message request.
 ///
@@ -18,14 +18,16 @@ pub struct SendMessageConfiguration {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub accepted_output_modes: Vec<String>,
     /// Push notification configuration for task updates.
+    /// Task ID should be empty when sending this in a `SendMessage` request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub push_notification_config: Option<PushNotificationConfig>,
+    pub task_push_notification_config: Option<TaskPushNotificationConfig>,
     /// Max number of recent messages to include in the response.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history_length: Option<i32>,
-    /// If `true`, wait until the task reaches a terminal/interrupted state. Default: `false`.
+    /// If `true`, the operation returns immediately after creating the task,
+    /// even if processing is still in progress. Default: `false`.
     #[serde(default, skip_serializing_if = "super::is_false")]
-    pub blocking: bool,
+    pub return_immediately: bool,
 }
 
 /// Request for `SendMessage` / `SendStreamingMessage`.
@@ -140,23 +142,6 @@ pub struct SubscribeToTaskRequest {
     pub id: TaskId,
 }
 
-/// Request for `CreateTaskPushNotificationConfig`.
-///
-/// Maps to proto `CreateTaskPushNotificationConfigRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateTaskPushNotificationConfigRequest {
-    /// Optional tenant ID.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tenant: Option<String>,
-    /// The parent task ID.
-    pub task_id: TaskId,
-    /// The ID for the new config.
-    pub config_id: String,
-    /// The configuration to create.
-    pub config: PushNotificationConfig,
-}
-
 /// Request for `GetTaskPushNotificationConfig`.
 ///
 /// Maps to proto `GetTaskPushNotificationConfigRequest`.
@@ -187,12 +172,12 @@ pub struct DeleteTaskPushNotificationConfigRequest {
     pub id: String,
 }
 
-/// Request for `ListTaskPushNotificationConfig`.
+/// Request for `ListTaskPushNotificationConfigs`.
 ///
-/// Maps to proto `ListTaskPushNotificationConfigRequest`.
+/// Maps to proto `ListTaskPushNotificationConfigsRequest`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct ListTaskPushNotificationConfigRequest {
+pub struct ListTaskPushNotificationConfigsRequest {
     /// Optional tenant ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tenant: Option<String>,

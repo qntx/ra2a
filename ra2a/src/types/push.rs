@@ -51,17 +51,40 @@ pub struct AuthenticationInfo {
 
 /// A container associating a push notification configuration with a specific task.
 ///
-/// Maps to proto `TaskPushNotificationConfig`.
+/// Maps to proto `TaskPushNotificationConfig`. This is a **flat** structure —
+/// all fields are at the top level per the v1.0 proto specification.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskPushNotificationConfig {
-    /// The config ID.
-    pub id: String,
-    /// The task ID this config is associated with.
-    pub task_id: TaskId,
-    /// The push notification configuration details.
-    pub push_notification_config: PushNotificationConfig,
-    /// Optional tenant.
+    /// Optional tenant ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tenant: Option<String>,
+    /// A unique identifier for this push notification configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// The task ID this config is associated with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<TaskId>,
+    /// The URL where the notification should be sent.
+    pub url: String,
+    /// A token unique for this task or session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    /// Authentication information required to send the notification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentication: Option<AuthenticationInfo>,
+}
+
+impl TaskPushNotificationConfig {
+    /// Creates a new task push notification config with a URL.
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
+            tenant: None,
+            id: None,
+            task_id: None,
+            url: url.into(),
+            token: None,
+            authentication: None,
+        }
+    }
 }

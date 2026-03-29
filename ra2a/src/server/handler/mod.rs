@@ -19,12 +19,11 @@ use super::event::Event;
 use crate::error::{JsonRpcError, Result};
 use crate::jsonrpc::{self, JsonRpcErrorResponse, JsonRpcRequest, JsonRpcSuccessResponse};
 use crate::types::{
-    AgentCard, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
-    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
-    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
-    ListTaskPushNotificationConfigResponse, ListTasksRequest, ListTasksResponse,
-    SendMessageRequest, SendMessageResponse, SubscribeToTaskRequest, Task,
-    TaskPushNotificationConfig,
+    AgentCard, CancelTaskRequest, DeleteTaskPushNotificationConfigRequest,
+    GetExtendedAgentCardRequest, GetTaskPushNotificationConfigRequest, GetTaskRequest,
+    ListTaskPushNotificationConfigsRequest, ListTaskPushNotificationConfigsResponse,
+    ListTasksRequest, ListTasksResponse, SendMessageRequest, SendMessageResponse,
+    SubscribeToTaskRequest, Task, TaskPushNotificationConfig,
 };
 
 /// A boxed stream of events for streaming responses.
@@ -74,7 +73,7 @@ pub trait RequestHandler: Send + Sync {
     /// Creates a push notification config.
     fn on_create_task_push_config(
         &self,
-        _req: CreateTaskPushNotificationConfigRequest,
+        _req: TaskPushNotificationConfig,
     ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + '_>> {
         Box::pin(async { Err(crate::error::A2AError::PushNotificationNotSupported) })
     }
@@ -90,8 +89,8 @@ pub trait RequestHandler: Send + Sync {
     /// Lists push notification configs.
     fn on_list_task_push_configs(
         &self,
-        _req: ListTaskPushNotificationConfigRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigResponse>> + Send + '_>>
+        _req: ListTaskPushNotificationConfigsRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigsResponse>> + Send + '_>>
     {
         Box::pin(async { Err(crate::error::A2AError::PushNotificationNotSupported) })
     }
@@ -155,7 +154,7 @@ pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<S
             serialize_success(&id, &resp)
         }
         jsonrpc::METHOD_PUSH_CONFIG_SET => {
-            let req = parse_params::<CreateTaskPushNotificationConfigRequest>(&request)?;
+            let req = parse_params::<TaskPushNotificationConfig>(&request)?;
             let config = handler.on_create_task_push_config(req).await?;
             serialize_success(&id, &config)
         }
@@ -165,7 +164,7 @@ pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<S
             serialize_success(&id, &config)
         }
         jsonrpc::METHOD_PUSH_CONFIG_LIST => {
-            let req = parse_params::<ListTaskPushNotificationConfigRequest>(&request)?;
+            let req = parse_params::<ListTaskPushNotificationConfigsRequest>(&request)?;
             let configs = handler.on_list_task_push_configs(req).await?;
             serialize_success(&id, &configs)
         }

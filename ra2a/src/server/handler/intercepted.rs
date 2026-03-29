@@ -18,12 +18,11 @@ use crate::error::{A2AError, Result};
 use crate::jsonrpc;
 use crate::server::middleware::{CallContext, CallInterceptor, Request, Response, request_meta};
 use crate::types::{
-    AgentCard, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
-    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
-    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
-    ListTaskPushNotificationConfigResponse, ListTasksRequest, ListTasksResponse,
-    SendMessageRequest, SendMessageResponse, SubscribeToTaskRequest, Task,
-    TaskPushNotificationConfig,
+    AgentCard, CancelTaskRequest, DeleteTaskPushNotificationConfigRequest,
+    GetExtendedAgentCardRequest, GetTaskPushNotificationConfigRequest, GetTaskRequest,
+    ListTaskPushNotificationConfigsRequest, ListTaskPushNotificationConfigsResponse,
+    ListTasksRequest, ListTasksResponse, SendMessageRequest, SendMessageResponse,
+    SubscribeToTaskRequest, Task, TaskPushNotificationConfig,
 };
 
 /// A [`RequestHandler`] wrapper that applies [`CallInterceptor`]s before and after
@@ -208,7 +207,7 @@ impl RequestHandler for InterceptedHandler {
 
     fn on_create_task_push_config(
         &self,
-        req: CreateTaskPushNotificationConfigRequest,
+        req: TaskPushNotificationConfig,
     ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + '_>> {
         Box::pin(async move {
             let (ctx, req) = self
@@ -234,8 +233,8 @@ impl RequestHandler for InterceptedHandler {
 
     fn on_list_task_push_configs(
         &self,
-        req: ListTaskPushNotificationConfigRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigResponse>> + Send + '_>>
+        req: ListTaskPushNotificationConfigsRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigsResponse>> + Send + '_>>
     {
         Box::pin(async move {
             let (ctx, req) = self

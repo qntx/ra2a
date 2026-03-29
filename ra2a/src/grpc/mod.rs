@@ -21,7 +21,7 @@ pub mod proto {
     //!
     //! This module contains types generated from the A2A protocol buffer definitions.
     //! Documentation for these types can be found in the original proto files.
-    tonic::include_proto!("a2a.v1");
+    tonic::include_proto!("lf.a2a.v1");
 }
 
 pub(crate) mod convert;

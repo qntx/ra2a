@@ -30,12 +30,11 @@ pub use message::{Message, Role};
 pub use part::{Part, PartContent};
 pub use push::{AuthenticationInfo, PushNotificationConfig, TaskPushNotificationConfig};
 pub use request::{
-    CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
-    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
-    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
+    CancelTaskRequest, DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
+    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigsRequest,
     ListTasksRequest, SendMessageConfiguration, SendMessageRequest, SubscribeToTaskRequest,
 };
-pub use response::{ListTaskPushNotificationConfigResponse, ListTasksResponse};
+pub use response::{ListTaskPushNotificationConfigsResponse, ListTasksResponse};
 pub use security::{
     ApiKeyLocation, ApiKeySecurityScheme, AuthorizationCodeOAuthFlow, ClientCredentialsOAuthFlow,
     DeviceCodeOAuthFlow, HttpAuthSecurityScheme, MutualTlsSecurityScheme, OAuth2SecurityScheme,

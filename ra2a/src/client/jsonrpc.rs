@@ -11,12 +11,11 @@ use super::{EventStream, ServiceParams, Transport};
 use crate::error::{A2AError, Result};
 use crate::jsonrpc::{self, JsonRpcRequest, JsonRpcResponse};
 use crate::types::{
-    AgentCard, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
-    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
-    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
-    ListTaskPushNotificationConfigResponse, ListTasksRequest, ListTasksResponse,
-    SendMessageRequest, SendMessageResponse, StreamResponse, SubscribeToTaskRequest, Task,
-    TaskPushNotificationConfig,
+    AgentCard, CancelTaskRequest, DeleteTaskPushNotificationConfigRequest,
+    GetExtendedAgentCardRequest, GetTaskPushNotificationConfigRequest, GetTaskRequest,
+    ListTaskPushNotificationConfigsRequest, ListTaskPushNotificationConfigsResponse,
+    ListTasksRequest, ListTasksResponse, SendMessageRequest, SendMessageResponse, StreamResponse,
+    SubscribeToTaskRequest, Task, TaskPushNotificationConfig,
 };
 
 /// Configuration for creating a [`JsonRpcTransport`].
@@ -216,7 +215,7 @@ impl Transport for JsonRpcTransport {
     fn create_task_push_config<'a>(
         &'a self,
         _params: &'a ServiceParams,
-        req: &'a CreateTaskPushNotificationConfigRequest,
+        req: &'a TaskPushNotificationConfig,
     ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + 'a>> {
         Box::pin(async move { self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_SET, req).await })
     }
@@ -232,8 +231,8 @@ impl Transport for JsonRpcTransport {
     fn list_task_push_configs<'a>(
         &'a self,
         _params: &'a ServiceParams,
-        req: &'a ListTaskPushNotificationConfigRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigResponse>> + Send + 'a>>
+        req: &'a ListTaskPushNotificationConfigsRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigsResponse>> + Send + 'a>>
     {
         Box::pin(async move { self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_LIST, req).await })
     }

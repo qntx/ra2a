@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(feature = "grpc")]
 fn compile_protos() -> Result<(), Box<dyn std::error::Error>> {
-    // Proto file paths — a2a.proto comes from the A2A submodule
+    // Proto file paths -- a2a.proto comes from the A2A submodule
     let proto_file = "proto/a2a/specification/a2a.proto";
     let proto_dir = "proto/a2a/specification";
     let googleapis_dir = "proto/googleapis";
