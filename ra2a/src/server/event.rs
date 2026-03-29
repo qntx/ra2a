@@ -1,8 +1,6 @@
 //! Event handling components for the A2A server.
 //!
 //! Provides event queues for streaming task updates to clients.
-//! Re-exports `Event` from core types and adds broadcast-based queue
-//! infrastructure for streaming responses.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,13 +8,15 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
 
 use crate::error::{A2AError, Result};
-// Re-export the unified Event type from core types.
-pub use crate::types::Event;
+pub use crate::types::StreamResponse;
+
+/// Re-export for backward compatibility within the server module.
+pub type Event = StreamResponse;
 
 /// A queue for sending events to a specific task's subscribers.
 #[derive(Debug)]
 pub struct EventQueue {
-    sender: broadcast::Sender<Event>,
+    sender: broadcast::Sender<StreamResponse>,
 }
 
 impl EventQueue {
@@ -28,7 +28,7 @@ impl EventQueue {
     }
 
     /// Sends an event to all subscribers.
-    pub fn send(&self, event: Event) -> Result<()> {
+    pub fn send(&self, event: StreamResponse) -> Result<()> {
         self.sender
             .send(event)
             .map_err(|e| A2AError::Other(format!("Failed to send event: {e}")))?;
@@ -37,7 +37,7 @@ impl EventQueue {
 
     /// Subscribes to events from this queue.
     #[must_use]
-    pub fn subscribe(&self) -> broadcast::Receiver<Event> {
+    pub fn subscribe(&self) -> broadcast::Receiver<StreamResponse> {
         self.sender.subscribe()
     }
 
@@ -98,14 +98,12 @@ impl QueueManager {
 
     /// Gets or creates an event queue for a task.
     pub async fn get_or_create_queue(&self, task_id: &str) -> Arc<EventQueue> {
-        // Fast path: read lock
         {
             let queues = self.queues.read().await;
             if let Some(queue) = queues.get(task_id) {
                 return Arc::clone(queue);
             }
         }
-        // Slow path: write lock with double-check
         let mut queues = self.queues.write().await;
         if let Some(queue) = queues.get(task_id) {
             return Arc::clone(queue);
@@ -128,7 +126,7 @@ impl QueueManager {
     }
 
     /// Sends an event to a specific task's queue.
-    pub async fn send_event(&self, task_id: &str, event: Event) -> Result<()> {
+    pub async fn send_event(&self, task_id: &str, event: StreamResponse) -> Result<()> {
         let queue = self
             .get_queue(task_id)
             .await

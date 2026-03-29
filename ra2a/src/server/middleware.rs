@@ -209,7 +209,7 @@ impl CallContext {
     #[must_use]
     pub fn requested_extension_uris(&self) -> Vec<String> {
         self.request_meta
-            .get(crate::EXTENSIONS_META_KEY)
+            .get(crate::SVC_PARAM_EXTENSIONS)
             .map(<[std::string::String]>::to_vec)
             .unwrap_or_default()
     }

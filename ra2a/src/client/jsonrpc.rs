@@ -1,6 +1,4 @@
 //! JSON-RPC 2.0 transport over HTTP with SSE streaming support.
-//!
-//! Aligned with Go's `jsonrpcTransport` in `a2aclient/jsonrpc.go`.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -9,13 +7,16 @@ use std::time::Duration;
 use futures::stream;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap};
 
-use super::{EventStream, Transport};
+use super::{EventStream, ServiceParams, Transport};
 use crate::error::{A2AError, Result};
 use crate::jsonrpc::{self, JsonRpcRequest, JsonRpcResponse};
 use crate::types::{
-    AgentCard, DeleteTaskPushConfigParams, Event, GetTaskPushConfigParams,
-    ListTaskPushConfigParams, ListTasksRequest, ListTasksResponse, MessageSendParams,
-    SendMessageResult, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
+    AgentCard, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
+    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
+    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
+    ListTaskPushNotificationConfigResponse, ListTasksRequest, ListTasksResponse,
+    SendMessageRequest, SendMessageResponse, StreamResponse, SubscribeToTaskRequest, Task,
+    TaskPushNotificationConfig,
 };
 
 /// Configuration for creating a [`JsonRpcTransport`].
@@ -80,12 +81,12 @@ impl JsonRpcTransport {
         Self::new(TransportConfig::new(base_url))
     }
 
-    /// Applies interceptor-set [`CallMeta`] headers to a request builder.
-    fn apply_call_meta(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        match super::call_meta() {
-            Some(meta) if !meta.is_empty() => {
+    /// Applies interceptor-set [`ServiceParams`] as HTTP headers.
+    fn apply_service_params(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match super::current_service_params() {
+            Some(sp) if !sp.is_empty() => {
                 let mut b = builder;
-                for (key, values) in meta.iter() {
+                for (key, values) in sp.iter() {
                     for value in values {
                         b = b.header(key, value);
                     }
@@ -108,7 +109,7 @@ impl JsonRpcTransport {
             .post(&self.base_url)
             .header(CONTENT_TYPE, "application/json")
             .json(&request);
-        let resp = Self::apply_call_meta(builder).send().await?;
+        let resp = Self::apply_service_params(builder).send().await?;
 
         if !resp.status().is_success() {
             return Err(A2AError::Http(resp.error_for_status().unwrap_err()));
@@ -123,7 +124,7 @@ impl JsonRpcTransport {
 
     /// Sends a JSON-RPC request expecting an SSE stream back.
     ///
-    /// Each SSE `data:` line is a JSON-RPC response envelope wrapping an [`Event`].
+    /// Each SSE `data:` line is a JSON-RPC response envelope wrapping a [`StreamResponse`].
     async fn rpc_stream<P>(&self, method: &str, params: &P) -> Result<EventStream>
     where
         P: serde::Serialize + Sync,
@@ -135,7 +136,7 @@ impl JsonRpcTransport {
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "text/event-stream")
             .json(&request);
-        let resp = Self::apply_call_meta(builder).send().await?;
+        let resp = Self::apply_service_params(builder).send().await?;
 
         if !resp.status().is_success() {
             return Err(A2AError::Http(resp.error_for_status().unwrap_err()));
@@ -151,7 +152,7 @@ impl JsonRpcTransport {
             Ok(parse_sse_stream(resp))
         } else {
             // Server returned a single JSON-RPC response instead of SSE.
-            let rpc: JsonRpcResponse<Event> = resp.json().await?;
+            let rpc: JsonRpcResponse<StreamResponse> = resp.json().await?;
             match rpc {
                 JsonRpcResponse::Success(s) => Ok(Box::pin(stream::iter(vec![Ok(s.result)]))),
                 JsonRpcResponse::Error(e) => Err(A2AError::JsonRpc(e.error)),
@@ -163,82 +164,95 @@ impl JsonRpcTransport {
 impl Transport for JsonRpcTransport {
     fn send_message<'a>(
         &'a self,
-        params: &'a MessageSendParams,
-    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResult>> + Send + 'a>> {
-        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_MESSAGE_SEND, params).await })
+        _params: &'a ServiceParams,
+        req: &'a SendMessageRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResponse>> + Send + 'a>> {
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_MESSAGE_SEND, req).await })
     }
 
-    fn send_message_stream<'a>(
+    fn send_streaming_message<'a>(
         &'a self,
-        params: &'a MessageSendParams,
+        _params: &'a ServiceParams,
+        req: &'a SendMessageRequest,
     ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + 'a>> {
-        Box::pin(async move {
-            self.rpc_stream(jsonrpc::METHOD_MESSAGE_STREAM, params)
-                .await
-        })
+        Box::pin(async move { self.rpc_stream(jsonrpc::METHOD_MESSAGE_STREAM, req).await })
     }
 
     fn get_task<'a>(
         &'a self,
-        params: &'a TaskQueryParams,
+        _params: &'a ServiceParams,
+        req: &'a GetTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + 'a>> {
-        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_TASKS_GET, params).await })
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_TASKS_GET, req).await })
     }
 
     fn list_tasks<'a>(
         &'a self,
-        params: &'a ListTasksRequest,
+        _params: &'a ServiceParams,
+        req: &'a ListTasksRequest,
     ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + 'a>> {
-        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_TASKS_LIST, params).await })
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_TASKS_LIST, req).await })
     }
 
     fn cancel_task<'a>(
         &'a self,
-        params: &'a TaskIdParams,
+        _params: &'a ServiceParams,
+        req: &'a CancelTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + 'a>> {
-        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_TASKS_CANCEL, params).await })
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_TASKS_CANCEL, req).await })
     }
 
-    fn resubscribe<'a>(
+    fn subscribe_to_task<'a>(
         &'a self,
-        params: &'a TaskIdParams,
+        _params: &'a ServiceParams,
+        req: &'a SubscribeToTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + 'a>> {
         Box::pin(async move {
-            self.rpc_stream(jsonrpc::METHOD_TASKS_RESUBSCRIBE, params)
+            self.rpc_stream(jsonrpc::METHOD_TASKS_RESUBSCRIBE, req)
                 .await
         })
     }
 
-    fn set_task_push_config<'a>(
+    fn create_task_push_config<'a>(
         &'a self,
-        params: &'a TaskPushConfig,
-    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + 'a>> {
-        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_SET, params).await })
+        _params: &'a ServiceParams,
+        req: &'a CreateTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + 'a>> {
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_SET, req).await })
     }
 
     fn get_task_push_config<'a>(
         &'a self,
-        params: &'a GetTaskPushConfigParams,
-    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + 'a>> {
-        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_GET, params).await })
+        _params: &'a ServiceParams,
+        req: &'a GetTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + 'a>> {
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_GET, req).await })
     }
 
-    fn list_task_push_config<'a>(
+    fn list_task_push_configs<'a>(
         &'a self,
-        params: &'a ListTaskPushConfigParams,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<TaskPushConfig>>> + Send + 'a>> {
-        Box::pin(async move {
-            self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_LIST, params)
-                .await
-        })
+        _params: &'a ServiceParams,
+        req: &'a ListTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigResponse>> + Send + 'a>>
+    {
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_LIST, req).await })
     }
 
     fn delete_task_push_config<'a>(
         &'a self,
-        params: &'a DeleteTaskPushConfigParams,
+        _params: &'a ServiceParams,
+        req: &'a DeleteTaskPushNotificationConfigRequest,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_DELETE, req).await })
+    }
+
+    fn get_extended_agent_card<'a>(
+        &'a self,
+        _params: &'a ServiceParams,
+        req: &'a GetExtendedAgentCardRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<AgentCard>> + Send + 'a>> {
         Box::pin(async move {
-            self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_DELETE, params)
+            self.rpc_call(jsonrpc::METHOD_GET_EXTENDED_AGENT_CARD, req)
                 .await
         })
     }
@@ -246,7 +260,7 @@ impl Transport for JsonRpcTransport {
     fn get_agent_card(&self) -> Pin<Box<dyn Future<Output = Result<AgentCard>> + Send + '_>> {
         Box::pin(async move {
             let builder = self.client.get(&self.card_url);
-            let resp = Self::apply_call_meta(builder).send().await?;
+            let resp = Self::apply_service_params(builder).send().await?;
             if !resp.status().is_success() {
                 return Err(A2AError::Http(resp.error_for_status().unwrap_err()));
             }
@@ -255,7 +269,7 @@ impl Transport for JsonRpcTransport {
     }
 }
 
-/// Parses an HTTP response body as an SSE stream of JSON-RPC–wrapped [`Event`]s.
+/// Parses an HTTP response body as an SSE stream of JSON-RPC–wrapped [`StreamResponse`]s.
 fn parse_sse_stream(response: reqwest::Response) -> EventStream {
     let byte_stream = response.bytes_stream();
 
@@ -293,14 +307,14 @@ fn parse_sse_stream(response: reqwest::Response) -> EventStream {
     Box::pin(stream)
 }
 
-/// Parses a single SSE message block into a protocol [`Event`].
+/// Parses a single SSE message block into a [`StreamResponse`].
 ///
 /// The server wraps each event in a JSON-RPC response envelope:
 /// ```text
 /// event: <kind>
 /// data: {"jsonrpc":"2.0","id":"...","result":{...}}
 /// ```
-fn parse_sse_message(message: &str) -> Option<Result<Event>> {
+fn parse_sse_message(message: &str) -> Option<Result<StreamResponse>> {
     let mut data = String::new();
 
     for line in message.lines() {
@@ -310,20 +324,18 @@ fn parse_sse_message(message: &str) -> Option<Result<Event>> {
             }
             data.push_str(rest.trim());
         }
-        // "event:" and "id:" lines are ignored — the Event type is
-        // determined by deserializing the JSON-RPC result.
     }
 
     if data.is_empty() {
         return None;
     }
 
-    // Try parsing as JSON-RPC response wrapping an Event.
-    let result: Result<Event> = match serde_json::from_str::<JsonRpcResponse<Event>>(&data) {
-        Ok(JsonRpcResponse::Success(s)) => Ok(s.result),
-        Ok(JsonRpcResponse::Error(e)) => Err(A2AError::JsonRpc(e.error)),
-        Err(e) => Err(A2AError::Other(format!("SSE parse error: {e}"))),
-    };
+    let result: Result<StreamResponse> =
+        match serde_json::from_str::<JsonRpcResponse<StreamResponse>>(&data) {
+            Ok(JsonRpcResponse::Success(s)) => Ok(s.result),
+            Ok(JsonRpcResponse::Error(e)) => Err(A2AError::JsonRpc(e.error)),
+            Err(e) => Err(A2AError::Other(format!("SSE parse error: {e}"))),
+        };
 
     Some(result)
 }

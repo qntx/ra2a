@@ -9,31 +9,31 @@ use std::pin::Pin;
 use tokio::sync::RwLock;
 
 use crate::error::{A2AError, Result};
-use crate::types::{PushConfig, Task};
+use crate::types::{PushNotificationConfig, Task};
 
 /// Stores push notification configurations per task.
 ///
-/// Aligned with Go's `PushConfigStore` interface in `tasks.go`.
-pub trait PushConfigStore: Send + Sync {
+/// Aligned with Go's `PushNotificationConfigStore` interface in `tasks.go`.
+pub trait PushNotificationConfigStore: Send + Sync {
     /// Saves a push config for a task. Returns the saved config (with generated ID if empty).
     fn save<'a>(
         &'a self,
         task_id: &'a str,
-        config: &'a PushConfig,
-    ) -> Pin<Box<dyn Future<Output = Result<PushConfig>> + Send + 'a>>;
+        config: &'a PushNotificationConfig,
+    ) -> Pin<Box<dyn Future<Output = Result<PushNotificationConfig>> + Send + 'a>>;
 
     /// Retrieves a specific push config by task ID and config ID.
     fn get<'a>(
         &'a self,
         task_id: &'a str,
         config_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<PushConfig>> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = Result<PushNotificationConfig>> + Send + 'a>>;
 
     /// Lists all push configs for a task.
     fn list<'a>(
         &'a self,
         task_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<PushConfig>>> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<PushNotificationConfig>>> + Send + 'a>>;
 
     /// Deletes a specific push config.
     fn delete<'a>(
@@ -49,16 +49,16 @@ pub trait PushConfigStore: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 }
 
-/// In-memory implementation of [`PushConfigStore`].
+/// In-memory implementation of [`PushNotificationConfigStore`].
 ///
-/// Aligned with Go's `InMemoryPushConfigStore` in `push/store.go`.
+/// Aligned with Go's `InMemoryPushNotificationConfigStore` in `push/store.go`.
 #[derive(Debug, Default)]
-pub struct InMemoryPushConfigStore {
-    // task_id -> (config_id -> PushConfig)
-    configs: RwLock<HashMap<String, HashMap<String, PushConfig>>>,
+pub struct InMemoryPushNotificationConfigStore {
+    // task_id -> (config_id -> PushNotificationConfig)
+    configs: RwLock<HashMap<String, HashMap<String, PushNotificationConfig>>>,
 }
 
-impl InMemoryPushConfigStore {
+impl InMemoryPushNotificationConfigStore {
     /// Creates a new empty store.
     #[must_use]
     pub fn new() -> Self {
@@ -66,23 +66,23 @@ impl InMemoryPushConfigStore {
     }
 }
 
-impl PushConfigStore for InMemoryPushConfigStore {
+impl PushNotificationConfigStore for InMemoryPushNotificationConfigStore {
     fn save<'a>(
         &'a self,
         task_id: &'a str,
-        config: &'a PushConfig,
-    ) -> Pin<Box<dyn Future<Output = Result<PushConfig>> + Send + 'a>> {
+        config: &'a PushNotificationConfig,
+    ) -> Pin<Box<dyn Future<Output = Result<PushNotificationConfig>> + Send + 'a>> {
         let task_id = task_id.to_string();
         let config = config.clone();
         Box::pin(async move {
             validate_push_config(&config)?;
 
             let mut to_save = config;
-            if to_save.id.is_empty() {
-                to_save.id = uuid::Uuid::new_v4().to_string();
+            if to_save.id.as_deref().unwrap_or("").is_empty() {
+                to_save.id = Some(uuid::Uuid::new_v4().to_string());
             }
 
-            let config_id = to_save.id.clone();
+            let config_id = to_save.id.clone().unwrap_or_default();
             let mut store = self.configs.write().await;
             store
                 .entry(task_id)
@@ -97,7 +97,7 @@ impl PushConfigStore for InMemoryPushConfigStore {
         &'a self,
         task_id: &'a str,
         config_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<PushConfig>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<PushNotificationConfig>> + Send + 'a>> {
         let task_id = task_id.to_string();
         let config_id = config_id.to_string();
         Box::pin(async move {
@@ -113,7 +113,7 @@ impl PushConfigStore for InMemoryPushConfigStore {
     fn list<'a>(
         &'a self,
         task_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<PushConfig>>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<PushNotificationConfig>>> + Send + 'a>> {
         let task_id = task_id.to_string();
         Box::pin(async move {
             let store = self.configs.read().await;
@@ -154,7 +154,7 @@ impl PushConfigStore for InMemoryPushConfigStore {
 }
 
 /// Validates a push config before saving.
-fn validate_push_config(config: &PushConfig) -> Result<()> {
+fn validate_push_config(config: &PushNotificationConfig) -> Result<()> {
     if config.url.is_empty() {
         return Err(A2AError::InvalidParams(
             "push config URL cannot be empty".into(),
@@ -176,7 +176,7 @@ pub trait PushSender: Send + Sync {
     /// Sends a push notification with the task state to the configured endpoint.
     fn send_push<'a>(
         &'a self,
-        config: &'a PushConfig,
+        config: &'a PushNotificationConfig,
         task: &'a Task,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 }
@@ -237,7 +237,7 @@ impl Default for HttpPushSender {
 impl PushSender for HttpPushSender {
     fn send_push<'a>(
         &'a self,
-        config: &'a PushConfig,
+        config: &'a PushNotificationConfig,
         task: &'a Task,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async move {
@@ -251,26 +251,25 @@ impl PushSender for HttpPushSender {
                 .body(json_data);
 
             // Attach verification token header (Go: X-A2A-Notification-Token)
-            if !config.token.is_empty() {
-                req = req.header("X-A2A-Notification-Token", &config.token);
+            if let Some(ref token) = config.token {
+                if !token.is_empty() {
+                    req = req.header("X-A2A-Notification-Token", token);
+                }
             }
 
-            // Apply authentication from push config
-            if let Some(ref auth) = config.authentication
-                && !auth.credentials.is_empty()
-            {
-                let credentials = &auth.credentials;
-                for scheme in &auth.schemes {
-                    match scheme.to_lowercase().as_str() {
-                        "bearer" => {
-                            req = req.header("Authorization", format!("Bearer {credentials}"));
-                            break;
+            if let Some(ref auth) = config.authentication {
+                if let Some(ref credentials) = auth.credentials {
+                    if !credentials.is_empty() {
+                        let scheme = auth.scheme.to_lowercase();
+                        match scheme.as_str() {
+                            "bearer" => {
+                                req = req.header("Authorization", format!("Bearer {credentials}"));
+                            }
+                            "basic" => {
+                                req = req.header("Authorization", format!("Basic {credentials}"));
+                            }
+                            _ => {}
                         }
-                        "basic" => {
-                            req = req.header("Authorization", format!("Basic {credentials}"));
-                            break;
-                        }
-                        _ => {}
                     }
                 }
             }

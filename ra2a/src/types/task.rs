@@ -1,77 +1,119 @@
-//! Task types for the A2A protocol.
+//! Task, TaskState, and TaskStatus types for the A2A protocol.
 //!
-//! Aligned with Go's `Task`, `TaskStatus`, `Artifact`, and event types.
+//! Maps to proto `Task`, `TaskState`, `TaskStatus` messages.
 
-use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt;
 
-use super::{Message, Metadata, Part};
+use serde::{Deserialize, Serialize};
 
-/// Version of a task stored on the server, used for optimistic concurrency control.
-///
-/// A value of `0` (`MISSING`) means version tracking is not active.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
-)]
-pub struct TaskVersion(pub i64);
-
-impl TaskVersion {
-    /// Special value indicating that version tracking is not active.
-    pub const MISSING: Self = Self(0);
-
-    /// Returns `true` if this version is newer than `other`.
-    pub fn after(self, other: Self) -> bool {
-        if other == Self::MISSING {
-            return true;
-        }
-        if self == Self::MISSING {
-            return false;
-        }
-        self.0 > other.0
-    }
-}
-
-impl From<i64> for TaskVersion {
-    fn from(v: i64) -> Self {
-        Self(v)
-    }
-}
+use super::id::{ContextId, TaskId};
+use super::{Artifact, Message, Metadata};
 
 /// Lifecycle states of a Task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
+///
+/// Serialized as `"TASK_STATE_SUBMITTED"`, `"TASK_STATE_COMPLETED"`, etc.
+/// per the proto `TaskState` enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TaskState {
-    /// Task has been submitted but not yet started.
+    /// The task is in an unknown or indeterminate state.
     #[default]
+    Unspecified,
+    /// Task has been submitted and is awaiting execution.
     Submitted,
     /// Agent is actively working on the task.
     Working,
-    /// Task requires additional input from the user.
-    InputRequired,
-    /// Task has completed successfully.
+    /// Task has completed successfully. Terminal state.
     Completed,
-    /// Task was canceled by the user.
-    Canceled,
-    /// Task failed due to an error.
+    /// Task failed due to an error. Terminal state.
     Failed,
-    /// Task was rejected by the agent.
+    /// Task was canceled before it finished. Terminal state.
+    Canceled,
+    /// Task requires additional input from the user. Interrupted state.
+    InputRequired,
+    /// Task was rejected by the agent. Terminal state.
     Rejected,
-    /// Task requires authentication to proceed.
+    /// Task requires authentication to proceed. Interrupted state.
     AuthRequired,
-    /// Task is in an unknown state.
-    Unknown,
 }
 
 impl TaskState {
-    /// Returns true for terminal (immutable) states.
-    pub const fn is_terminal(&self) -> bool {
+    /// Returns `true` for terminal (immutable) states where no further changes
+    /// to the task are permitted.
+    #[must_use]
+    pub const fn is_terminal(self) -> bool {
         matches!(
             self,
-            Self::Completed | Self::Canceled | Self::Failed | Self::Rejected
+            Self::Completed | Self::Failed | Self::Canceled | Self::Rejected
         )
+    }
+
+    /// Returns `true` for interrupted states (task is paused, awaiting action).
+    #[must_use]
+    pub const fn is_interrupted(self) -> bool {
+        matches!(self, Self::InputRequired | Self::AuthRequired)
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Unspecified => "TASK_STATE_UNSPECIFIED",
+            Self::Submitted => "TASK_STATE_SUBMITTED",
+            Self::Working => "TASK_STATE_WORKING",
+            Self::Completed => "TASK_STATE_COMPLETED",
+            Self::Failed => "TASK_STATE_FAILED",
+            Self::Canceled => "TASK_STATE_CANCELED",
+            Self::InputRequired => "TASK_STATE_INPUT_REQUIRED",
+            Self::Rejected => "TASK_STATE_REJECTED",
+            Self::AuthRequired => "TASK_STATE_AUTH_REQUIRED",
+        }
+    }
+}
+
+impl fmt::Display for TaskState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl Serialize for TaskState {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for TaskState {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "TASK_STATE_UNSPECIFIED" | "" => Ok(Self::Unspecified),
+            "TASK_STATE_SUBMITTED" => Ok(Self::Submitted),
+            "TASK_STATE_WORKING" => Ok(Self::Working),
+            "TASK_STATE_COMPLETED" => Ok(Self::Completed),
+            "TASK_STATE_FAILED" => Ok(Self::Failed),
+            "TASK_STATE_CANCELED" => Ok(Self::Canceled),
+            "TASK_STATE_INPUT_REQUIRED" => Ok(Self::InputRequired),
+            "TASK_STATE_REJECTED" => Ok(Self::Rejected),
+            "TASK_STATE_AUTH_REQUIRED" => Ok(Self::AuthRequired),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &[
+                    "TASK_STATE_UNSPECIFIED",
+                    "TASK_STATE_SUBMITTED",
+                    "TASK_STATE_WORKING",
+                    "TASK_STATE_COMPLETED",
+                    "TASK_STATE_FAILED",
+                    "TASK_STATE_CANCELED",
+                    "TASK_STATE_INPUT_REQUIRED",
+                    "TASK_STATE_REJECTED",
+                    "TASK_STATE_AUTH_REQUIRED",
+                ],
+            )),
+        }
     }
 }
 
 /// Status of a task at a specific point in time.
+///
+/// Maps to proto `TaskStatus`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TaskStatus {
     /// The current state.
@@ -103,21 +145,27 @@ impl TaskStatus {
         }
     }
 
-    /// Shorthand constructors for common states.
+    /// Creates a submitted status.
     pub fn submitted() -> Self {
         Self::new(TaskState::Submitted)
     }
+
     /// Creates a working status.
     pub fn working() -> Self {
         Self::new(TaskState::Working)
     }
+
     /// Creates a completed status.
     pub fn completed() -> Self {
         Self::new(TaskState::Completed)
     }
+
     /// Creates a failed status with an error message.
     pub fn failed(error: impl Into<String>) -> Self {
-        Self::with_message(TaskState::Failed, Message::agent(vec![Part::text(error)]))
+        Self::with_message(
+            TaskState::Failed,
+            Message::agent(vec![super::Part::text(error)]),
+        )
     }
 }
 
@@ -129,73 +177,49 @@ impl Default for TaskStatus {
 
 /// A stateful operation or conversation between a client and an agent.
 ///
-/// The `"kind": "task"` discriminator is injected on serialization.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+/// Maps to proto `Task`. v1.0 does **not** use a `kind` discriminator.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
-    /// Unique identifier (UUID) for the task.
-    pub id: String,
+    /// Unique identifier for the task.
+    pub id: TaskId,
     /// Context identifier for grouping related tasks.
-    pub context_id: String,
+    pub context_id: ContextId,
     /// Current status of the task.
     pub status: TaskStatus,
-    /// Messages exchanged during the task.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub history: Vec<Message>,
     /// Artifacts generated during the task.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<Artifact>,
+    /// Messages exchanged during the task (conversation history).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history: Vec<Message>,
     /// Extension metadata.
-    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
-    pub metadata: Metadata,
-}
-
-impl Serialize for Task {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeMap;
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("kind", "task")?;
-        map.serialize_entry("id", &self.id)?;
-        map.serialize_entry("contextId", &self.context_id)?;
-        map.serialize_entry("status", &self.status)?;
-        if !self.history.is_empty() {
-            map.serialize_entry("history", &self.history)?;
-        }
-        if !self.artifacts.is_empty() {
-            map.serialize_entry("artifacts", &self.artifacts)?;
-        }
-        if !self.metadata.is_empty() {
-            map.serialize_entry("metadata", &self.metadata)?;
-        }
-        map.end()
-    }
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Metadata>,
 }
 
 impl Task {
-    /// Creates a new task with the given IDs.
-    pub fn new(id: impl Into<String>, context_id: impl Into<String>) -> Self {
+    /// Creates a new task with the given IDs and submitted status.
+    pub fn new(id: impl Into<TaskId>, context_id: impl Into<ContextId>) -> Self {
         Self {
             id: id.into(),
             context_id: context_id.into(),
             status: TaskStatus::submitted(),
-            history: Vec::new(),
             artifacts: Vec::new(),
-            metadata: Metadata::new(),
+            history: Vec::new(),
+            metadata: None,
         }
     }
 
-    /// Creates a new task with auto-generated UUIDv7 IDs (aligned with Go's `NewTaskID`).
+    /// Creates a new task with auto-generated UUIDv7 IDs.
     pub fn create() -> Self {
-        Self::new(
-            uuid::Uuid::new_v4().to_string(),
-            uuid::Uuid::new_v4().to_string(),
-        )
+        Self::new(TaskId::random(), ContextId::random())
     }
 
-    /// Creates a submitted task from an initial message (aligned with Go's `NewSubmittedTask`).
+    /// Creates a submitted task from an initial message.
     pub fn new_submitted(
-        id: impl Into<String>,
-        context_id: impl Into<String>,
+        id: impl Into<TaskId>,
+        context_id: impl Into<ContextId>,
         initial_message: Message,
     ) -> Self {
         Self {
@@ -204,23 +228,20 @@ impl Task {
             status: TaskStatus::new(TaskState::Submitted),
             history: vec![initial_message],
             artifacts: Vec::new(),
-            metadata: Metadata::new(),
+            metadata: None,
         }
     }
 
-    /// Returns true if the task is in a terminal state.
-    pub const fn is_terminal(&self) -> bool {
+    /// Returns `true` if the task is in a terminal state.
+    #[must_use]
+    pub fn is_terminal(&self) -> bool {
         self.status.state.is_terminal()
     }
 
     /// Returns the current state.
-    pub const fn state(&self) -> TaskState {
+    #[must_use]
+    pub fn state(&self) -> TaskState {
         self.status.state
-    }
-
-    /// Sets a metadata key-value pair.
-    pub fn set_meta(&mut self, key: impl Into<String>, value: serde_json::Value) {
-        self.metadata.insert(key.into(), value);
     }
 
     /// Truncates history to the last `n` messages.
@@ -232,12 +253,12 @@ impl Task {
     }
 
     /// Applies an artifact update event to this task.
-    pub fn apply_artifact_update(&mut self, event: &TaskArtifactUpdateEvent) {
+    pub fn apply_artifact_update(&mut self, event: &super::TaskArtifactUpdateEvent) {
         let artifact_id = &event.artifact.artifact_id;
         let existing_idx = self
             .artifacts
             .iter()
-            .position(|a| &a.artifact_id == artifact_id);
+            .position(|a| a.artifact_id == *artifact_id);
 
         if !event.append {
             if let Some(idx) = existing_idx {
@@ -259,296 +280,50 @@ impl Default for Task {
     }
 }
 
-/// A file, data structure, or other resource generated by an agent.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Artifact {
-    /// Unique identifier within the task scope.
-    pub artifact_id: String,
-    /// Content parts that make up the artifact.
-    pub parts: Vec<Part>,
-    /// Human-readable name (empty = not set).
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub name: String,
-    /// Human-readable description (empty = not set).
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub description: String,
-    /// Extension URIs relevant to this artifact.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub extensions: Vec<String>,
-    /// Extension metadata.
-    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
-    pub metadata: Metadata,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl Artifact {
-    /// Creates a new artifact with the given ID and parts.
-    pub fn new(artifact_id: impl Into<String>, parts: Vec<Part>) -> Self {
-        Self {
-            artifact_id: artifact_id.into(),
-            parts,
-            name: String::new(),
-            description: String::new(),
-            extensions: Vec::new(),
-            metadata: Metadata::new(),
-        }
+    #[test]
+    fn task_state_serde() {
+        assert_eq!(
+            serde_json::to_string(&TaskState::Completed).unwrap(),
+            "\"TASK_STATE_COMPLETED\""
+        );
+        let decoded: TaskState = serde_json::from_str("\"TASK_STATE_WORKING\"").unwrap();
+        assert_eq!(decoded, TaskState::Working);
     }
 
-    /// Creates an artifact with an auto-generated UUIDv7 ID.
-    pub fn create(parts: Vec<Part>) -> Self {
-        Self::new(uuid::Uuid::new_v4().to_string(), parts)
+    #[test]
+    fn task_state_terminal() {
+        assert!(TaskState::Completed.is_terminal());
+        assert!(TaskState::Failed.is_terminal());
+        assert!(TaskState::Canceled.is_terminal());
+        assert!(TaskState::Rejected.is_terminal());
+        assert!(!TaskState::Working.is_terminal());
+        assert!(!TaskState::InputRequired.is_terminal());
     }
 
-    /// Shorthand: single-text artifact.
-    pub fn text(artifact_id: impl Into<String>, text: impl Into<String>) -> Self {
-        Self::new(artifact_id, vec![Part::text(text)])
-    }
-}
-
-/// Notifies the client of a task status change (streaming/subscription).
-///
-/// The `"kind": "status-update"` discriminator is injected on serialization.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskStatusUpdateEvent {
-    /// The task ID.
-    pub task_id: String,
-    /// The context ID.
-    pub context_id: String,
-    /// The new status.
-    pub status: TaskStatus,
-    /// If true, this is the final event in the stream for this interaction.
-    #[serde(default)]
-    pub r#final: bool,
-    /// Extension metadata.
-    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
-    pub metadata: Metadata,
-}
-
-impl Serialize for TaskStatusUpdateEvent {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeMap;
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("kind", "status-update")?;
-        map.serialize_entry("taskId", &self.task_id)?;
-        map.serialize_entry("contextId", &self.context_id)?;
-        map.serialize_entry("status", &self.status)?;
-        map.serialize_entry("final", &self.r#final)?;
-        if !self.metadata.is_empty() {
-            map.serialize_entry("metadata", &self.metadata)?;
-        }
-        map.end()
-    }
-}
-
-impl TaskStatusUpdateEvent {
-    /// Creates a new status update event.
-    pub fn new(
-        task_id: impl Into<String>,
-        context_id: impl Into<String>,
-        status: TaskStatus,
-        r#final: bool,
-    ) -> Self {
-        Self {
-            task_id: task_id.into(),
-            context_id: context_id.into(),
-            status,
-            r#final,
-            metadata: Metadata::new(),
-        }
-    }
-}
-
-/// Notifies the client of an artifact creation or update (streaming).
-///
-/// The `"kind": "artifact-update"` discriminator is injected on serialization.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskArtifactUpdateEvent {
-    /// The task ID.
-    pub task_id: String,
-    /// The context ID.
-    pub context_id: String,
-    /// The artifact data.
-    pub artifact: Artifact,
-    /// If true, append to a previously sent artifact with the same ID.
-    #[serde(default)]
-    pub append: bool,
-    /// If true, this is the final chunk.
-    #[serde(default)]
-    pub last_chunk: bool,
-    /// Extension metadata.
-    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
-    pub metadata: Metadata,
-}
-
-impl Serialize for TaskArtifactUpdateEvent {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeMap;
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("kind", "artifact-update")?;
-        map.serialize_entry("taskId", &self.task_id)?;
-        map.serialize_entry("contextId", &self.context_id)?;
-        map.serialize_entry("artifact", &self.artifact)?;
-        if self.append {
-            map.serialize_entry("append", &true)?;
-        }
-        if self.last_chunk {
-            map.serialize_entry("lastChunk", &true)?;
-        }
-        if !self.metadata.is_empty() {
-            map.serialize_entry("metadata", &self.metadata)?;
-        }
-        map.end()
-    }
-}
-
-impl TaskArtifactUpdateEvent {
-    /// Creates a new artifact update event.
-    pub fn new(
-        task_id: impl Into<String>,
-        context_id: impl Into<String>,
-        artifact: Artifact,
-    ) -> Self {
-        Self {
-            task_id: task_id.into(),
-            context_id: context_id.into(),
-            artifact,
-            append: false,
-            last_chunk: false,
-            metadata: Metadata::new(),
-        }
-    }
-}
-
-/// A unified event type for streaming responses.
-///
-/// Aligned with Go's `Event` interface — represents any event that can be
-/// sent over a streaming connection.
-///
-/// Uses the `"kind"` discriminator for deserialization, matching Go's
-/// `UnmarshalEventJSON`. Serialization delegates to each variant's custom
-/// `Serialize` impl which injects `"kind"` automatically.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(untagged)]
-pub enum Event {
-    /// A complete task snapshot.
-    Task(Task),
-    /// A direct message.
-    Message(Message),
-    /// A status change notification.
-    StatusUpdate(TaskStatusUpdateEvent),
-    /// An artifact creation/update notification.
-    ArtifactUpdate(TaskArtifactUpdateEvent),
-}
-
-impl<'de> Deserialize<'de> for Event {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = serde_json::Value::deserialize(deserializer)?;
-        let kind = value.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-        match kind {
-            "task" => Task::deserialize(value)
-                .map(Event::Task)
-                .map_err(serde::de::Error::custom),
-            "message" => Message::deserialize(value)
-                .map(Event::Message)
-                .map_err(serde::de::Error::custom),
-            "status-update" => TaskStatusUpdateEvent::deserialize(value)
-                .map(Event::StatusUpdate)
-                .map_err(serde::de::Error::custom),
-            "artifact-update" => TaskArtifactUpdateEvent::deserialize(value)
-                .map(Event::ArtifactUpdate)
-                .map_err(serde::de::Error::custom),
-            other => Err(serde::de::Error::custom(format!(
-                "unknown event kind: {other:?}"
-            ))),
-        }
-    }
-}
-
-impl Event {
-    /// Returns the task ID associated with this event.
-    pub fn task_id(&self) -> &str {
-        match self {
-            Self::Task(t) => &t.id,
-            Self::Message(m) => &m.task_id,
-            Self::StatusUpdate(e) => &e.task_id,
-            Self::ArtifactUpdate(e) => &e.task_id,
-        }
+    #[test]
+    fn task_state_interrupted() {
+        assert!(TaskState::InputRequired.is_interrupted());
+        assert!(TaskState::AuthRequired.is_interrupted());
+        assert!(!TaskState::Working.is_interrupted());
     }
 
-    /// Returns the context ID associated with this event.
-    pub fn context_id(&self) -> &str {
-        match self {
-            Self::Task(t) => &t.context_id,
-            Self::Message(m) => &m.context_id,
-            Self::StatusUpdate(e) => &e.context_id,
-            Self::ArtifactUpdate(e) => &e.context_id,
-        }
+    #[test]
+    fn task_no_kind_field() {
+        let task = Task::create();
+        let json = serde_json::to_value(&task).unwrap();
+        assert!(json.get("kind").is_none(), "v1.0 must not emit 'kind'");
     }
 
-    /// Returns `true` if this is a final/terminal event (execution should stop after this).
-    pub fn is_final(&self) -> bool {
-        match self {
-            Self::Task(t) => t.is_terminal(),
-            Self::Message(_) => true,
-            Self::StatusUpdate(e) => e.r#final,
-            Self::ArtifactUpdate(_) => false,
-        }
-    }
-
-    /// Returns `true` if the event represents a terminal condition that should
-    /// stop the non-streaming event collection loop. Aligned with Go's
-    /// `shouldInterruptNonStreaming` + final-event detection.
-    pub fn is_terminal(&self) -> bool {
-        match self {
-            Self::StatusUpdate(e) => e.r#final || e.status.state.is_terminal(),
-            Self::Task(t) => t.status.state.is_terminal(),
-            Self::Message(_) => true,
-            Self::ArtifactUpdate(_) => false,
-        }
-    }
-}
-
-/// Result of a non-streaming `message/send` — either a Task or a Message.
-///
-/// Aligned with Go's `SendMessageResult` interface.
-/// Uses `"kind"` discriminator for deserialization.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(untagged)]
-pub enum SendMessageResult {
-    /// A task was created or updated.
-    Task(Task),
-    /// A direct message reply (no task created).
-    Message(Message),
-}
-
-impl<'de> Deserialize<'de> for SendMessageResult {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = serde_json::Value::deserialize(deserializer)?;
-        let kind = value.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-        match kind {
-            "task" => Task::deserialize(value)
-                .map(Self::Task)
-                .map_err(serde::de::Error::custom),
-            "message" => Message::deserialize(value)
-                .map(Self::Message)
-                .map_err(serde::de::Error::custom),
-            other => Err(serde::de::Error::custom(format!(
-                "unknown result kind: {other:?}"
-            ))),
-        }
-    }
-}
-
-impl From<Task> for SendMessageResult {
-    fn from(t: Task) -> Self {
-        Self::Task(t)
-    }
-}
-
-impl From<Message> for SendMessageResult {
-    fn from(m: Message) -> Self {
-        Self::Message(m)
+    #[test]
+    fn task_round_trip() {
+        let task = Task::new(TaskId::from("t1"), ContextId::from("c1"));
+        let json = serde_json::to_string(&task).unwrap();
+        let decoded: Task = serde_json::from_str(&json).unwrap();
+        assert_eq!(task.id, decoded.id);
+        assert_eq!(task.context_id, decoded.context_id);
     }
 }

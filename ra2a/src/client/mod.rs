@@ -11,97 +11,116 @@ mod jsonrpc;
 #[cfg(feature = "grpc")]
 mod grpc;
 
-use std::any::Any;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::{Stream, StreamExt};
+use futures::Stream;
 #[cfg(feature = "grpc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "grpc")))]
 pub use grpc::GrpcTransport;
 pub use interceptor::{
-    CALL_META, CallInterceptor, CallMeta, PassthroughInterceptor, Request, Response,
-    StaticCallMetaInjector, call_meta,
+    CallInterceptor, PassthroughInterceptor, Request, Response, SERVICE_PARAMS, ServiceParams,
+    StaticParamsInjector, current_service_params,
 };
 pub use jsonrpc::{JsonRpcTransport, TransportConfig};
 
 use crate::error::{A2AError, Result};
 use crate::types::{
-    AgentCard, DeleteTaskPushConfigParams, Event, GetTaskPushConfigParams,
-    ListTaskPushConfigParams, ListTasksRequest, ListTasksResponse, MessageSendParams,
-    SendMessageResult, Task, TaskIdParams, TaskPushConfig, TaskQueryParams,
+    AgentCard, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
+    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
+    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
+    ListTaskPushNotificationConfigResponse, ListTasksRequest, ListTasksResponse,
+    PushNotificationConfig, SendMessageRequest, SendMessageResponse, StreamResponse,
+    SubscribeToTaskRequest, Task, TaskPushNotificationConfig, TransportProtocol,
 };
 
-/// A boxed stream of protocol [`Event`]s for streaming responses.
-pub type EventStream = Pin<Box<dyn Stream<Item = Result<Event>> + Send>>;
+/// A boxed stream of [`StreamResponse`] events.
+pub type EventStream = Pin<Box<dyn Stream<Item = Result<StreamResponse>> + Send>>;
 
 /// Transport-agnostic interface for all A2A protocol operations.
 ///
-/// Each method corresponds to a single A2A protocol method. The transport
-/// handles serialization, HTTP/gRPC details, and SSE parsing internally.
+/// Each method corresponds to a single A2A protocol method and receives
+/// [`ServiceParams`] for propagating A2A service parameters (version, extensions).
 pub trait Transport: Send + Sync {
     /// Sends a message (non-streaming). Corresponds to `message/send`.
     fn send_message<'a>(
         &'a self,
-        params: &'a MessageSendParams,
-    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResult>> + Send + 'a>>;
+        params: &'a ServiceParams,
+        req: &'a SendMessageRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResponse>> + Send + 'a>>;
 
     /// Sends a message with streaming response. Corresponds to `message/stream`.
-    fn send_message_stream<'a>(
+    fn send_streaming_message<'a>(
         &'a self,
-        params: &'a MessageSendParams,
+        params: &'a ServiceParams,
+        req: &'a SendMessageRequest,
     ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + 'a>>;
 
     /// Retrieves a task. Corresponds to `tasks/get`.
     fn get_task<'a>(
         &'a self,
-        params: &'a TaskQueryParams,
+        params: &'a ServiceParams,
+        req: &'a GetTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + 'a>>;
 
     /// Lists tasks. Corresponds to `tasks/list`.
     fn list_tasks<'a>(
         &'a self,
-        params: &'a ListTasksRequest,
+        params: &'a ServiceParams,
+        req: &'a ListTasksRequest,
     ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + 'a>>;
 
     /// Cancels a task. Corresponds to `tasks/cancel`.
     fn cancel_task<'a>(
         &'a self,
-        params: &'a TaskIdParams,
+        params: &'a ServiceParams,
+        req: &'a CancelTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + 'a>>;
 
-    /// Resubscribes to a task's event stream. Corresponds to `tasks/resubscribe`.
-    fn resubscribe<'a>(
+    /// Subscribes to task updates. Corresponds to `tasks/subscribe`.
+    fn subscribe_to_task<'a>(
         &'a self,
-        params: &'a TaskIdParams,
+        params: &'a ServiceParams,
+        req: &'a SubscribeToTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + 'a>>;
 
-    /// Sets push notification config for a task.
-    fn set_task_push_config<'a>(
+    /// Creates a push notification config. Corresponds to `pushNotificationConfigs/create`.
+    fn create_task_push_config<'a>(
         &'a self,
-        params: &'a TaskPushConfig,
-    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + 'a>>;
+        params: &'a ServiceParams,
+        req: &'a CreateTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + 'a>>;
 
-    /// Gets push notification config for a task.
+    /// Gets a push notification config.
     fn get_task_push_config<'a>(
         &'a self,
-        params: &'a GetTaskPushConfigParams,
-    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + 'a>>;
+        params: &'a ServiceParams,
+        req: &'a GetTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + 'a>>;
 
-    /// Lists push notification configs for a task.
-    fn list_task_push_config<'a>(
+    /// Lists push notification configs.
+    fn list_task_push_configs<'a>(
         &'a self,
-        params: &'a ListTaskPushConfigParams,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<TaskPushConfig>>> + Send + 'a>>;
+        params: &'a ServiceParams,
+        req: &'a ListTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigResponse>> + Send + 'a>>;
 
-    /// Deletes push notification config for a task.
+    /// Deletes a push notification config.
     fn delete_task_push_config<'a>(
         &'a self,
-        params: &'a DeleteTaskPushConfigParams,
+        params: &'a ServiceParams,
+        req: &'a DeleteTaskPushNotificationConfigRequest,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
-    /// Retrieves the agent card.
+    /// Gets the extended agent card.
+    fn get_extended_agent_card<'a>(
+        &'a self,
+        params: &'a ServiceParams,
+        req: &'a GetExtendedAgentCardRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<AgentCard>> + Send + 'a>>;
+
+    /// Retrieves the public agent card (well-known endpoint).
     fn get_agent_card(&self) -> Pin<Box<dyn Future<Output = Result<AgentCard>> + Send + '_>>;
 
     /// Releases any resources held by the transport.
@@ -111,45 +130,24 @@ pub trait Transport: Send + Sync {
 }
 
 /// Configuration options for [`Client`] behavior.
-///
-/// Aligned with Go's `a2aclient.Config`.
 #[derive(Debug, Clone, Default)]
 pub struct ClientConfig {
     /// Default push notification configuration applied to every task.
-    pub push_config: Option<crate::types::PushConfig>,
-    /// MIME types passed with every message; agents may use these to decide
-    /// the result format.
-    pub accepted_output_modes: Option<Vec<String>>,
-    /// If `true`, non-streaming `send_message` receives a result immediately
-    /// (possibly in a non-terminal state) instead of blocking. The caller is
-    /// responsible for polling.
-    pub polling: bool,
+    pub push_config: Option<PushNotificationConfig>,
+    /// MIME types passed with every message.
+    pub accepted_output_modes: Vec<String>,
+    /// Preferred transport protocols for transport selection.
+    pub preferred_transports: Vec<TransportProtocol>,
 }
 
 /// A2A protocol client.
 ///
-/// Wraps a [`Transport`] and applies [`CallInterceptor`]s before/after each
-/// call. Optionally merges default [`ClientConfig`] into outgoing requests.
-///
-/// # Example
-///
-/// ```no_run
-/// use ra2a::client::{Client, JsonRpcTransport};
-/// use ra2a::types::{Message, MessageSendParams, Part};
-///
-/// # async fn example() -> ra2a::error::Result<()> {
-/// let client = Client::from_url("https://agent.example.com")?;
-/// let msg = Message::user(vec![Part::text("Hello")]);
-/// let result = client.send_message(&MessageSendParams::new(msg)).await?;
-/// # Ok(())
-/// # }
-/// ```
+/// Wraps a [`Transport`] and applies [`CallInterceptor`]s before/after each call.
 pub struct Client {
     transport: Box<dyn Transport>,
     interceptors: Vec<Arc<dyn CallInterceptor>>,
     card: std::sync::RwLock<Option<AgentCard>>,
     config: ClientConfig,
-    base_url: String,
 }
 
 impl Client {
@@ -160,43 +158,27 @@ impl Client {
             interceptors: Vec::new(),
             card: std::sync::RwLock::new(None),
             config: ClientConfig::default(),
-            base_url: String::new(),
         }
     }
 
     /// Creates a client from a base URL using [`JsonRpcTransport`].
     pub fn from_url(base_url: impl Into<String>) -> Result<Self> {
-        let url: String = base_url.into();
-        let transport = JsonRpcTransport::from_url(&url)?;
-        let mut client = Self::new(Box::new(transport));
-        client.base_url = url;
-        Ok(client)
-    }
-
-    /// Sets the base URL exposed to interceptors via [`Request::base_url`].
-    ///
-    /// This is set automatically by [`from_url`](Self::from_url). Only needed
-    /// when constructing a client with [`new`](Self::new) and a custom transport.
-    pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
-        self.base_url = url.into();
-        self
+        let transport = JsonRpcTransport::from_url(base_url)?;
+        Ok(Self::new(Box::new(transport)))
     }
 
     /// Sets client configuration.
+    #[must_use]
     pub fn with_config(mut self, config: ClientConfig) -> Self {
         self.config = config;
         self
     }
 
     /// Adds a call interceptor.
+    #[must_use]
     pub fn with_interceptor(mut self, interceptor: impl CallInterceptor + 'static) -> Self {
         self.interceptors.push(Arc::new(interceptor));
         self
-    }
-
-    /// Adds a call interceptor after creation.
-    pub fn add_interceptor(&mut self, interceptor: impl CallInterceptor + 'static) {
-        self.interceptors.push(Arc::new(interceptor));
     }
 
     /// Caches an agent card for capability checks.
@@ -205,50 +187,46 @@ impl Client {
     }
 
     /// Returns the cached agent card, if any.
+    #[must_use]
     pub fn card(&self) -> Option<AgentCard> {
         self.card.read().unwrap().clone()
     }
 
     /// Runs all `before` interceptors, returning the (possibly modified) payload
-    /// and the [`CallMeta`] to propagate to the transport.
-    ///
-    /// Aligned with Go's generic `interceptBefore[T any]`.
+    /// and the [`ServiceParams`] to propagate to the transport.
     async fn intercept_before<P: Send + 'static>(
         &self,
         method: &str,
         payload: P,
-    ) -> Result<(P, CallMeta)> {
+    ) -> Result<(P, ServiceParams)> {
         if self.interceptors.is_empty() {
-            return Ok((payload, CallMeta::default()));
+            return Ok((payload, ServiceParams::default()));
         }
         let mut req = Request {
             method: method.to_string(),
-            base_url: self.base_url.clone(),
-            meta: CallMeta::default(),
             card: self.card(),
+            service_params: ServiceParams::default(),
             payload: Box::new(payload),
         };
         for interceptor in &self.interceptors {
             interceptor.before(&mut req).await?;
         }
-        let meta = req.meta;
+        let params = req.service_params;
         match req.payload.downcast::<P>() {
-            Ok(p) => Ok((*p, meta)),
+            Ok(p) => Ok((*p, params)),
             Err(_) => Err(A2AError::Other(
                 "interceptor changed request payload type".into(),
             )),
         }
     }
 
-    /// Runs all `after` interceptors on a transport result, returning the
-    /// (possibly modified) result.
-    ///
-    /// Aligned with Go's generic `interceptAfter[T any]`.
+    /// Runs all `after` interceptors on a transport result.
     async fn intercept_after<R: Send + 'static>(
         &self,
         method: &str,
         result: Result<R>,
     ) -> Result<R> {
+        use std::any::Any;
         if self.interceptors.is_empty() {
             return result;
         }
@@ -256,17 +234,12 @@ impl Client {
             Ok(r) => (Some(Box::new(r) as Box<dyn Any + Send>), None),
             Err(e) => (None, Some(e)),
         };
-        // Carry forward the CallMeta set by intercept_before (mirrors Go's CallMetaFrom(ctx))
-        let meta = call_meta().unwrap_or_default();
         let mut resp = Response {
             method: method.to_string(),
-            base_url: self.base_url.clone(),
-            meta,
             card: self.card(),
             payload,
             err,
         };
-        // Go's interceptAfter iterates forward (matching implementation, not doc)
         for interceptor in &self.interceptors {
             interceptor.after(&mut resp).await?;
         }
@@ -286,244 +259,105 @@ impl Client {
         }
     }
 
-    /// Wraps an event stream to apply `after` interceptors on each event.
-    ///
-    /// Aligned with Go's per-event `interceptAfter` in streaming methods
-    /// (`SendStreamingMessage`, `ResubscribeToTask`).
-    fn wrap_stream(&self, method: &'static str, stream: EventStream) -> EventStream {
-        if self.interceptors.is_empty() {
-            return stream;
-        }
-        let interceptors = self.interceptors.clone();
-        let card = self.card();
-        let base_url = self.base_url.clone();
-        let wrapped = stream.then(move |event_result| {
-            let interceptors = interceptors.clone();
-            let card = card.clone();
-            let base_url = base_url.clone();
-            async move {
-                let (payload, err) = match event_result {
-                    Ok(event) => (Some(Box::new(event) as Box<dyn Any + Send>), None),
-                    Err(e) => (None, Some(e)),
-                };
-                let meta = call_meta().unwrap_or_default();
-                let mut resp = Response {
-                    method: method.to_string(),
-                    base_url,
-                    meta,
-                    card,
-                    payload,
-                    err,
-                };
-                for interceptor in &interceptors {
-                    interceptor.after(&mut resp).await?;
-                }
-                if let Some(err) = resp.err {
-                    return Err(err);
-                }
-                match resp.payload {
-                    Some(p) => match p.downcast::<Event>() {
-                        Ok(e) => Ok(*e),
-                        Err(_) => Err(A2AError::Other(
-                            "interceptor changed event payload type".into(),
-                        )),
-                    },
-                    None => Err(A2AError::Other("no event payload after interceptor".into())),
-                }
-            }
-        });
-        Box::pin(wrapped)
-    }
-
-    /// Applies default config to outgoing send params (push config,
-    /// accepted output modes, blocking flag).
-    fn with_default_send_config(
-        &self,
-        params: &MessageSendParams,
-        blocking: bool,
-    ) -> MessageSendParams {
-        if self.config.push_config.is_none()
-            && self.config.accepted_output_modes.is_none()
-            && blocking
-        {
-            return params.clone();
-        }
-
-        let mut result = params.clone();
-        let config = result.configuration.get_or_insert_with(Default::default);
-        if config.push_notification_config.is_none() {
-            config.push_notification_config = self.config.push_config.clone();
-        }
-        if config.accepted_output_modes.is_empty()
-            && let Some(ref modes) = self.config.accepted_output_modes
-        {
-            config.accepted_output_modes = modes.clone();
-        }
-        config.blocking = Some(blocking);
-        result
-    }
-
-    /// Sends a message (non-streaming). Corresponds to `message/send`.
-    pub async fn send_message(&self, params: &MessageSendParams) -> Result<SendMessageResult> {
-        let params = self.with_default_send_config(params, !self.config.polling);
-        let (params, meta) = self.intercept_before("SendMessage", params).await?;
-        let result = CALL_META
-            .scope(meta, async { self.transport.send_message(&params).await })
+    /// Sends a message (non-streaming).
+    pub async fn send_message(&self, req: &SendMessageRequest) -> Result<SendMessageResponse> {
+        let (req, sp) = self.intercept_before("SendMessage", req.clone()).await?;
+        let result = SERVICE_PARAMS
+            .scope(sp.clone(), async {
+                self.transport.send_message(&sp, &req).await
+            })
             .await;
         self.intercept_after("SendMessage", result).await
     }
 
-    /// Sends a message with streaming response. Corresponds to `message/stream`.
-    ///
-    /// If the cached agent card indicates the agent does not support streaming,
-    /// falls back to a non-streaming `send_message` and wraps the result as a
-    /// single-element stream.
-    ///
-    /// Each event in the stream is individually passed through `after` interceptors,
-    /// matching Go's per-event `interceptAfter` behavior.
-    pub async fn send_message_stream(&self, params: &MessageSendParams) -> Result<EventStream> {
-        let params = self.with_default_send_config(params, true);
-        let (params, meta) = self
-            .intercept_before("SendStreamingMessage", params)
+    /// Sends a message with streaming response.
+    pub async fn send_streaming_message(&self, req: &SendMessageRequest) -> Result<EventStream> {
+        let (req, sp) = self
+            .intercept_before("SendStreamingMessage", req.clone())
             .await?;
 
         // Fallback: if agent doesn't support streaming, use non-streaming call
-        if let Some(ref card) = self.card()
-            && !card.supports_streaming()
-        {
-            let result = CALL_META
-                .scope(meta, async { self.transport.send_message(&params).await })
-                .await;
-            let result = self.intercept_after("SendStreamingMessage", result).await?;
-            let event = match result {
-                SendMessageResult::Task(t) => Event::Task(t),
-                SendMessageResult::Message(m) => Event::Message(m),
-            };
-            let stream: EventStream = Box::pin(futures::stream::once(async move { Ok(event) }));
-            return Ok(self.wrap_stream("SendStreamingMessage", stream));
+        if let Some(ref card) = self.card() {
+            if !card.supports_streaming() {
+                let result = SERVICE_PARAMS
+                    .scope(sp.clone(), async {
+                        self.transport.send_message(&sp, &req).await
+                    })
+                    .await;
+                let result = self.intercept_after("SendStreamingMessage", result).await?;
+                let event = match result {
+                    SendMessageResponse::Task(t) => StreamResponse::Task(t),
+                    SendMessageResponse::Message(m) => StreamResponse::Message(m),
+                };
+                return Ok(Box::pin(futures::stream::once(async move { Ok(event) })));
+            }
         }
 
-        let stream = CALL_META
-            .scope(meta, async {
-                self.transport.send_message_stream(&params).await
+        let stream = SERVICE_PARAMS
+            .scope(sp.clone(), async {
+                self.transport.send_streaming_message(&sp, &req).await
             })
             .await?;
-        Ok(self.wrap_stream("SendStreamingMessage", stream))
+        Ok(stream)
     }
 
-    /// Retrieves a task. Corresponds to `tasks/get`.
-    pub async fn get_task(&self, params: &TaskQueryParams) -> Result<Task> {
-        let (params, meta) = self.intercept_before("GetTask", params.clone()).await?;
-        let result = CALL_META
-            .scope(meta, async { self.transport.get_task(&params).await })
+    /// Retrieves a task.
+    pub async fn get_task(&self, req: &GetTaskRequest) -> Result<Task> {
+        let (req, sp) = self.intercept_before("GetTask", req.clone()).await?;
+        let result = SERVICE_PARAMS
+            .scope(sp.clone(), async {
+                self.transport.get_task(&sp, &req).await
+            })
             .await;
         self.intercept_after("GetTask", result).await
     }
 
-    /// Lists tasks. Corresponds to `tasks/list`.
-    pub async fn list_tasks(&self, params: &ListTasksRequest) -> Result<ListTasksResponse> {
-        let (params, meta) = self.intercept_before("ListTasks", params.clone()).await?;
-        let result = CALL_META
-            .scope(meta, async { self.transport.list_tasks(&params).await })
+    /// Lists tasks.
+    pub async fn list_tasks(&self, req: &ListTasksRequest) -> Result<ListTasksResponse> {
+        let (req, sp) = self.intercept_before("ListTasks", req.clone()).await?;
+        let result = SERVICE_PARAMS
+            .scope(sp.clone(), async {
+                self.transport.list_tasks(&sp, &req).await
+            })
             .await;
         self.intercept_after("ListTasks", result).await
     }
 
-    /// Cancels a task. Corresponds to `tasks/cancel`.
-    pub async fn cancel_task(&self, params: &TaskIdParams) -> Result<Task> {
-        let (params, meta) = self.intercept_before("CancelTask", params.clone()).await?;
-        let result = CALL_META
-            .scope(meta, async { self.transport.cancel_task(&params).await })
+    /// Cancels a task.
+    pub async fn cancel_task(&self, req: &CancelTaskRequest) -> Result<Task> {
+        let (req, sp) = self.intercept_before("CancelTask", req.clone()).await?;
+        let result = SERVICE_PARAMS
+            .scope(sp.clone(), async {
+                self.transport.cancel_task(&sp, &req).await
+            })
             .await;
         self.intercept_after("CancelTask", result).await
     }
 
-    /// Resubscribes to a task's event stream. Corresponds to `tasks/resubscribe`.
+    /// Subscribes to task updates.
+    pub async fn subscribe_to_task(&self, req: &SubscribeToTaskRequest) -> Result<EventStream> {
+        let (req, sp) = self
+            .intercept_before("SubscribeToTask", req.clone())
+            .await?;
+        SERVICE_PARAMS
+            .scope(sp.clone(), async {
+                self.transport.subscribe_to_task(&sp, &req).await
+            })
+            .await
+    }
+
+    /// Retrieves the public agent card.
     ///
-    /// Each event in the stream is individually passed through `after` interceptors.
-    pub async fn resubscribe(&self, params: &TaskIdParams) -> Result<EventStream> {
-        let (params, meta) = self
-            .intercept_before("ResubscribeToTask", params.clone())
-            .await?;
-        let stream = CALL_META
-            .scope(meta, async { self.transport.resubscribe(&params).await })
-            .await?;
-        Ok(self.wrap_stream("ResubscribeToTask", stream))
-    }
-
-    /// Sets push notification config. Corresponds to `tasks/pushNotificationConfig/set`.
-    pub async fn set_task_push_config(&self, params: &TaskPushConfig) -> Result<TaskPushConfig> {
-        let (params, meta) = self
-            .intercept_before("SetTaskPushConfig", params.clone())
-            .await?;
-        let result = CALL_META
-            .scope(meta, async {
-                self.transport.set_task_push_config(&params).await
-            })
-            .await;
-        self.intercept_after("SetTaskPushConfig", result).await
-    }
-
-    /// Gets push notification config. Corresponds to `tasks/pushNotificationConfig/get`.
-    pub async fn get_task_push_config(
-        &self,
-        params: &GetTaskPushConfigParams,
-    ) -> Result<TaskPushConfig> {
-        let (params, meta) = self
-            .intercept_before("GetTaskPushConfig", params.clone())
-            .await?;
-        let result = CALL_META
-            .scope(meta, async {
-                self.transport.get_task_push_config(&params).await
-            })
-            .await;
-        self.intercept_after("GetTaskPushConfig", result).await
-    }
-
-    /// Lists push notification configs. Corresponds to `tasks/pushNotificationConfig/list`.
-    pub async fn list_task_push_config(
-        &self,
-        params: &ListTaskPushConfigParams,
-    ) -> Result<Vec<TaskPushConfig>> {
-        let (params, meta) = self
-            .intercept_before("ListTaskPushConfig", params.clone())
-            .await?;
-        let result = CALL_META
-            .scope(meta, async {
-                self.transport.list_task_push_config(&params).await
-            })
-            .await;
-        self.intercept_after("ListTaskPushConfig", result).await
-    }
-
-    /// Deletes push notification config. Corresponds to `tasks/pushNotificationConfig/delete`.
-    pub async fn delete_task_push_config(&self, params: &DeleteTaskPushConfigParams) -> Result<()> {
-        let (params, meta) = self
-            .intercept_before("DeleteTaskPushConfig", params.clone())
-            .await?;
-        let result = CALL_META
-            .scope(meta, async {
-                self.transport.delete_task_push_config(&params).await
-            })
-            .await;
-        self.intercept_after("DeleteTaskPushConfig", result).await
-    }
-
-    /// Retrieves the agent card from the server.
-    ///
-    /// If the card is already cached and doesn't support extended cards,
-    /// returns the cached version. Otherwise fetches from transport.
+    /// Returns the cached version if available and the agent doesn't support
+    /// extended cards.
     pub async fn get_agent_card(&self) -> Result<AgentCard> {
-        if let Some(ref card) = self.card()
-            && !card.supports_authenticated_extended_card
-        {
-            return Ok(card.clone());
+        if let Some(ref card) = self.card() {
+            if !card.supports_extended_card() {
+                return Ok(card.clone());
+            }
         }
 
-        let (_, meta) = self.intercept_before("GetAgentCard", ()).await?;
-        let result = CALL_META
-            .scope(meta, async { self.transport.get_agent_card().await })
-            .await;
+        let result = self.transport.get_agent_card().await;
         let card = self.intercept_after("GetAgentCard", result).await?;
         self.set_card(card.clone());
         Ok(card)

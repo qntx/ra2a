@@ -12,7 +12,7 @@ categories = ["network-programming", "web-programming"]
 
 [dependencies]
 axum = { workspace = true, optional = true }
-base64 = { workspace = true, optional = true }
+base64.workspace = true
 chrono.workspace = true
 futures.workspace = true
 opentelemetry = { workspace = true, optional = true }
@@ -45,7 +45,7 @@ tonic-prost-build = { workspace = true, optional = true }
 default = ["client", "server"]
 client = []
 server = ["axum"]
-grpc = ["client", "tonic", "prost", "prost-types", "tonic-prost", "tonic-prost-build", "google-api-proto", "base64", "tokio-stream"]
+grpc = ["client", "tonic", "prost", "prost-types", "tonic-prost", "tonic-prost-build", "google-api-proto", "tokio-stream"]
 telemetry = ["opentelemetry", "tracing-opentelemetry"]
 postgresql = ["sqlx", "sqlx/postgres"]
 mysql = ["sqlx", "sqlx/mysql"]

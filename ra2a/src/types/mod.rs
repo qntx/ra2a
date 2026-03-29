@@ -1,45 +1,54 @@
-//! A2A Protocol types and data models.
+//! A2A Protocol v1.0 types and data models.
 //!
 //! Core type definitions for messages, tasks, agent cards, events,
-//! JSON-RPC structures, and security schemes.
+//! security schemes, push notifications, and request/response types.
 //!
-//! Aligned with Go's `a2a` package layout.
+//! All types are derived from the authoritative `a2a.proto` specification.
 
-mod agent;
-mod message;
-mod params;
-mod part;
-mod push;
-mod task;
+pub mod agent;
+pub mod artifact;
+pub mod event;
+pub mod id;
+pub mod message;
+pub mod part;
+pub mod push;
+pub mod request;
+pub mod response;
+pub mod security;
+pub mod task;
 
 pub use agent::{
     AgentCapabilities, AgentCard, AgentCardSignature, AgentExtension, AgentInterface,
-    AgentProvider, AgentSkill, ApiKeyLocation, ApiKeySecurityScheme, AuthorizationCodeOAuthFlow,
-    ClientCredentialsOAuthFlow, HttpAuthSecurityScheme, ImplicitOAuthFlow, MutualTlsSecurityScheme,
-    OAuth2SecurityScheme, OAuthFlows, OpenIdConnectSecurityScheme, PasswordOAuthFlow,
-    SecurityScheme, TransportProtocol,
+    AgentProvider, AgentSkill, TransportProtocol,
 };
+pub use artifact::Artifact;
+pub use event::{
+    SendMessageResponse, StreamResponse, TaskArtifactUpdateEvent, TaskStatusUpdateEvent,
+};
+pub use id::{ArtifactId, ContextId, MessageId, TaskId};
 pub use message::{Message, Role};
-pub use params::{
-    ListTasksRequest, ListTasksResponse, MessageSendConfig, MessageSendParams, TaskIdParams,
-    TaskQueryParams,
+pub use part::{Part, PartContent};
+pub use push::{AuthenticationInfo, PushNotificationConfig, TaskPushNotificationConfig};
+pub use request::{
+    CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
+    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
+    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
+    ListTasksRequest, SendMessageConfiguration, SendMessageRequest, SubscribeToTaskRequest,
 };
-pub use part::{DataPart, FileBytes, FileContent, FilePart, FileUri, Part, TextPart};
-pub use push::{
-    DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams, PushAuthInfo,
-    PushConfig, TaskPushConfig,
+pub use response::{ListTaskPushNotificationConfigResponse, ListTasksResponse};
+pub use security::{
+    ApiKeyLocation, ApiKeySecurityScheme, AuthorizationCodeOAuthFlow, ClientCredentialsOAuthFlow,
+    DeviceCodeOAuthFlow, HttpAuthSecurityScheme, MutualTlsSecurityScheme, OAuth2SecurityScheme,
+    OAuthFlow, OpenIdConnectSecurityScheme, SecurityRequirement, SecurityScheme,
 };
-pub use task::{
-    Artifact, Event, SendMessageResult, Task, TaskArtifactUpdateEvent, TaskState, TaskStatus,
-    TaskStatusUpdateEvent, TaskVersion,
-};
+pub use task::{Task, TaskState, TaskStatus};
 
 /// Extension metadata map used throughout the A2A protocol.
 ///
-/// Aligned with Go's `map[string]any` used for metadata fields.
+/// Corresponds to proto `google.protobuf.Struct`.
 pub type Metadata = std::collections::HashMap<String, serde_json::Value>;
 
-/// Helper for serde: skip serializing boolean fields when false.
+/// Helper for serde: skip serializing boolean fields when `false`.
 pub(crate) fn is_false(v: &bool) -> bool {
     !v
 }

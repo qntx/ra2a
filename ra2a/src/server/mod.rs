@@ -32,7 +32,8 @@ pub use middleware::{
     RequestMeta, Response, UnauthenticatedUser, User, request_meta,
 };
 pub use push::{
-    HttpPushSender, HttpPushSenderConfig, InMemoryPushConfigStore, PushConfigStore, PushSender,
+    HttpPushSender, HttpPushSenderConfig, InMemoryPushNotificationConfigStore,
+    PushNotificationConfigStore, PushSender,
 };
 pub use task_store::{InMemoryTaskStore, TaskStore};
 
@@ -68,7 +69,7 @@ pub struct HandlerBuilder {
     agent_card: AgentCard,
     task_store: Option<Arc<dyn TaskStore>>,
     queue_manager: Option<Arc<QueueManager>>,
-    push_config_store: Option<Arc<dyn PushConfigStore>>,
+    push_config_store: Option<Arc<dyn PushNotificationConfigStore>>,
     push_sender: Option<Arc<dyn PushSender>>,
     req_context_interceptors: Vec<Arc<dyn RequestContextInterceptor>>,
     call_interceptors: Vec<Arc<dyn CallInterceptor>>,
@@ -106,7 +107,7 @@ impl HandlerBuilder {
     /// Adds push notification support.
     pub fn with_push_notifications(
         mut self,
-        store: Arc<dyn PushConfigStore>,
+        store: Arc<dyn PushNotificationConfigStore>,
         sender: Arc<dyn PushSender>,
     ) -> Self {
         self.push_config_store = Some(store);

@@ -126,7 +126,7 @@ pub async fn handle_sse(
     use super::handler::parse_params;
     use crate::error::JsonRpcError;
     use crate::jsonrpc::{self, JsonRpcRequest};
-    use crate::types::{MessageSendParams, TaskIdParams};
+    use crate::types::{SendMessageRequest, SubscribeToTaskRequest};
 
     let meta = super::RequestMeta::from_header_map(&headers);
 
@@ -145,15 +145,17 @@ pub async fn handle_sse(
         .scope(meta, async {
             match request.method.as_str() {
                 jsonrpc::METHOD_MESSAGE_STREAM => {
-                    match parse_params::<MessageSendParams>(&request) {
+                    match parse_params::<SendMessageRequest>(&request) {
                         Ok(p) => handler.on_message_stream(p).await,
                         Err(e) => Err(e),
                     }
                 }
-                jsonrpc::METHOD_TASKS_RESUBSCRIBE => match parse_params::<TaskIdParams>(&request) {
-                    Ok(p) => handler.on_resubscribe(p).await,
-                    Err(e) => Err(e),
-                },
+                jsonrpc::METHOD_TASKS_RESUBSCRIBE => {
+                    match parse_params::<SubscribeToTaskRequest>(&request) {
+                        Ok(p) => handler.on_subscribe_to_task(p).await,
+                        Err(e) => Err(e),
+                    }
+                }
                 _ => Err(JsonRpcError::method_not_found(&request.method).into()),
             }
         })

@@ -89,6 +89,14 @@ pub enum A2AError {
     #[error("concurrent task modification")]
     ConcurrentTaskModification,
 
+    /// The client requested use of a required extension but did not declare support.
+    #[error("extension support required: {0}")]
+    ExtensionSupportRequired(String),
+
+    /// The A2A protocol version specified in the request is not supported.
+    #[error("version not supported: {0}")]
+    VersionNotSupported(String),
+
     // === Transport Errors ===
     /// JSON-RPC protocol error received from remote.
     #[error("JSON-RPC error: {0}")]
@@ -187,6 +195,14 @@ impl A2AError {
                 JsonRpcErrorCode::ConcurrentTaskModification,
                 "Concurrent task modification",
             ),
+            Self::ExtensionSupportRequired(_) => (
+                JsonRpcErrorCode::ExtensionSupportRequired,
+                "Extension support required",
+            ),
+            Self::VersionNotSupported(_) => (
+                JsonRpcErrorCode::VersionNotSupported,
+                "Version not supported",
+            ),
             _ => (JsonRpcErrorCode::InternalError, "Internal error"),
         }
     }
@@ -230,6 +246,10 @@ pub enum JsonRpcErrorCode {
     Unauthorized = -31403,
     /// Optimistic concurrency control failed.
     ConcurrentTaskModification = -32008,
+    /// Extension support required.
+    ExtensionSupportRequired = -32009,
+    /// Version not supported.
+    VersionNotSupported = -32010,
 }
 
 impl JsonRpcErrorCode {
@@ -255,6 +275,8 @@ impl JsonRpcErrorCode {
             Self::Unauthenticated => "Unauthenticated",
             Self::Unauthorized => "Permission denied",
             Self::ConcurrentTaskModification => "Concurrent task modification",
+            Self::ExtensionSupportRequired => "Extension support required",
+            Self::VersionNotSupported => "Version not supported",
         }
     }
 }
@@ -277,6 +299,8 @@ impl From<i32> for JsonRpcErrorCode {
             -31401 => Self::Unauthenticated,
             -31403 => Self::Unauthorized,
             -32008 => Self::ConcurrentTaskModification,
+            -32009 => Self::ExtensionSupportRequired,
+            -32010 => Self::VersionNotSupported,
             _ => Self::InternalError,
         }
     }

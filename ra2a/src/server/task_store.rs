@@ -7,7 +7,36 @@ use std::pin::Pin;
 
 use crate::error::Result;
 use crate::server::event::Event;
-use crate::types::{ListTasksRequest, ListTasksResponse, Task, TaskVersion};
+use crate::types::{ListTasksRequest, ListTasksResponse, Task};
+
+/// Version of a task stored on the server, used for optimistic concurrency control.
+///
+/// A value of `0` (`MISSING`) means version tracking is not active.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct TaskVersion(pub i64);
+
+impl TaskVersion {
+    /// Special value indicating that version tracking is not active.
+    pub const MISSING: Self = Self(0);
+}
+
+impl From<i64> for TaskVersion {
+    fn from(v: i64) -> Self {
+        Self(v)
+    }
+}
 
 /// Agent Task Store interface.
 ///
@@ -89,7 +118,7 @@ impl TaskStore for InMemoryTaskStore {
             );
             let mut tasks = self.tasks.write().await;
             tasks.insert(
-                task.id.clone(),
+                task.id.as_str().to_owned(),
                 VersionedTask {
                     task: task.clone(),
                     version: ver,
@@ -130,7 +159,7 @@ impl TaskStore for InMemoryTaskStore {
 
             // Apply context_id filter
             if let Some(ref ctx_id) = req.context_id {
-                result.retain(|t| t.context_id == *ctx_id);
+                result.retain(|t| t.context_id.as_str() == ctx_id.as_str());
             }
 
             // Apply status filter
@@ -158,9 +187,9 @@ impl TaskStore for InMemoryTaskStore {
 
             Ok(ListTasksResponse {
                 tasks: paged,
-                total_size: Some(total_size),
-                page_size: Some(page_size as i32),
-                next_page_token,
+                total_size,
+                page_size: page_size as i32,
+                next_page_token: next_page_token.unwrap_or_default(),
             })
         })
     }
@@ -238,8 +267,8 @@ pub mod sql {
         #[must_use]
         pub fn from_task(task: &Task) -> Self {
             Self {
-                id: task.id.clone(),
-                context_id: task.context_id.clone(),
+                id: task.id.as_str().to_owned(),
+                context_id: task.context_id.as_str().to_owned(),
                 status_state: task_state_to_string(task.status.state),
                 status_message: task
                     .status
@@ -257,11 +286,13 @@ pub mod sql {
                 } else {
                     serde_json::to_string(&task.artifacts).ok()
                 },
-                metadata: if task.metadata.is_empty() {
-                    None
-                } else {
-                    serde_json::to_string(&task.metadata).ok()
-                },
+                metadata: task.metadata.as_ref().and_then(|m| {
+                    if m.is_empty() {
+                        None
+                    } else {
+                        serde_json::to_string(m).ok()
+                    }
+                }),
             }
         }
 
@@ -269,7 +300,10 @@ pub mod sql {
         pub fn to_task(&self) -> Result<Task> {
             let state = string_to_task_state(&self.status_state);
 
-            let mut task = Task::new(&self.id, &self.context_id);
+            let mut task = Task::new(
+                crate::types::TaskId::from(self.id.as_str()),
+                crate::types::ContextId::from(self.context_id.as_str()),
+            );
             task.status = TaskStatus::new(state);
             task.status.timestamp = self.status_timestamp.clone();
 
@@ -286,42 +320,22 @@ pub mod sql {
             }
 
             if let Some(ref metadata_json) = self.metadata {
-                task.metadata = serde_json::from_str(metadata_json).unwrap_or_default();
+                task.metadata = serde_json::from_str(metadata_json).ok();
             }
 
             Ok(task)
         }
     }
 
-    /// Converts `TaskState` to a kebab-case string for storage.
+    /// Converts `TaskState` to a string for storage (uses proto enum names).
     fn task_state_to_string(state: TaskState) -> String {
-        match state {
-            TaskState::Submitted => "submitted",
-            TaskState::Working => "working",
-            TaskState::InputRequired => "input-required",
-            TaskState::Completed => "completed",
-            TaskState::Canceled => "canceled",
-            TaskState::Failed => "failed",
-            TaskState::Rejected => "rejected",
-            TaskState::AuthRequired => "auth-required",
-            TaskState::Unknown => "unknown",
-        }
-        .to_string()
+        state.to_string()
     }
 
     /// Converts a string to `TaskState`.
     fn string_to_task_state(s: &str) -> TaskState {
-        match s {
-            "submitted" => TaskState::Submitted,
-            "working" => TaskState::Working,
-            "input-required" => TaskState::InputRequired,
-            "completed" => TaskState::Completed,
-            "canceled" => TaskState::Canceled,
-            "failed" => TaskState::Failed,
-            "rejected" => TaskState::Rejected,
-            "auth-required" => TaskState::AuthRequired,
-            _ => TaskState::Unknown,
-        }
+        serde_json::from_value(serde_json::Value::String(s.to_owned()))
+            .unwrap_or(TaskState::Unspecified)
     }
 
     /// Generates `TaskStore` implementation for a SQL backend.
@@ -474,9 +488,9 @@ pub mod sql {
                             let total = tasks.len() as i32;
                             Ok(ListTasksResponse {
                                 tasks,
-                                total_size: Some(total),
-                                page_size: Some(total),
-                                next_page_token: None,
+                                total_size: total,
+                                page_size: total,
+                                next_page_token: String::new(),
                             })
                         })
                     }

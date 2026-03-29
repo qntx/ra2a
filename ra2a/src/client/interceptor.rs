@@ -1,9 +1,8 @@
-//! Call interceptors for cross-cutting concerns (auth, logging, tracing).
+//! Client-side call interceptors and service parameters.
 //!
-//! Aligned with Go's `CallInterceptor` in `a2aclient/middleware.go`.
-//! Interceptors can inspect and modify both request/response payloads
-//! and metadata (HTTP headers). `CallMeta` is propagated to the transport
-//! layer via [`CALL_META`] task-local, mirroring Go's `context.Value`.
+//! - [`ServiceParams`] — A2A service parameters (protocol version, extensions)
+//!   propagated via HTTP headers or gRPC metadata.
+//! - [`CallInterceptor`] — middleware for observing/modifying requests and responses.
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -13,54 +12,46 @@ use std::pin::Pin;
 use crate::error::{A2AError, Result};
 
 tokio::task_local! {
-    /// Per-request metadata propagated from interceptors to the transport layer.
-    ///
-    /// Mirrors Go's `CallMetaFrom(ctx)` pattern. Transport implementations
-    /// use [`call_meta`] to read interceptor-set headers (e.g. auth tokens).
-    pub static CALL_META: CallMeta;
+    /// Per-request service parameters propagated from interceptors to the transport layer.
+    pub static SERVICE_PARAMS: ServiceParams;
 }
 
-/// Returns a clone of the current request's [`CallMeta`], if set.
-///
-/// Transport implementations call this to retrieve headers set by interceptors.
-pub fn call_meta() -> Option<CallMeta> {
-    CALL_META.try_with(|m| m.clone()).ok()
+/// Returns a clone of the current request's [`ServiceParams`], if set.
+pub fn current_service_params() -> Option<ServiceParams> {
+    SERVICE_PARAMS.try_with(|m| m.clone()).ok()
 }
 
-/// Case-insensitive metadata map carried through interceptor chains.
+/// A2A service parameters carried through interceptor chains and transport calls.
 ///
-/// Mirrors Go's `CallMeta` (backed by `http.Header`). Keys are lowercased
-/// on insertion; values are multi-valued like HTTP headers.
+/// Corresponds to the A2A specification's "Service Parameters" concept.
+/// Standard keys: `A2A-Version`, `A2A-Extensions`.
 #[derive(Debug, Clone, Default)]
-pub struct CallMeta {
+pub struct ServiceParams {
     inner: HashMap<String, Vec<String>>,
 }
 
-impl CallMeta {
-    /// Appends a value, lowercasing the key. Duplicates are not added.
+impl ServiceParams {
+    /// Appends one or more values for a key (case-preserved).
     pub fn append(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        let vals = self
-            .inner
-            .entry(key.into().to_ascii_lowercase())
-            .or_default();
+        let vals = self.inner.entry(key.into()).or_default();
         let v = value.into();
         if !vals.contains(&v) {
             vals.push(v);
         }
     }
 
-    /// Returns the first value for the given key (case-insensitive).
-    pub fn get(&self, key: &str) -> Option<&str> {
+    /// Returns the first value for the given key.
+    #[must_use]
+    pub fn get_first(&self, key: &str) -> Option<&str> {
         self.inner
-            .get(&key.to_ascii_lowercase())
+            .get(key)
             .and_then(|v| v.first().map(String::as_str))
     }
 
-    /// Returns all values for the given key (case-insensitive).
+    /// Returns all values for the given key.
+    #[must_use]
     pub fn get_all(&self, key: &str) -> &[String] {
-        self.inner
-            .get(&key.to_ascii_lowercase())
-            .map_or(&[], Vec::as_slice)
+        self.inner.get(key).map_or(&[], Vec::as_slice)
     }
 
     /// Returns an iterator over all key-value pairs.
@@ -68,40 +59,35 @@ impl CallMeta {
         self.inner.iter().map(|(k, v)| (k.as_str(), v.as_slice()))
     }
 
-    /// Returns true if the map contains no entries.
+    /// Returns the full map.
+    #[must_use]
+    pub fn as_map(&self) -> &HashMap<String, Vec<String>> {
+        &self.inner
+    }
+
+    /// Returns `true` if no parameters are set.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 }
 
 /// Transport-agnostic outgoing request that interceptors can observe and modify.
-///
-/// Aligned with Go's `a2aclient.Request`. Carries the method name, metadata
-/// (HTTP headers), the agent card, and the actual request payload.
 pub struct Request {
     /// The method being called (e.g. `"SendMessage"`).
     pub method: String,
-    /// The base URL of the agent interface.
-    pub base_url: String,
-    /// Metadata to attach as HTTP headers on the outgoing request.
-    pub meta: CallMeta,
     /// The agent card, if already resolved.
     pub card: Option<crate::types::AgentCard>,
-    /// The request payload. One of the `a2a` parameter types, boxed.
+    /// Service parameters to propagate to the transport.
+    pub service_params: ServiceParams,
+    /// The request payload (one of the A2A request types), type-erased.
     pub payload: Box<dyn Any + Send>,
 }
 
 /// Transport-agnostic response that interceptors can observe and modify.
-///
-/// Aligned with Go's `a2aclient.Response`. Carries the method name, metadata,
-/// the agent card, and the actual response payload or error.
 pub struct Response {
     /// The method that was called.
     pub method: String,
-    /// The base URL of the agent interface.
-    pub base_url: String,
-    /// Metadata from response headers.
-    pub meta: CallMeta,
     /// The agent card, if resolved.
     pub card: Option<crate::types::AgentCard>,
     /// The response payload, if successful.
@@ -112,10 +98,9 @@ pub struct Response {
 
 /// Middleware for intercepting client calls.
 ///
-/// Aligned with Go's `CallInterceptor` interface. Both `before` and `after`
-/// are invoked in the order interceptors were attached.
+/// Both `before` and `after` are invoked in the order interceptors were attached.
 pub trait CallInterceptor: Send + Sync {
-    /// Called before the transport call. May modify outgoing metadata and payload.
+    /// Called before the transport call. May modify service parameters and payload.
     fn before<'a>(
         &'a self,
         req: &'a mut Request,
@@ -134,37 +119,36 @@ pub trait CallInterceptor: Send + Sync {
     }
 }
 
-/// No-op interceptor for embedding in custom implementations.
+/// No-op interceptor.
 pub struct PassthroughInterceptor;
 
 impl CallInterceptor for PassthroughInterceptor {}
 
-/// A [`CallInterceptor`] that attaches static metadata to all outgoing requests.
+/// A [`CallInterceptor`] that attaches static service parameters to all requests.
 ///
-/// Aligned with Go's `NewStaticCallMetaInjector`. Useful for injecting
-/// fixed headers (e.g. API keys, tracing IDs) into every request.
+/// Useful for injecting fixed headers (e.g. API keys, tracing IDs).
 ///
 /// # Example
 ///
 /// ```
-/// use ra2a::client::{CallMeta, StaticCallMetaInjector, Client};
+/// use ra2a::client::{ServiceParams, StaticParamsInjector};
 ///
-/// let mut meta = CallMeta::default();
-/// meta.append("x-api-key", "my-secret");
-/// // client.with_interceptor(StaticCallMetaInjector::new(meta));
+/// let mut params = ServiceParams::default();
+/// params.append("x-api-key", "my-secret");
+/// // client.with_interceptor(StaticParamsInjector::new(params));
 /// ```
-pub struct StaticCallMetaInjector {
-    inject: CallMeta,
+pub struct StaticParamsInjector {
+    inject: ServiceParams,
 }
 
-impl StaticCallMetaInjector {
-    /// Creates a new injector that appends the given metadata to every request.
-    pub fn new(meta: CallMeta) -> Self {
-        Self { inject: meta }
+impl StaticParamsInjector {
+    /// Creates a new injector.
+    pub fn new(params: ServiceParams) -> Self {
+        Self { inject: params }
     }
 }
 
-impl CallInterceptor for StaticCallMetaInjector {
+impl CallInterceptor for StaticParamsInjector {
     fn before<'a>(
         &'a self,
         req: &'a mut Request,
@@ -172,7 +156,7 @@ impl CallInterceptor for StaticCallMetaInjector {
         Box::pin(async move {
             for (key, values) in self.inject.iter() {
                 for value in values {
-                    req.meta.append(key, value);
+                    req.service_params.append(key, value);
                 }
             }
             Ok(())

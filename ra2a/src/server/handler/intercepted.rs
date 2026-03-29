@@ -18,9 +18,12 @@ use crate::error::{A2AError, Result};
 use crate::jsonrpc;
 use crate::server::middleware::{CallContext, CallInterceptor, Request, Response, request_meta};
 use crate::types::{
-    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
-    ListTasksRequest, ListTasksResponse, MessageSendParams, SendMessageResult, Task, TaskIdParams,
-    TaskPushConfig, TaskQueryParams,
+    AgentCard, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
+    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
+    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
+    ListTaskPushNotificationConfigResponse, ListTasksRequest, ListTasksResponse,
+    SendMessageRequest, SendMessageResponse, SubscribeToTaskRequest, Task,
+    TaskPushNotificationConfig,
 };
 
 /// A [`RequestHandler`] wrapper that applies [`CallInterceptor`]s before and after
@@ -140,142 +143,144 @@ impl InterceptedHandler {
 impl RequestHandler for InterceptedHandler {
     fn on_message_send(
         &self,
-        params: MessageSendParams,
-    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResult>> + Send + '_>> {
+        req: SendMessageRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResponse>> + Send + '_>> {
         Box::pin(async move {
-            let (ctx, params) = self
-                .run_before_typed(jsonrpc::METHOD_MESSAGE_SEND, params)
+            let (ctx, req) = self
+                .run_before_typed(jsonrpc::METHOD_MESSAGE_SEND, req)
                 .await?;
-            let result = self.inner.on_message_send(params).await;
+            let result = self.inner.on_message_send(req).await;
             self.run_after_typed(&ctx, result).await
         })
     }
 
     fn on_message_stream(
         &self,
-        params: MessageSendParams,
+        req: SendMessageRequest,
     ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + '_>> {
         Box::pin(async move {
-            let (_ctx, params) = self
-                .run_before_typed(jsonrpc::METHOD_MESSAGE_STREAM, params)
+            let (_ctx, req) = self
+                .run_before_typed(jsonrpc::METHOD_MESSAGE_STREAM, req)
                 .await?;
-            let stream = self.inner.on_message_stream(params).await?;
+            let stream = self.inner.on_message_stream(req).await?;
             Ok(self.wrap_stream(jsonrpc::METHOD_MESSAGE_STREAM, stream))
         })
     }
 
     fn on_get_task(
         &self,
-        params: TaskQueryParams,
+        req: GetTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + '_>> {
         Box::pin(async move {
-            let (ctx, params) = self
-                .run_before_typed(jsonrpc::METHOD_TASKS_GET, params)
+            let (ctx, req) = self
+                .run_before_typed(jsonrpc::METHOD_TASKS_GET, req)
                 .await?;
-            let result = self.inner.on_get_task(params).await;
+            let result = self.inner.on_get_task(req).await;
             self.run_after_typed(&ctx, result).await
         })
     }
 
     fn on_cancel_task(
         &self,
-        params: TaskIdParams,
+        req: CancelTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + '_>> {
         Box::pin(async move {
-            let (ctx, params) = self
-                .run_before_typed(jsonrpc::METHOD_TASKS_CANCEL, params)
+            let (ctx, req) = self
+                .run_before_typed(jsonrpc::METHOD_TASKS_CANCEL, req)
                 .await?;
-            let result = self.inner.on_cancel_task(params).await;
+            let result = self.inner.on_cancel_task(req).await;
             self.run_after_typed(&ctx, result).await
         })
     }
 
-    fn on_resubscribe(
+    fn on_subscribe_to_task(
         &self,
-        params: TaskIdParams,
+        req: SubscribeToTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + '_>> {
         Box::pin(async move {
-            let (_ctx, params) = self
-                .run_before_typed(jsonrpc::METHOD_TASKS_RESUBSCRIBE, params)
+            let (_ctx, req) = self
+                .run_before_typed(jsonrpc::METHOD_TASKS_RESUBSCRIBE, req)
                 .await?;
-            let stream = self.inner.on_resubscribe(params).await?;
+            let stream = self.inner.on_subscribe_to_task(req).await?;
             Ok(self.wrap_stream(jsonrpc::METHOD_TASKS_RESUBSCRIBE, stream))
         })
     }
 
-    fn on_set_task_push_config(
+    fn on_create_task_push_config(
         &self,
-        params: TaskPushConfig,
-    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + '_>> {
+        req: CreateTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + '_>> {
         Box::pin(async move {
-            let (ctx, params) = self
-                .run_before_typed(jsonrpc::METHOD_PUSH_CONFIG_SET, params)
+            let (ctx, req) = self
+                .run_before_typed(jsonrpc::METHOD_PUSH_CONFIG_SET, req)
                 .await?;
-            let result = self.inner.on_set_task_push_config(params).await;
+            let result = self.inner.on_create_task_push_config(req).await;
             self.run_after_typed(&ctx, result).await
         })
     }
 
     fn on_get_task_push_config(
         &self,
-        params: GetTaskPushConfigParams,
-    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + '_>> {
+        req: GetTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + '_>> {
         Box::pin(async move {
-            let (ctx, params) = self
-                .run_before_typed(jsonrpc::METHOD_PUSH_CONFIG_GET, params)
+            let (ctx, req) = self
+                .run_before_typed(jsonrpc::METHOD_PUSH_CONFIG_GET, req)
                 .await?;
-            let result = self.inner.on_get_task_push_config(params).await;
+            let result = self.inner.on_get_task_push_config(req).await;
             self.run_after_typed(&ctx, result).await
         })
     }
 
-    fn on_list_task_push_config(
+    fn on_list_task_push_configs(
         &self,
-        params: ListTaskPushConfigParams,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<TaskPushConfig>>> + Send + '_>> {
+        req: ListTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigResponse>> + Send + '_>>
+    {
         Box::pin(async move {
-            let (ctx, params) = self
-                .run_before_typed(jsonrpc::METHOD_PUSH_CONFIG_LIST, params)
+            let (ctx, req) = self
+                .run_before_typed(jsonrpc::METHOD_PUSH_CONFIG_LIST, req)
                 .await?;
-            let result = self.inner.on_list_task_push_config(params).await;
+            let result = self.inner.on_list_task_push_configs(req).await;
             self.run_after_typed(&ctx, result).await
         })
     }
 
     fn on_delete_task_push_config(
         &self,
-        params: DeleteTaskPushConfigParams,
+        req: DeleteTaskPushNotificationConfigRequest,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
         Box::pin(async move {
-            let (ctx, params) = self
-                .run_before_typed(jsonrpc::METHOD_PUSH_CONFIG_DELETE, params)
+            let (ctx, req) = self
+                .run_before_typed(jsonrpc::METHOD_PUSH_CONFIG_DELETE, req)
                 .await?;
-            let result = self.inner.on_delete_task_push_config(params).await;
+            let result = self.inner.on_delete_task_push_config(req).await;
             self.run_after_typed(&ctx, result).await
         })
     }
 
     fn on_list_tasks(
         &self,
-        params: ListTasksRequest,
+        req: ListTasksRequest,
     ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + '_>> {
         Box::pin(async move {
-            let (ctx, params) = self
-                .run_before_typed(jsonrpc::METHOD_TASKS_LIST, params)
+            let (ctx, req) = self
+                .run_before_typed(jsonrpc::METHOD_TASKS_LIST, req)
                 .await?;
-            let result = self.inner.on_list_tasks(params).await;
+            let result = self.inner.on_list_tasks(req).await;
             self.run_after_typed(&ctx, result).await
         })
     }
 
     fn on_get_extended_agent_card(
         &self,
+        req: GetExtendedAgentCardRequest,
     ) -> Pin<Box<dyn Future<Output = Result<AgentCard>> + Send + '_>> {
         Box::pin(async move {
-            let (ctx, _) = self
-                .run_before_typed::<()>(jsonrpc::METHOD_GET_EXTENDED_AGENT_CARD, ())
+            let (ctx, req) = self
+                .run_before_typed(jsonrpc::METHOD_GET_EXTENDED_AGENT_CARD, req)
                 .await?;
-            let result = self.inner.on_get_extended_agent_card().await;
+            let result = self.inner.on_get_extended_agent_card(req).await;
             self.run_after_typed(&ctx, result).await
         })
     }

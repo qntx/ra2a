@@ -19,107 +19,95 @@ use super::event::Event;
 use crate::error::{JsonRpcError, Result};
 use crate::jsonrpc::{self, JsonRpcErrorResponse, JsonRpcRequest, JsonRpcSuccessResponse};
 use crate::types::{
-    AgentCard, DeleteTaskPushConfigParams, GetTaskPushConfigParams, ListTaskPushConfigParams,
-    ListTasksRequest, ListTasksResponse, MessageSendParams, SendMessageResult, Task, TaskIdParams,
-    TaskPushConfig, TaskQueryParams,
+    AgentCard, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
+    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
+    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
+    ListTaskPushNotificationConfigResponse, ListTasksRequest, ListTasksResponse,
+    SendMessageRequest, SendMessageResponse, SubscribeToTaskRequest, Task,
+    TaskPushNotificationConfig,
 };
 
 /// A boxed stream of events for streaming responses.
 pub type EventStream = Pin<Box<dyn Stream<Item = Result<Event>> + Send>>;
 
-/// Trait defining the interface for handling A2A JSON-RPC requests.
-///
-/// Implement this trait to customize how your server handles incoming requests.
-/// The `DefaultRequestHandler` provides a standard implementation that coordinates
-/// between the `AgentExecutor`, `TaskStore`, and `QueueManager`.
+/// Trait defining the interface for handling A2A protocol requests.
 pub trait RequestHandler: Send + Sync {
     /// Handles the `message/send` request (non-streaming).
     fn on_message_send(
         &self,
-        params: MessageSendParams,
-    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResult>> + Send + '_>>;
+        req: SendMessageRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<SendMessageResponse>> + Send + '_>>;
 
     /// Handles the `message/stream` request (streaming).
     fn on_message_stream(
         &self,
-        params: MessageSendParams,
+        req: SendMessageRequest,
     ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + '_>>;
 
     /// Handles the `tasks/get` request.
     fn on_get_task(
         &self,
-        params: TaskQueryParams,
+        req: GetTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + '_>>;
+
+    /// Handles the `tasks/list` request.
+    fn on_list_tasks(
+        &self,
+        req: ListTasksRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + '_>> {
+        let _ = req;
+        Box::pin(async { Ok(ListTasksResponse::default()) })
+    }
 
     /// Handles the `tasks/cancel` request.
     fn on_cancel_task(
         &self,
-        params: TaskIdParams,
+        req: CancelTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<Task>> + Send + '_>>;
 
-    /// Handles the `tasks/resubscribe` request.
-    fn on_resubscribe(
+    /// Handles the `tasks/subscribe` request (streaming).
+    fn on_subscribe_to_task(
         &self,
-        params: TaskIdParams,
+        req: SubscribeToTaskRequest,
     ) -> Pin<Box<dyn Future<Output = Result<EventStream>> + Send + '_>>;
 
-    /// Handles the `tasks/pushNotificationConfig/set` request.
-    ///
-    /// Default returns [`A2AError::PushNotificationNotSupported`](crate::error::A2AError::PushNotificationNotSupported).
-    fn on_set_task_push_config(
+    /// Creates a push notification config.
+    fn on_create_task_push_config(
         &self,
-        _params: TaskPushConfig,
-    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + '_>> {
+        _req: CreateTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + '_>> {
         Box::pin(async { Err(crate::error::A2AError::PushNotificationNotSupported) })
     }
 
-    /// Handles the `tasks/pushNotificationConfig/get` request.
-    ///
-    /// Default returns [`A2AError::PushNotificationNotSupported`](crate::error::A2AError::PushNotificationNotSupported).
+    /// Gets a push notification config.
     fn on_get_task_push_config(
         &self,
-        _params: GetTaskPushConfigParams,
-    ) -> Pin<Box<dyn Future<Output = Result<TaskPushConfig>> + Send + '_>> {
+        _req: GetTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + '_>> {
         Box::pin(async { Err(crate::error::A2AError::PushNotificationNotSupported) })
     }
 
-    /// Handles the `tasks/pushNotificationConfig/list` request.
-    ///
-    /// Default returns [`A2AError::PushNotificationNotSupported`](crate::error::A2AError::PushNotificationNotSupported).
-    fn on_list_task_push_config(
+    /// Lists push notification configs.
+    fn on_list_task_push_configs(
         &self,
-        _params: ListTaskPushConfigParams,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<TaskPushConfig>>> + Send + '_>> {
+        _req: ListTaskPushNotificationConfigRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigResponse>> + Send + '_>>
+    {
         Box::pin(async { Err(crate::error::A2AError::PushNotificationNotSupported) })
     }
 
-    /// Handles the `tasks/pushNotificationConfig/delete` request.
-    ///
-    /// Default returns [`A2AError::PushNotificationNotSupported`](crate::error::A2AError::PushNotificationNotSupported).
+    /// Deletes a push notification config.
     fn on_delete_task_push_config(
         &self,
-        _params: DeleteTaskPushConfigParams,
+        _req: DeleteTaskPushNotificationConfigRequest,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
         Box::pin(async { Err(crate::error::A2AError::PushNotificationNotSupported) })
     }
 
-    /// Handles the `tasks/list` request.
-    ///
-    /// Default implementation returns an empty list. Override to provide
-    /// filtering/pagination backed by your [`TaskStore`](super::TaskStore).
-    fn on_list_tasks(
-        &self,
-        _params: ListTasksRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<ListTasksResponse>> + Send + '_>> {
-        Box::pin(async { Ok(ListTasksResponse::default()) })
-    }
-
     /// Returns the authenticated extended agent card.
-    ///
-    /// Aligned with Go's `OnGetExtendedAgentCard`. The default implementation
-    /// returns [`A2AError::ExtendedCardNotConfigured`](crate::error::A2AError::ExtendedCardNotConfigured).
     fn on_get_extended_agent_card(
         &self,
+        _req: GetExtendedAgentCardRequest,
     ) -> Pin<Box<dyn Future<Output = Result<AgentCard>> + Send + '_>> {
         Box::pin(async { Err(crate::error::A2AError::ExtendedCardNotConfigured) })
     }
@@ -143,52 +131,52 @@ pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<S
     // Dispatch to the appropriate handler method
     let result: Result<String> = match request.method.as_str() {
         jsonrpc::METHOD_MESSAGE_SEND => {
-            let params = parse_params::<MessageSendParams>(&request)?;
-            let resp = handler.on_message_send(params).await?;
+            let req = parse_params::<SendMessageRequest>(&request)?;
+            let resp = handler.on_message_send(req).await?;
             serialize_success(&id, &resp)
         }
         jsonrpc::METHOD_TASKS_GET => {
-            let params = parse_params::<TaskQueryParams>(&request)?;
-            let task = handler.on_get_task(params).await?;
+            let req = parse_params::<GetTaskRequest>(&request)?;
+            let task = handler.on_get_task(req).await?;
             serialize_success(&id, &task)
         }
         jsonrpc::METHOD_TASKS_CANCEL => {
-            let params = parse_params::<TaskIdParams>(&request)?;
-            let task = handler.on_cancel_task(params).await?;
+            let req = parse_params::<CancelTaskRequest>(&request)?;
+            let task = handler.on_cancel_task(req).await?;
             serialize_success(&id, &task)
         }
-        // Streaming methods are handled exclusively by the SSE endpoint.
         jsonrpc::METHOD_MESSAGE_STREAM | jsonrpc::METHOD_TASKS_RESUBSCRIBE => Err(
             JsonRpcError::invalid_request("Streaming methods must be called via the SSE endpoint")
                 .into(),
         ),
         jsonrpc::METHOD_TASKS_LIST => {
-            let params = parse_params::<ListTasksRequest>(&request)?;
-            let resp = handler.on_list_tasks(params).await?;
+            let req = parse_params::<ListTasksRequest>(&request)?;
+            let resp = handler.on_list_tasks(req).await?;
             serialize_success(&id, &resp)
         }
         jsonrpc::METHOD_PUSH_CONFIG_SET => {
-            let params = parse_params::<TaskPushConfig>(&request)?;
-            let config = handler.on_set_task_push_config(params).await?;
+            let req = parse_params::<CreateTaskPushNotificationConfigRequest>(&request)?;
+            let config = handler.on_create_task_push_config(req).await?;
             serialize_success(&id, &config)
         }
         jsonrpc::METHOD_PUSH_CONFIG_GET => {
-            let params = parse_params::<GetTaskPushConfigParams>(&request)?;
-            let config = handler.on_get_task_push_config(params).await?;
+            let req = parse_params::<GetTaskPushNotificationConfigRequest>(&request)?;
+            let config = handler.on_get_task_push_config(req).await?;
             serialize_success(&id, &config)
         }
         jsonrpc::METHOD_PUSH_CONFIG_LIST => {
-            let params = parse_params::<ListTaskPushConfigParams>(&request)?;
-            let configs = handler.on_list_task_push_config(params).await?;
+            let req = parse_params::<ListTaskPushNotificationConfigRequest>(&request)?;
+            let configs = handler.on_list_task_push_configs(req).await?;
             serialize_success(&id, &configs)
         }
         jsonrpc::METHOD_PUSH_CONFIG_DELETE => {
-            let params = parse_params::<DeleteTaskPushConfigParams>(&request)?;
-            handler.on_delete_task_push_config(params).await?;
+            let req = parse_params::<DeleteTaskPushNotificationConfigRequest>(&request)?;
+            handler.on_delete_task_push_config(req).await?;
             serialize_success(&id, &serde_json::Value::Null)
         }
         jsonrpc::METHOD_GET_EXTENDED_AGENT_CARD => {
-            let card = handler.on_get_extended_agent_card().await?;
+            let req = parse_params::<GetExtendedAgentCardRequest>(&request)?;
+            let card = handler.on_get_extended_agent_card(req).await?;
             serialize_success(&id, &card)
         }
         _ => Err(JsonRpcError::method_not_found(&request.method).into()),

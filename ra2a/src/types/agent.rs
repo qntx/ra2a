@@ -1,20 +1,19 @@
-//! Agent card, capability, and security scheme types for the A2A protocol.
+//! Agent card, capability, skill, and related types for the A2A protocol.
 //!
-//! Aligned with Go's `a2a` package: `agent.go` + `auth.go`.
+//! Maps to proto `AgentCard`, `AgentInterface`, `AgentCapabilities`,
+//! `AgentSkill`, `AgentExtension`, `AgentProvider`, `AgentCardSignature`.
 
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
 use super::Metadata;
+use super::security::{SecurityRequirement, SecurityScheme};
 
 /// A2A transport protocol identifier.
 ///
-/// This is an open string type — custom protocols are allowed.
+/// An open string type — custom protocols are allowed.
 /// Use the provided constants for well-known protocols.
-///
-/// Aligned with Go's `TransportProtocol` string type: "Custom protocols are
-/// allowed and the type MUST NOT be treated as an enum."
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(transparent)]
 pub struct TransportProtocol(pub String);
@@ -33,18 +32,27 @@ impl TransportProtocol {
     }
 
     /// Returns the protocol string.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
-    /// Returns true if this is the JSON-RPC protocol.
+    /// Returns `true` if this is the JSON-RPC protocol.
+    #[must_use]
     pub fn is_jsonrpc(&self) -> bool {
         self.0 == Self::JSONRPC
     }
 
-    /// Returns true if this is the gRPC protocol.
+    /// Returns `true` if this is the gRPC protocol.
+    #[must_use]
     pub fn is_grpc(&self) -> bool {
         self.0 == Self::GRPC
+    }
+
+    /// Returns `true` if this is the HTTP+JSON protocol.
+    #[must_use]
+    pub fn is_http_json(&self) -> bool {
+        self.0 == Self::HTTP_JSON
     }
 }
 
@@ -56,7 +64,7 @@ impl std::fmt::Display for TransportProtocol {
 
 impl From<&str> for TransportProtocol {
     fn from(s: &str) -> Self {
-        Self(s.to_string())
+        Self(s.to_owned())
     }
 }
 
@@ -66,102 +74,119 @@ impl From<String> for TransportProtocol {
     }
 }
 
-/// A self-describing manifest for an agent.
+/// Declares a combination of a target URL, transport, and protocol version.
+///
+/// Maps to proto `AgentInterface`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentInterface {
+    /// The URL where this interface is available.
+    pub url: String,
+    /// The protocol binding supported at this URL (e.g. `"JSONRPC"`, `"GRPC"`, `"HTTP+JSON"`).
+    pub protocol_binding: TransportProtocol,
+    /// Optional tenant to set in requests when calling the agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant: Option<String>,
+    /// The version of the A2A protocol this interface exposes (e.g. `"1.0"`).
+    pub protocol_version: String,
+}
+
+impl AgentInterface {
+    /// Creates a new interface with the given URL and protocol binding.
+    pub fn new(url: impl Into<String>, protocol_binding: TransportProtocol) -> Self {
+        Self {
+            url: url.into(),
+            protocol_binding,
+            tenant: None,
+            protocol_version: crate::PROTOCOL_VERSION.to_owned(),
+        }
+    }
+}
+
+/// A self-describing manifest for an agent.
+///
+/// Maps to proto `AgentCard`. v1.0 uses `supported_interfaces` as the primary
+/// field for declaring endpoints (replaces the old `url` + `protocolVersion` pattern).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentCard {
     /// A human-readable name for the agent.
     pub name: String,
     /// A human-readable description of the agent.
     pub description: String,
-    /// The preferred endpoint URL for interacting with the agent.
-    pub url: String,
+    /// Ordered list of supported interfaces. First entry is preferred.
+    pub supported_interfaces: Vec<AgentInterface>,
+    /// Information about the agent's service provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<AgentProvider>,
     /// The agent's own version number.
     pub version: String,
-    /// Default set of supported input MIME types.
-    pub default_input_modes: Vec<String>,
-    /// Default set of supported output MIME types.
-    pub default_output_modes: Vec<String>,
-    /// A declaration of optional capabilities supported by the agent.
+    /// URL to the agent's documentation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documentation_url: Option<String>,
+    /// Capabilities supported by the agent.
     pub capabilities: AgentCapabilities,
-    /// The set of skills the agent can perform.
-    pub skills: Vec<AgentSkill>,
-    /// The version of the A2A protocol this agent supports.
-    pub protocol_version: String,
-    /// The transport protocol for the preferred endpoint.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub preferred_transport: Option<TransportProtocol>,
-    /// Additional supported transport and URL combinations.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub additional_interfaces: Vec<AgentInterface>,
-    /// Information about the agent's service provider.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider: Option<AgentProvider>,
-    /// URL to the agent's documentation (empty = not set).
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub documentation_url: String,
-    /// URL to an icon for the agent (empty = not set).
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub icon_url: String,
     /// Security schemes available to authorize requests (keyed by scheme name).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub security_schemes: HashMap<String, SecurityScheme>,
-    /// Security requirement objects (OR-of-ANDs). Each map entry is scheme → scopes.
+    /// Security requirements for contacting the agent (OR-of-ANDs).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub security: Vec<HashMap<String, Vec<String>>>,
-    /// If true, the agent can provide an extended card to authenticated users.
-    #[serde(default, skip_serializing_if = "crate::types::is_false")]
-    pub supports_authenticated_extended_card: bool,
+    pub security_requirements: Vec<SecurityRequirement>,
+    /// Default set of supported input MIME types for all skills.
+    pub default_input_modes: Vec<String>,
+    /// Default set of supported output MIME types for all skills.
+    pub default_output_modes: Vec<String>,
+    /// Skills the agent can perform.
+    pub skills: Vec<AgentSkill>,
     /// JSON Web Signatures computed for this `AgentCard`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub signatures: Vec<AgentCardSignature>,
-}
-
-impl Default for AgentCard {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            description: String::new(),
-            url: String::new(),
-            version: "1.0.0".to_string(),
-            default_input_modes: vec!["text/plain".to_string()],
-            default_output_modes: vec!["text/plain".to_string()],
-            capabilities: AgentCapabilities::default(),
-            skills: Vec::new(),
-            protocol_version: crate::PROTOCOL_VERSION.to_string(),
-            preferred_transport: Some(TransportProtocol::new(TransportProtocol::JSONRPC)),
-            additional_interfaces: Vec::new(),
-            provider: None,
-            documentation_url: String::new(),
-            icon_url: String::new(),
-            security_schemes: HashMap::new(),
-            security: Vec::new(),
-            supports_authenticated_extended_card: false,
-            signatures: Vec::new(),
-        }
-    }
+    /// URL to an icon for the agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
 }
 
 impl AgentCard {
-    /// Creates a new `AgentCard` with the given name and URL.
-    pub fn new(name: impl Into<String>, url: impl Into<String>) -> Self {
+    /// Creates a new `AgentCard` with minimal required fields.
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        interfaces: Vec<AgentInterface>,
+    ) -> Self {
         Self {
             name: name.into(),
-            url: url.into(),
-            ..Default::default()
+            description: description.into(),
+            supported_interfaces: interfaces,
+            provider: None,
+            version: "1.0.0".into(),
+            documentation_url: None,
+            capabilities: AgentCapabilities::default(),
+            security_schemes: HashMap::new(),
+            security_requirements: Vec::new(),
+            default_input_modes: vec!["text/plain".into()],
+            default_output_modes: vec!["text/plain".into()],
+            skills: Vec::new(),
+            signatures: Vec::new(),
+            icon_url: None,
         }
     }
 
-    /// Returns true if the agent supports streaming.
+    /// Returns `true` if the agent supports streaming.
     #[must_use]
-    pub const fn supports_streaming(&self) -> bool {
-        self.capabilities.streaming
+    pub fn supports_streaming(&self) -> bool {
+        self.capabilities.streaming.unwrap_or(false)
     }
 
-    /// Returns true if the agent supports push notifications.
+    /// Returns `true` if the agent supports push notifications.
     #[must_use]
-    pub const fn supports_push_notifications(&self) -> bool {
-        self.capabilities.push_notifications
+    pub fn supports_push_notifications(&self) -> bool {
+        self.capabilities.push_notifications.unwrap_or(false)
+    }
+
+    /// Returns `true` if the agent provides an extended agent card when authenticated.
+    #[must_use]
+    pub fn supports_extended_card(&self) -> bool {
+        self.capabilities.extended_agent_card.unwrap_or(false)
     }
 
     /// Finds a skill by its ID.
@@ -169,48 +194,47 @@ impl AgentCard {
     pub fn find_skill(&self, skill_id: &str) -> Option<&AgentSkill> {
         self.skills.iter().find(|s| s.id == skill_id)
     }
+
+    /// Returns the preferred (first) interface, if any.
+    #[must_use]
+    pub fn preferred_interface(&self) -> Option<&AgentInterface> {
+        self.supported_interfaces.first()
+    }
+
+    /// Finds the first interface matching the given protocol.
+    #[must_use]
+    pub fn find_interface(&self, protocol: &TransportProtocol) -> Option<&AgentInterface> {
+        self.supported_interfaces
+            .iter()
+            .find(|i| &i.protocol_binding == protocol)
+    }
 }
 
 /// Optional capabilities supported by an agent.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// Maps to proto `AgentCapabilities`. v1.0 moves `extended_agent_card` here
+/// (previously a top-level `AgentCard` field).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentCapabilities {
-    /// Indicates if the agent supports SSE streaming.
-    #[serde(default, skip_serializing_if = "crate::types::is_false")]
-    pub streaming: bool,
+    /// Indicates if the agent supports streaming responses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub streaming: Option<bool>,
     /// Indicates if the agent supports push notifications.
-    #[serde(default, skip_serializing_if = "crate::types::is_false")]
-    pub push_notifications: bool,
-    /// Indicates if the agent provides state transition history.
-    #[serde(default, skip_serializing_if = "crate::types::is_false")]
-    pub state_transition_history: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub push_notifications: Option<bool>,
     /// Protocol extensions supported by the agent.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<AgentExtension>,
-}
-
-impl AgentCapabilities {
-    /// Creates capabilities with streaming enabled.
-    #[must_use]
-    pub fn with_streaming() -> Self {
-        Self {
-            streaming: true,
-            ..Default::default()
-        }
-    }
-
-    /// Creates capabilities with push notifications enabled.
-    #[must_use]
-    pub fn with_push_notifications() -> Self {
-        Self {
-            push_notifications: true,
-            ..Default::default()
-        }
-    }
+    /// Indicates if the agent provides an extended agent card when authenticated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extended_agent_card: Option<bool>,
 }
 
 /// A distinct capability or function that an agent can perform.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// Maps to proto `AgentSkill`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSkill {
     /// A unique identifier for the skill.
@@ -232,7 +256,7 @@ pub struct AgentSkill {
     pub output_modes: Vec<String>,
     /// Security requirements for this skill (OR-of-ANDs).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub security: Vec<HashMap<String, Vec<String>>>,
+    pub security_requirements: Vec<SecurityRequirement>,
 }
 
 impl AgentSkill {
@@ -251,11 +275,11 @@ impl AgentSkill {
             examples: Vec::new(),
             input_modes: Vec::new(),
             output_modes: Vec::new(),
-            security: Vec::new(),
+            security_requirements: Vec::new(),
         }
     }
 
-    /// Sets the examples for this skill.
+    /// Sets the examples.
     #[must_use]
     pub fn with_examples(mut self, examples: Vec<String>) -> Self {
         self.examples = examples;
@@ -264,41 +288,26 @@ impl AgentSkill {
 }
 
 /// A protocol extension supported by an agent.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// Maps to proto `AgentExtension`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentExtension {
     /// The unique URI identifying the extension.
     pub uri: String,
     /// Description of how this agent uses the extension.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub description: String,
-    /// If true, the client must understand the extension.
-    #[serde(default, skip_serializing_if = "crate::types::is_false")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// If `true`, the client must understand and comply with the extension.
+    #[serde(default, skip_serializing_if = "super::is_false")]
     pub required: bool,
     /// Extension-specific configuration parameters.
-    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
-    pub params: Metadata,
-}
-
-/// A combination of a target URL and transport protocol.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AgentInterface {
-    /// The URL where this interface is available.
-    pub url: String,
-    /// The transport protocol supported at this URL.
-    pub transport: TransportProtocol,
-}
-
-impl AgentInterface {
-    /// Creates a new interface.
-    pub fn new(url: impl Into<String>, transport: TransportProtocol) -> Self {
-        Self {
-            url: url.into(),
-            transport,
-        }
-    }
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<Metadata>,
 }
 
 /// Represents the service provider of an agent.
+///
+/// Maps to proto `AgentProvider`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentProvider {
     /// The name of the agent provider's organization.
@@ -318,226 +327,15 @@ impl AgentProvider {
 }
 
 /// A JWS signature of an `AgentCard` (RFC 7515).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// Maps to proto `AgentCardSignature`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentCardSignature {
     /// The protected JWS header (Base64url-encoded JSON object).
     pub protected: String,
     /// The computed signature (Base64url-encoded).
     pub signature: String,
     /// The unprotected JWS header values.
-    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
-    pub header: Metadata,
-}
-
-/// A security scheme for securing agent endpoints (OpenAPI 3.0 compatible).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum SecurityScheme {
-    /// API Key security scheme.
-    ApiKey(ApiKeySecurityScheme),
-    /// HTTP authentication security scheme.
-    Http(HttpAuthSecurityScheme),
-    /// OAuth 2.0 security scheme.
-    #[serde(rename = "oauth2")]
-    OAuth2(Box<OAuth2SecurityScheme>),
-    /// OpenID Connect security scheme.
-    OpenIdConnect(OpenIdConnectSecurityScheme),
-    /// Mutual TLS security scheme.
-    MutualTLS(MutualTlsSecurityScheme),
-}
-
-/// The location of an API key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ApiKeyLocation {
-    /// In a cookie.
-    Cookie,
-    /// In a header.
-    Header,
-    /// In a query parameter.
-    Query,
-}
-
-/// API key security scheme.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ApiKeySecurityScheme {
-    /// The name of the header, query, or cookie parameter.
-    pub name: String,
-    /// The location of the API key.
-    #[serde(rename = "in")]
-    pub location: ApiKeyLocation,
-    /// An optional description.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub description: String,
-}
-
-impl ApiKeySecurityScheme {
-    /// Creates a header-based API key scheme.
-    pub fn header(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            location: ApiKeyLocation::Header,
-            description: String::new(),
-        }
-    }
-
-    /// Creates a query-based API key scheme.
-    pub fn query(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            location: ApiKeyLocation::Query,
-            description: String::new(),
-        }
-    }
-}
-
-/// HTTP authentication security scheme.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct HttpAuthSecurityScheme {
-    /// The HTTP authentication scheme name (e.g. "Bearer").
-    pub scheme: String,
-    /// An optional description.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub description: String,
-    /// A hint for how the bearer token is formatted (e.g. "JWT").
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub bearer_format: String,
-}
-
-impl HttpAuthSecurityScheme {
-    /// Creates a Bearer token authentication scheme.
-    #[must_use]
-    pub fn bearer() -> Self {
-        Self {
-            scheme: "Bearer".into(),
-            description: String::new(),
-            bearer_format: String::new(),
-        }
-    }
-
-    /// Creates a Bearer JWT authentication scheme.
-    #[must_use]
-    pub fn bearer_jwt() -> Self {
-        Self {
-            scheme: "Bearer".into(),
-            description: String::new(),
-            bearer_format: "JWT".into(),
-        }
-    }
-
-    /// Creates a Basic authentication scheme.
-    #[must_use]
-    pub fn basic() -> Self {
-        Self {
-            scheme: "Basic".into(),
-            description: String::new(),
-            bearer_format: String::new(),
-        }
-    }
-}
-
-/// OAuth 2.0 security scheme.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct OAuth2SecurityScheme {
-    /// Configuration for the supported OAuth 2.0 flows.
-    pub flows: OAuthFlows,
-    /// An optional description.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub description: String,
-    /// URL to the OAuth2 authorization server metadata (RFC 8414).
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub oauth2_metadata_url: String,
-}
-
-/// OpenID Connect security scheme.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenIdConnectSecurityScheme {
-    /// The OpenID Connect Discovery URL.
-    pub open_id_connect_url: String,
-    /// An optional description.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub description: String,
-}
-
-/// Mutual TLS security scheme.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct MutualTlsSecurityScheme {
-    /// An optional description.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub description: String,
-}
-
-/// Configuration for the supported OAuth 2.0 flows.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct OAuthFlows {
-    /// Configuration for the Authorization Code flow.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub authorization_code: Option<AuthorizationCodeOAuthFlow>,
-    /// Configuration for the Client Credentials flow.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_credentials: Option<ClientCredentialsOAuthFlow>,
-    /// Configuration for the Implicit flow.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub implicit: Option<ImplicitOAuthFlow>,
-    /// Configuration for the Resource Owner Password flow.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub password: Option<PasswordOAuthFlow>,
-}
-
-/// OAuth 2.0 Authorization Code flow configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct AuthorizationCodeOAuthFlow {
-    /// The authorization URL.
-    pub authorization_url: String,
-    /// The token URL.
-    pub token_url: String,
-    /// Available scopes (scope name → description).
-    pub scopes: HashMap<String, String>,
-    /// Optional refresh URL.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub refresh_url: String,
-}
-
-/// OAuth 2.0 Client Credentials flow configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ClientCredentialsOAuthFlow {
-    /// The token URL.
-    pub token_url: String,
-    /// Available scopes (scope name → description).
-    pub scopes: HashMap<String, String>,
-    /// Optional refresh URL.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub refresh_url: String,
-}
-
-/// OAuth 2.0 Implicit flow configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ImplicitOAuthFlow {
-    /// The authorization URL.
-    pub authorization_url: String,
-    /// Available scopes (scope name → description).
-    pub scopes: HashMap<String, String>,
-    /// Optional refresh URL.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub refresh_url: String,
-}
-
-/// OAuth 2.0 Resource Owner Password flow configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct PasswordOAuthFlow {
-    /// The token URL.
-    pub token_url: String,
-    /// Available scopes (scope name → description).
-    pub scopes: HashMap<String, String>,
-    /// Optional refresh URL.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub refresh_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<Metadata>,
 }
