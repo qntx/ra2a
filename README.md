@@ -13,14 +13,12 @@
 [rust-badge]: https://img.shields.io/badge/rust-edition%202024-orange.svg
 [rust-url]: https://doc.rust-lang.org/edition-guide/
 
-**Comprehensive Rust SDK for the [Agent2Agent (A2A) Protocol][a2a-spec] — event-driven server, streaming client, gRPC transport, push notifications, and pluggable SQL task storage.**
+**Comprehensive Rust SDK for the [Agent2Agent (A2A) Protocol v1.0][a2a-spec] — event-driven server, streaming client, gRPC transport, push notifications, and pluggable SQL task storage.**
 
-ra2a implements the full [A2A protocol specification][a2a-spec] **v0.3.0** with an idiomatic Rust API, providing a `Client` → `Transport` → `AgentCard` discovery flow on the client side and an `AgentExecutor` → `EventQueue` → `RequestHandler` pipeline on the server side. It is functionally aligned with the official [Go SDK][go-sdk] — same protocol version, same 11 JSON-RPC methods, same type definitions, same 16 error codes.
+ra2a implements the full [A2A protocol specification][a2a-spec] **v1.0** with an idiomatic Rust API, providing a `Client` → `Transport` → `AgentCard` discovery flow on the client side and an `AgentExecutor` → `EventQueue` → `RequestHandler` pipeline on the server side. It is functionally aligned with the official [Go SDK][go-sdk] — same protocol version, same 12 JSON-RPC methods, same type definitions, same error codes.
 
 [a2a-spec]: https://a2a-protocol.org/latest/specification/
 [go-sdk]: https://github.com/a2aproject/a2a-go
-
-> **Protocol status:** The A2A specification is titled "Release Candidate v1.0", but the latest **officially released** version remains **v0.3.0** (2025-07-30). No SDK — including the Go reference — has shipped a v1.0 implementation yet. ra2a will track the specification as new versions are released.
 
 ## Crates
 
@@ -49,7 +47,10 @@ use std::{future::Future, pin::Pin};
 use ra2a::{
     error::Result,
     server::{AgentExecutor, Event, EventQueue, RequestContext, ServerState, a2a_router},
-    types::{AgentCard, Message, Part, Task, TaskState, TaskStatus},
+    types::{
+        AgentCard, AgentInterface, AgentSkill, Message, Part,
+        Task, TaskState, TaskStatus, TransportProtocol,
+    },
 };
 
 struct EchoAgent;
@@ -86,7 +87,19 @@ impl AgentExecutor for EchoAgent {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let card = AgentCard::new("Echo Agent", "http://localhost:8080");
+    let mut card = AgentCard::new(
+        "Echo Agent",
+        "A simple echo agent.",
+        vec![AgentInterface::new(
+            "http://localhost:8080",
+            TransportProtocol::new(TransportProtocol::JSONRPC),
+        )],
+    );
+    card.skills.push(AgentSkill::new(
+        "echo", "Echo", "Echoes user messages",
+        vec!["echo".into(), "hello".into()],
+    ));
+
     let state = ServerState::from_executor(EchoAgent, card);
     let app = axum::Router::new().merge(a2a_router(state));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
@@ -97,24 +110,27 @@ async fn main() -> std::io::Result<()> {
 ### Client
 
 ```rust
-use ra2a::{
-    client::Client,
-    types::{Message, MessageSendParams, Part, SendMessageResult},
-};
+use ra2a::client::Client;
+use ra2a::types::{Message, Part, SendMessageRequest, SendMessageResponse};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::from_url("http://localhost:8080")?;
 
+    let card = client.get_agent_card().await?;
+    println!("Agent: {} — {}", card.name, card.description);
+
     let msg = Message::user(vec![Part::text("Hello!")]);
-    let result = client.send_message(&MessageSendParams::new(msg)).await?;
+    let result = client.send_message(&SendMessageRequest::new(msg)).await?;
 
     match result {
-        SendMessageResult::Task(task) => {
+        SendMessageResponse::Task(task) => {
             let reply = task.status.message.as_ref().and_then(|m| m.text_content());
             println!("[{:?}] {}", task.status.state, reply.unwrap_or_default());
         }
-        SendMessageResult::Message(msg) => println!("{}", msg.text_content().unwrap_or_default()),
+        SendMessageResponse::Message(msg) => {
+            println!("{}", msg.text_content().unwrap_or_default());
+        }
     }
     Ok(())
 }
@@ -126,11 +142,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Layer | Key types | Role |
 | --- | --- | --- |
+| **Types** | `AgentCard`, `AgentInterface`, `Task`, `Message`, `Part` | Full A2A v1.0 type definitions with serde, proto-aligned |
 | **Server** | `AgentExecutor`, `EventQueue`, `DefaultRequestHandler` | Event-driven agent execution; composable Axum handlers (`a2a_router`) — SDK does not own the HTTP server |
 | **Client** | `Client`, `Transport`, `CallInterceptor` | Transport-agnostic client with interceptor middleware, streaming fallback, and `ClientConfig` defaults |
-| **Types** | `AgentCard`, `Task`, `Message`, `Event` | Full A2A v0.3.0 type definitions with serde serialization |
-| **Storage** | `TaskStore`, `PushConfigStore` | Pluggable persistence (in-memory, PostgreSQL, MySQL, SQLite) |
-| **gRPC** | `GrpcTransport`, `GrpcServiceImpl` | Alternative transport via tonic/prost |
+| **Storage** | `TaskStore`, `PushNotificationConfigStore` | Pluggable persistence (in-memory, PostgreSQL, MySQL, SQLite) |
+| **gRPC** | `GrpcTransport`, `GrpcServiceImpl` | Alternative transport via tonic/prost, compiled from the [official proto][a2a-proto] |
+
+[a2a-proto]: https://github.com/a2aproject/A2A/blob/main/specification/a2a.proto
 
 ### ra2a-ext crate
 
@@ -154,15 +172,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `sql` | — | All SQL backends (`postgresql` + `mysql` + `sqlite`) |
 | `full` | — | Everything (`server` + `grpc` + `telemetry` + `sql`) |
 
+## Proto Source
+
+The protobuf definition (`a2a.proto`) is sourced directly from the [official A2A repository][a2a-repo] via git submodule, pinned to the `v1.0.0` tag. The `googleapis` dependency is also vendored as a submodule.
+
+[a2a-repo]: https://github.com/a2aproject/A2A
+
+After cloning, initialize both submodules:
+
+```sh
+git submodule update --init --recursive
+```
+
+To upgrade the proto to a new release:
+
+```sh
+git -C ra2a/proto/a2a checkout <new-tag>
+git add ra2a/proto/a2a
+git commit -m "build(proto): bump A2A proto to <new-tag>"
+```
+
 ## A2A Protocol Overview
 
 ### Protocol Version
 
-ra2a targets **A2A v0.3.0** — the latest officially released version of the [A2A specification][a2a-spec]. The specification document is titled "Release Candidate v1.0", but v1.0 has not been formally released yet. When v1.0 ships (breaking changes include removal of the `kind` discriminator and type renames), ra2a will publish a corresponding major version update.
+ra2a targets [**A2A v1.0**][a2a-spec] (released 2026-03-12). The `a2a.proto` is the normative source for the protocol data model; JSON-RPC and gRPC are separate protocol bindings derived from it.
 
 ### JSON-RPC Methods
 
-All 11 methods defined by the A2A specification are implemented on both client and server:
+All 12 methods defined by the A2A specification are implemented on both client and server:
 
 | Method | Description |
 | --- | --- |
@@ -172,12 +210,15 @@ All 11 methods defined by the A2A specification are implemented on both client a
 | `tasks/list` | List tasks with pagination and filtering |
 | `tasks/cancel` | Request task cancellation |
 | `tasks/resubscribe` | Reconnect to an ongoing task's event stream |
-| `tasks/pushNotificationConfig/*` | CRUD for per-task push notification webhooks |
+| `tasks/pushNotificationConfig/create` | Create a push notification config for a task |
+| `tasks/pushNotificationConfig/get` | Retrieve a push notification config |
+| `tasks/pushNotificationConfig/list` | List push notification configs for a task |
+| `tasks/pushNotificationConfig/delete` | Delete a push notification config |
 | `agent/getAuthenticatedExtendedCard` | Retrieve authenticated extended agent card |
 
 ### Task Lifecycle
 
-Tasks progress through 9 states with well-defined terminal conditions:
+Tasks progress through well-defined states with terminal conditions:
 
 ```text
 Submitted → Working → Completed
@@ -193,17 +234,17 @@ Terminal states (`Completed`, `Failed`, `Canceled`, `Rejected`) end the task lif
 
 ### Agent Discovery
 
-Agents publish an `AgentCard` at `/.well-known/agent-card.json` describing their identity, capabilities, skills, supported transports, and security requirements. The client's card resolver fetches and caches this card automatically. Agents may also expose an authenticated extended card via `agent/getAuthenticatedExtendedCard` for capabilities that require authorization to discover.
+Agents declare one or more `AgentInterface` entries in their `AgentCard`, each specifying a URL, transport protocol (`JSONRPC`, `GRPC`, or `HTTP+JSON`), and protocol version. The card is published at `/.well-known/agent-card.json`. The client's card resolver fetches and caches it automatically. Agents may also expose an authenticated extended card via `agent/getAuthenticatedExtendedCard` for capabilities that require authorization to discover.
 
 ### Security Model
 
-A2A supports five security scheme types in the `AgentCard`, aligned with OpenAPI 3.0:
+A2A supports five security scheme types in the `AgentCard`:
 
 | Scheme | Description |
 | --- | --- |
 | API Key | Static key in header, query, or cookie |
 | HTTP Auth | Bearer token or Basic authentication |
-| OAuth 2.0 | Authorization code, client credentials, device code, implicit flows |
+| OAuth 2.0 | Authorization code, client credentials, device code flows |
 | OpenID Connect | OIDC discovery-based authentication |
 | Mutual TLS | Client certificate authentication |
 

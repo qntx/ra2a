@@ -29,7 +29,9 @@ fn compile_protos() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check if submodules are initialized
     if !std::path::Path::new(googleapis_dir).exists() {
-        println!("cargo:warning=googleapis submodule not found. Run: git submodule update --init --recursive");
+        println!(
+            "cargo:warning=googleapis submodule not found. Run: git submodule update --init --recursive"
+        );
         return Ok(());
     }
 
