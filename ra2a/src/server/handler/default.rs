@@ -455,7 +455,10 @@ impl RequestHandler for DefaultRequestHandler {
             self.spawn_execution(ctx, Arc::clone(&queue));
 
             // Collect events until terminal
-            let is_non_blocking = params.configuration.as_ref().is_none_or(|c| c.return_immediately);
+            let is_non_blocking = params
+                .configuration
+                .as_ref()
+                .is_none_or(|c| c.return_immediately);
             let mut result = self.collect_result(rx, is_non_blocking).await?;
 
             // Apply history length
@@ -642,7 +645,10 @@ impl RequestHandler for DefaultRequestHandler {
                 token: params.token.clone(),
                 authentication: params.authentication.clone(),
             };
-            let saved = self.push_config_store.save(&task_id_str, &push_config).await?;
+            let saved = self
+                .push_config_store
+                .save(&task_id_str, &push_config)
+                .await?;
             Ok(TaskPushNotificationConfig {
                 tenant: params.tenant,
                 id: saved.id,

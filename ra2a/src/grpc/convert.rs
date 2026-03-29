@@ -7,9 +7,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::proto;
 use crate::types::{
-    Artifact as NativeArtifact, ArtifactId, AuthenticationInfo, ContextId,
-    Message as NativeMessage, MessageId, Part as NativePart, PartContent,
-    PushNotificationConfig as NativePushConfig, Role as NativeRole, Task as NativeTask, TaskId,
+    Artifact as NativeArtifact, ArtifactId, ContextId, Message as NativeMessage, MessageId,
+    Part as NativePart, PartContent, Role as NativeRole, Task as NativeTask, TaskId,
     TaskState as NativeTaskState, TaskStatus as NativeTaskStatus,
 };
 
@@ -287,46 +286,6 @@ impl From<proto::Task> for NativeTask {
         native.history = task.history.into_iter().map(NativeMessage::from).collect();
         native.metadata = task.metadata.and_then(struct_to_hashmap);
         native
-    }
-}
-
-impl From<NativePushConfig> for proto::PushNotificationConfig {
-    fn from(config: NativePushConfig) -> Self {
-        Self {
-            id: config.id.unwrap_or_default(),
-            url: config.url,
-            token: config.token.unwrap_or_default(),
-            authentication: config.authentication.map(|auth| proto::AuthenticationInfo {
-                scheme: auth.scheme,
-                credentials: auth.credentials.unwrap_or_default(),
-            }),
-        }
-    }
-}
-
-impl From<proto::PushNotificationConfig> for NativePushConfig {
-    fn from(config: proto::PushNotificationConfig) -> Self {
-        Self {
-            id: if config.id.is_empty() {
-                None
-            } else {
-                Some(config.id)
-            },
-            url: config.url,
-            token: if config.token.is_empty() {
-                None
-            } else {
-                Some(config.token)
-            },
-            authentication: config.authentication.map(|auth| AuthenticationInfo {
-                scheme: auth.scheme,
-                credentials: if auth.credentials.is_empty() {
-                    None
-                } else {
-                    Some(auth.credentials)
-                },
-            }),
-        }
     }
 }
 

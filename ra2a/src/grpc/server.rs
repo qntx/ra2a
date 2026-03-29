@@ -13,10 +13,9 @@ use tonic::{Request, Response, Status};
 
 use super::convert::{hashmap_to_struct, struct_to_hashmap};
 use super::proto::{
-    self, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
-    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
-    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigRequest,
-    ListTaskPushNotificationConfigResponse, ListTasksRequest, ListTasksResponse,
+    self, CancelTaskRequest, DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
+    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigsRequest,
+    ListTaskPushNotificationConfigsResponse, ListTasksRequest, ListTasksResponse,
     SendMessageRequest, SendMessageResponse, StreamResponse, SubscribeToTaskRequest,
     TaskPushNotificationConfig, a2a_service_server::A2aService,
 };
@@ -26,8 +25,7 @@ use crate::types::{
     DeleteTaskPushNotificationConfigRequest as NativeDeletePushReq,
     GetTaskPushNotificationConfigRequest as NativeGetPushReq, GetTaskRequest as NativeGetTaskReq,
     ListTaskPushNotificationConfigsRequest as NativeListPushReq,
-    ListTasksRequest as NativeListTasksReq, Message as NativeMessage,
-    PushNotificationConfig as NativePushConfig, SendMessageConfiguration,
+    ListTasksRequest as NativeListTasksReq, Message as NativeMessage, SendMessageConfiguration,
     SendMessageRequest as NativeSendMessageReq, SendMessageResponse as NativeSendMessageResp,
     SubscribeToTaskRequest as NativeSubscribeReq, TaskId,
     TaskPushNotificationConfig as NativeTaskPushConfig,
@@ -93,15 +91,37 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
             }
             if let Some(tpc) = config.task_push_notification_config {
                 send_config.task_push_notification_config = Some(NativeTaskPushConfig {
-                    tenant: if tpc.tenant.is_empty() { None } else { Some(tpc.tenant) },
-                    id: if tpc.id.is_empty() { None } else { Some(tpc.id) },
-                    task_id: if tpc.task_id.is_empty() { None } else { Some(TaskId::from(tpc.task_id.as_str())) },
+                    tenant: if tpc.tenant.is_empty() {
+                        None
+                    } else {
+                        Some(tpc.tenant)
+                    },
+                    id: if tpc.id.is_empty() {
+                        None
+                    } else {
+                        Some(tpc.id)
+                    },
+                    task_id: if tpc.task_id.is_empty() {
+                        None
+                    } else {
+                        Some(TaskId::from(tpc.task_id.as_str()))
+                    },
                     url: tpc.url,
-                    token: if tpc.token.is_empty() { None } else { Some(tpc.token) },
-                    authentication: tpc.authentication.map(|a| crate::types::AuthenticationInfo {
-                        scheme: a.scheme,
-                        credentials: if a.credentials.is_empty() { None } else { Some(a.credentials) },
-                    }),
+                    token: if tpc.token.is_empty() {
+                        None
+                    } else {
+                        Some(tpc.token)
+                    },
+                    authentication: tpc
+                        .authentication
+                        .map(|a| crate::types::AuthenticationInfo {
+                            scheme: a.scheme,
+                            credentials: if a.credentials.is_empty() {
+                                None
+                            } else {
+                                Some(a.credentials)
+                            },
+                        }),
                 });
             }
             native_req.configuration = Some(send_config);
@@ -158,15 +178,37 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
             }
             if let Some(tpc) = config.task_push_notification_config {
                 send_config.task_push_notification_config = Some(NativeTaskPushConfig {
-                    tenant: if tpc.tenant.is_empty() { None } else { Some(tpc.tenant) },
-                    id: if tpc.id.is_empty() { None } else { Some(tpc.id) },
-                    task_id: if tpc.task_id.is_empty() { None } else { Some(TaskId::from(tpc.task_id.as_str())) },
+                    tenant: if tpc.tenant.is_empty() {
+                        None
+                    } else {
+                        Some(tpc.tenant)
+                    },
+                    id: if tpc.id.is_empty() {
+                        None
+                    } else {
+                        Some(tpc.id)
+                    },
+                    task_id: if tpc.task_id.is_empty() {
+                        None
+                    } else {
+                        Some(TaskId::from(tpc.task_id.as_str()))
+                    },
                     url: tpc.url,
-                    token: if tpc.token.is_empty() { None } else { Some(tpc.token) },
-                    authentication: tpc.authentication.map(|a| crate::types::AuthenticationInfo {
-                        scheme: a.scheme,
-                        credentials: if a.credentials.is_empty() { None } else { Some(a.credentials) },
-                    }),
+                    token: if tpc.token.is_empty() {
+                        None
+                    } else {
+                        Some(tpc.token)
+                    },
+                    authentication: tpc
+                        .authentication
+                        .map(|a| crate::types::AuthenticationInfo {
+                            scheme: a.scheme,
+                            credentials: if a.credentials.is_empty() {
+                                None
+                            } else {
+                                Some(a.credentials)
+                            },
+                        }),
                 });
             }
             native_req.configuration = Some(send_config);
@@ -365,15 +407,37 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeTaskPushConfig {
-            tenant: if req.tenant.is_empty() { None } else { Some(req.tenant) },
-            id: if req.id.is_empty() { None } else { Some(req.id) },
-            task_id: if req.task_id.is_empty() { None } else { Some(TaskId::from(req.task_id.as_str())) },
+            tenant: if req.tenant.is_empty() {
+                None
+            } else {
+                Some(req.tenant)
+            },
+            id: if req.id.is_empty() {
+                None
+            } else {
+                Some(req.id)
+            },
+            task_id: if req.task_id.is_empty() {
+                None
+            } else {
+                Some(TaskId::from(req.task_id.as_str()))
+            },
             url: req.url,
-            token: if req.token.is_empty() { None } else { Some(req.token) },
-            authentication: req.authentication.map(|a| crate::types::AuthenticationInfo {
-                scheme: a.scheme,
-                credentials: if a.credentials.is_empty() { None } else { Some(a.credentials) },
-            }),
+            token: if req.token.is_empty() {
+                None
+            } else {
+                Some(req.token)
+            },
+            authentication: req
+                .authentication
+                .map(|a| crate::types::AuthenticationInfo {
+                    scheme: a.scheme,
+                    credentials: if a.credentials.is_empty() {
+                        None
+                    } else {
+                        Some(a.credentials)
+                    },
+                }),
         };
 
         let result = self
@@ -410,10 +474,10 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         Ok(Response::new(native_to_proto_push_config(result)))
     }
 
-    async fn list_task_push_notification_config(
+    async fn list_task_push_notification_configs(
         &self,
-        request: Request<ListTaskPushNotificationConfigRequest>,
-    ) -> Result<Response<ListTaskPushNotificationConfigResponse>, Status> {
+        request: Request<ListTaskPushNotificationConfigsRequest>,
+    ) -> Result<Response<ListTaskPushNotificationConfigsResponse>, Status> {
         let req = request.into_inner();
 
         let native_req = NativeListPushReq {
@@ -447,7 +511,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
             .map(native_to_proto_push_config)
             .collect();
 
-        Ok(Response::new(ListTaskPushNotificationConfigResponse {
+        Ok(Response::new(ListTaskPushNotificationConfigsResponse {
             configs: proto_configs,
             next_page_token: result.next_page_token.unwrap_or_default(),
         }))

@@ -82,7 +82,11 @@ impl GrpcTransport {
                         .map(|tpc| proto::TaskPushNotificationConfig {
                             tenant: tpc.tenant.clone().unwrap_or_default(),
                             id: tpc.id.clone().unwrap_or_default(),
-                            task_id: tpc.task_id.as_ref().map(|t| t.to_string()).unwrap_or_default(),
+                            task_id: tpc
+                                .task_id
+                                .as_ref()
+                                .map(|t| t.to_string())
+                                .unwrap_or_default(),
                             url: tpc.url.clone(),
                             token: tpc.token.clone().unwrap_or_default(),
                             authentication: tpc.authentication.as_ref().map(|a| {
@@ -198,6 +202,7 @@ impl Transport for GrpcTransport {
             let request = proto::CancelTaskRequest {
                 tenant: req.tenant.clone().unwrap_or_default(),
                 id: req.id.to_string(),
+                metadata: req.metadata.clone().and_then(hashmap_to_struct),
             };
             let response = self
                 .client
