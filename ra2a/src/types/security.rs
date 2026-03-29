@@ -4,26 +4,71 @@
 
 use std::collections::HashMap;
 
+use serde::de::{self, Deserializer};
+use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Serialize};
 
 /// A security scheme that can be used to secure an agent's endpoints.
 ///
-/// Maps to proto `SecurityScheme` (oneof scheme). Serialized with the `type`
-/// field as discriminator per OpenAPI 3.2 convention.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "camelCase")]
+/// Maps to proto `SecurityScheme` (oneof scheme). Serialized using JSON
+/// member name as discriminator: `{"apiKey": {...}}`, `{"http": {...}}`, etc.
+#[derive(Debug, Clone, PartialEq)]
 pub enum SecurityScheme {
     /// API key-based authentication.
     ApiKey(ApiKeySecurityScheme),
     /// HTTP authentication (Basic, Bearer, etc.).
     Http(HttpAuthSecurityScheme),
     /// OAuth 2.0 authentication.
-    #[serde(rename = "oauth2")]
     OAuth2(Box<OAuth2SecurityScheme>),
     /// OpenID Connect authentication.
     OpenIdConnect(OpenIdConnectSecurityScheme),
     /// Mutual TLS authentication.
     MutualTLS(MutualTlsSecurityScheme),
+}
+
+impl Serialize for SecurityScheme {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(1))?;
+        match self {
+            Self::ApiKey(v) => map.serialize_entry("apiKey", v)?,
+            Self::Http(v) => map.serialize_entry("http", v)?,
+            Self::OAuth2(v) => map.serialize_entry("oauth2", v.as_ref())?,
+            Self::OpenIdConnect(v) => map.serialize_entry("openIdConnect", v)?,
+            Self::MutualTLS(v) => map.serialize_entry("mutualTLS", v)?,
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for SecurityScheme {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw: HashMap<String, serde_json::Value> = HashMap::deserialize(deserializer)?;
+        if let Some(v) = raw.get("apiKey") {
+            Ok(Self::ApiKey(
+                serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
+            ))
+        } else if let Some(v) = raw.get("http") {
+            Ok(Self::Http(
+                serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
+            ))
+        } else if let Some(v) = raw.get("oauth2") {
+            Ok(Self::OAuth2(Box::new(
+                serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
+            )))
+        } else if let Some(v) = raw.get("openIdConnect") {
+            Ok(Self::OpenIdConnect(
+                serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
+            ))
+        } else if let Some(v) = raw.get("mutualTLS") {
+            Ok(Self::MutualTLS(
+                serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
+            ))
+        } else {
+            Err(de::Error::custom(
+                "SecurityScheme must contain one of: apiKey, http, oauth2, openIdConnect, mutualTLS",
+            ))
+        }
+    }
 }
 
 /// The location of an API key.
@@ -47,7 +92,6 @@ pub struct ApiKeySecurityScheme {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// The location of the API key.
-    #[serde(rename = "in")]
     pub location: ApiKeyLocation,
     /// The name of the header, query, or cookie parameter.
     pub name: String,
@@ -134,8 +178,9 @@ pub struct MutualTlsSecurityScheme {
 ///
 /// v1.0 treats this as a `oneof` (only one flow per scheme), with
 /// `Implicit` and `Password` deprecated.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+///
+/// Serialized as a map with a single entry: `{"authorizationCode": {...}}`, etc.
+#[derive(Debug, Clone, PartialEq)]
 pub enum OAuthFlow {
     /// Authorization Code flow.
     AuthorizationCode(AuthorizationCodeOAuthFlow),
@@ -143,6 +188,41 @@ pub enum OAuthFlow {
     ClientCredentials(ClientCredentialsOAuthFlow),
     /// Device Code flow (RFC 8628).
     DeviceCode(DeviceCodeOAuthFlow),
+}
+
+impl Serialize for OAuthFlow {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(1))?;
+        match self {
+            Self::AuthorizationCode(v) => map.serialize_entry("authorizationCode", v)?,
+            Self::ClientCredentials(v) => map.serialize_entry("clientCredentials", v)?,
+            Self::DeviceCode(v) => map.serialize_entry("deviceCode", v)?,
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for OAuthFlow {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw: HashMap<String, serde_json::Value> = HashMap::deserialize(deserializer)?;
+        if let Some(v) = raw.get("authorizationCode") {
+            Ok(Self::AuthorizationCode(
+                serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
+            ))
+        } else if let Some(v) = raw.get("clientCredentials") {
+            Ok(Self::ClientCredentials(
+                serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
+            ))
+        } else if let Some(v) = raw.get("deviceCode") {
+            Ok(Self::DeviceCode(
+                serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
+            ))
+        } else {
+            Err(de::Error::custom(
+                "OAuthFlow must contain one of: authorizationCode, clientCredentials, deviceCode",
+            ))
+        }
+    }
 }
 
 /// OAuth 2.0 Authorization Code flow.

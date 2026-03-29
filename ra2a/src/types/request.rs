@@ -123,6 +123,9 @@ pub struct CancelTaskRequest {
     pub tenant: Option<String>,
     /// The task ID to cancel.
     pub id: TaskId,
+    /// Optional metadata for extensions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Metadata>,
 }
 
 /// Request for `SubscribeToTask`.

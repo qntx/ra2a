@@ -275,6 +275,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
                 Some(req.tenant)
             },
             id: TaskId::from(req.id.as_str()),
+            metadata: None,
         };
 
         let task = self
