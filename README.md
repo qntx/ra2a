@@ -143,8 +143,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | Layer | Key types | Role |
 | --- | --- | --- |
 | **Types** | `AgentCard`, `AgentInterface`, `Task`, `Message`, `Part` | Full A2A v1.0 type definitions with serde, proto-aligned |
-| **Server** | `AgentExecutor`, `EventQueue`, `DefaultRequestHandler` | Event-driven agent execution; composable Axum handlers (`a2a_router`) — SDK does not own the HTTP server |
-| **Client** | `Client`, `Transport`, `CallInterceptor` | Transport-agnostic client with interceptor middleware, streaming fallback, and `ClientConfig` defaults |
+| **Server** | `AgentExecutor`, `EventQueue`, `DefaultRequestHandler` | Event-driven agent execution; composable Axum handlers — JSON-RPC (`a2a_router`), REST (`rest_router`), combined (`a2a_full_router`), multi-tenant (`a2a_tenant_router`) |
+| **Client** | `Client`, `Transport`, `ClientFactory` | Transport-agnostic client with interceptor middleware, streaming fallback, and auto transport selection from `AgentCard` |
 | **Storage** | `TaskStore`, `PushNotificationConfigStore` | Pluggable persistence (in-memory, PostgreSQL, MySQL, SQLite) |
 | **gRPC** | `GrpcTransport`, `GrpcServiceImpl` | Alternative transport via tonic/prost, compiled from the [official proto][a2a-proto] |
 
@@ -162,8 +162,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Feature | Default | Description |
 | --- | :---: | --- |
-| `client` | **yes** | HTTP/JSON-RPC client, SSE streaming, card resolver, interceptors |
-| `server` | **yes** | Composable Axum handlers, event queue, task lifecycle, SSE streaming |
+| `client` | **yes** | JSON-RPC + REST client transports, SSE streaming, `ClientFactory` auto-selection, interceptors |
+| `server` | **yes** | JSON-RPC + REST Axum handlers, event queue, task lifecycle, multi-tenant routing |
 | `grpc` | — | gRPC transport via tonic/prost (requires protobuf compiler) |
 | `telemetry` | — | OpenTelemetry tracing spans and metrics |
 | `postgresql` | — | PostgreSQL task store via sqlx |

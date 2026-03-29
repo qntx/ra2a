@@ -306,6 +306,111 @@ impl From<i32> for JsonRpcErrorCode {
     }
 }
 
+/// REST error detail per google.rpc.ErrorInfo.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestErrorInfo {
+    /// Always `"type.googleapis.com/google.rpc.ErrorInfo"`.
+    #[serde(rename = "@type")]
+    pub at_type: String,
+    /// Machine-readable reason code (e.g. `"TASK_NOT_FOUND"`).
+    pub reason: String,
+    /// Error domain, always `"a2a-protocol.org"`.
+    pub domain: String,
+    /// Additional metadata (timestamp, taskId, etc.).
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
+/// Inner status object in a REST error response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestStatusError {
+    /// HTTP status code.
+    pub code: u16,
+    /// gRPC status string (e.g. `"NOT_FOUND"`).
+    pub status: String,
+    /// Human-readable error message.
+    pub message: String,
+    /// Error details array.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<serde_json::Value>,
+}
+
+/// A google.rpc.Status error response for the HTTP+JSON REST binding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestError {
+    /// The HTTP status code for this response.
+    #[serde(skip)]
+    pub http_status: u16,
+    /// The error payload.
+    pub error: RestStatusError,
+}
+
+impl A2AError {
+    /// Converts this error to a [`RestError`] in google.rpc.Status format (AIP-193).
+    #[must_use]
+    pub fn to_rest_error(&self, task_id: Option<&str>) -> RestError {
+        let (http_status, grpc_status, reason) = self.rest_error_details();
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert(
+            "timestamp".into(),
+            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        );
+        if let Some(tid) = task_id
+            && !tid.is_empty()
+        {
+            metadata.insert("taskId".into(), tid.to_string());
+        }
+        let info = RestErrorInfo {
+            at_type: "type.googleapis.com/google.rpc.ErrorInfo".into(),
+            reason: reason.into(),
+            domain: "a2a-protocol.org".into(),
+            metadata,
+        };
+        RestError {
+            http_status,
+            error: RestStatusError {
+                code: http_status,
+                status: grpc_status.into(),
+                message: self.to_string(),
+                details: vec![serde_json::to_value(info).unwrap_or_default()],
+            },
+        }
+    }
+
+    /// Maps this error to (HTTP status, gRPC status string, reason).
+    const fn rest_error_details(&self) -> (u16, &'static str, &'static str) {
+        match self {
+            Self::ParseError(_) | Self::InvalidRequest(_) | Self::InvalidParams(_) => {
+                (400, "INVALID_ARGUMENT", "INVALID_REQUEST")
+            }
+            Self::MethodNotFound(_) => (404, "NOT_FOUND", "METHOD_NOT_FOUND"),
+            Self::TaskNotFound(_) => (404, "NOT_FOUND", "TASK_NOT_FOUND"),
+            Self::TaskNotCancelable(_) => (400, "FAILED_PRECONDITION", "TASK_NOT_CANCELABLE"),
+            Self::PushNotificationNotSupported => {
+                (501, "UNIMPLEMENTED", "PUSH_NOTIFICATION_NOT_SUPPORTED")
+            }
+            Self::UnsupportedOperation(_) => (501, "UNIMPLEMENTED", "UNSUPPORTED_OPERATION"),
+            Self::ContentTypeNotSupported(_) => {
+                (400, "INVALID_ARGUMENT", "UNSUPPORTED_CONTENT_TYPE")
+            }
+            Self::InvalidAgentResponse(_) => (500, "INTERNAL", "INVALID_AGENT_RESPONSE"),
+            Self::ExtendedCardNotConfigured => (
+                400,
+                "FAILED_PRECONDITION",
+                "EXTENDED_AGENT_CARD_NOT_CONFIGURED",
+            ),
+            Self::Unauthenticated(_) => (401, "UNAUTHENTICATED", "UNAUTHENTICATED"),
+            Self::Unauthorized(_) => (403, "PERMISSION_DENIED", "UNAUTHORIZED"),
+            Self::ConcurrentTaskModification => (409, "ABORTED", "CONCURRENT_TASK_MODIFICATION"),
+            Self::ExtensionSupportRequired(_) => {
+                (400, "FAILED_PRECONDITION", "EXTENSION_SUPPORT_REQUIRED")
+            }
+            Self::VersionNotSupported(_) => (501, "UNIMPLEMENTED", "VERSION_NOT_SUPPORTED"),
+            _ => (500, "INTERNAL", "INTERNAL_ERROR"),
+        }
+    }
+}
+
 /// A JSON-RPC 2.0 error object.
 #[derive(Debug, Clone, Serialize, Deserialize, Error)]
 pub struct JsonRpcError {

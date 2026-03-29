@@ -13,6 +13,7 @@ mod handler;
 mod http;
 mod middleware;
 mod push;
+mod rest;
 mod task_store;
 
 use std::future::Future;
@@ -26,7 +27,9 @@ pub use executor::{
 pub use handler::{
     DefaultRequestHandler, EventStream, InterceptedHandler, RequestHandler, handle_request,
 };
-pub use http::{a2a_router, handle_agent_card, handle_jsonrpc, handle_sse};
+pub use http::{
+    a2a_full_router, a2a_router, a2a_tenant_router, handle_agent_card, handle_jsonrpc, handle_sse,
+};
 pub use middleware::{
     AuthenticatedUser, CallContext, CallInterceptor, PassthroughInterceptor, REQUEST_META, Request,
     RequestMeta, Response, UnauthenticatedUser, User, request_meta,
@@ -35,6 +38,7 @@ pub use push::{
     HttpPushSender, HttpPushSenderConfig, InMemoryPushNotificationConfigStore,
     PushNotificationConfigStore, PushSender,
 };
+pub use rest::rest_router;
 pub use task_store::{InMemoryTaskStore, TaskStore};
 
 use crate::error::Result;

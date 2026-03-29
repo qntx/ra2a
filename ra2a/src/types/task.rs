@@ -53,6 +53,22 @@ impl TaskState {
         matches!(self, Self::InputRequired | Self::AuthRequired)
     }
 
+    /// Parses a `TaskState` from its proto string representation.
+    #[must_use]
+    pub fn from_state_str(s: &str) -> Self {
+        match s {
+            "TASK_STATE_SUBMITTED" => Self::Submitted,
+            "TASK_STATE_WORKING" => Self::Working,
+            "TASK_STATE_COMPLETED" => Self::Completed,
+            "TASK_STATE_FAILED" => Self::Failed,
+            "TASK_STATE_CANCELED" => Self::Canceled,
+            "TASK_STATE_INPUT_REQUIRED" => Self::InputRequired,
+            "TASK_STATE_REJECTED" => Self::Rejected,
+            "TASK_STATE_AUTH_REQUIRED" => Self::AuthRequired,
+            _ => Self::Unspecified,
+        }
+    }
+
     fn as_str(self) -> &'static str {
         match self {
             Self::Unspecified => "TASK_STATE_UNSPECIFIED",

@@ -79,6 +79,11 @@ impl RequestMeta {
             .map(std::vec::Vec::as_slice)
     }
 
+    /// Sets a single value for the given key (replacing any existing values).
+    pub fn set(&mut self, key: &str, value: impl Into<String>) {
+        self.kv.insert(key.to_lowercase(), vec![value.into()]);
+    }
+
     /// Returns an iterator over all key-value pairs.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &[String])> {
         self.kv.iter().map(|(k, v)| (k.as_str(), v.as_slice()))

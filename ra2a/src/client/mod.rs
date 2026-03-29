@@ -5,8 +5,10 @@
 //! - [`JsonRpcTransport`] — default HTTP/JSON-RPC + SSE transport
 //! - [`GrpcTransport`] — gRPC transport (requires `grpc` feature)
 
+mod factory;
 mod interceptor;
 mod jsonrpc;
+mod rest;
 
 #[cfg(feature = "grpc")]
 mod grpc;
@@ -15,6 +17,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+pub use factory::{ClientFactory, TenantTransportDecorator, TransportBuilder};
 use futures::Stream;
 #[cfg(feature = "grpc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "grpc")))]
@@ -24,6 +27,7 @@ pub use interceptor::{
     StaticParamsInjector, current_service_params,
 };
 pub use jsonrpc::{JsonRpcTransport, TransportConfig};
+pub use rest::RestTransport;
 
 use crate::error::{A2AError, Result};
 use crate::types::{
@@ -177,6 +181,13 @@ impl Client {
     #[must_use]
     pub fn with_interceptor(mut self, interceptor: impl CallInterceptor + 'static) -> Self {
         self.interceptors.push(Arc::new(interceptor));
+        self
+    }
+
+    /// Adds a pre-built call interceptor from an `Arc`.
+    #[must_use]
+    pub fn with_interceptor_arc(mut self, interceptor: Arc<dyn CallInterceptor>) -> Self {
+        self.interceptors.push(interceptor);
         self
     }
 
