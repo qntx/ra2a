@@ -11,7 +11,7 @@ use super::{Message, Metadata, TaskPushNotificationConfig, TaskState};
 /// Configuration of a send message request.
 ///
 /// Maps to proto `SendMessageConfiguration`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SendMessageConfiguration {
     /// MIME types the client accepts for response parts.
@@ -33,7 +33,7 @@ pub struct SendMessageConfiguration {
 /// Request for `SendMessage` / `SendStreamingMessage`.
 ///
 /// Maps to proto `SendMessageRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SendMessageRequest {
     /// Optional tenant ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]

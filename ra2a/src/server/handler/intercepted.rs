@@ -31,6 +31,7 @@ use crate::types::{
 /// every handler method call.
 ///
 /// Aligned with Go's `InterceptedHandler` in `intercepted_handler.go`.
+#[allow(missing_debug_implementations)]
 pub struct InterceptedHandler {
     inner: Arc<dyn RequestHandler>,
     interceptors: Vec<Arc<dyn CallInterceptor>>,

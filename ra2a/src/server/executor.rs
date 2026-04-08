@@ -108,6 +108,7 @@ pub trait RequestContextInterceptor: Send + Sync {
 
 /// Loads tasks referenced by [`Message::reference_task_ids`](crate::types::Message)
 /// into [`RequestContext::related_tasks`].
+#[allow(missing_debug_implementations)]
 pub struct ReferencedTasksLoader {
     store: Arc<dyn TaskStore>,
 }

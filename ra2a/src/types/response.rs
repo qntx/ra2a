@@ -9,7 +9,7 @@ use super::{Task, TaskPushNotificationConfig};
 /// Response for `ListTasks`.
 ///
 /// Maps to proto `ListTasksResponse`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ListTasksResponse {
     /// Array of tasks matching the criteria.
@@ -28,7 +28,7 @@ pub struct ListTasksResponse {
 /// Response for `ListTaskPushNotificationConfigs`.
 ///
 /// Maps to proto `ListTaskPushNotificationConfigsResponse`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ListTaskPushNotificationConfigsResponse {
     /// The list of push notification configurations.

@@ -7,10 +7,16 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::proto;
 use crate::types::{
-    Artifact as NativeArtifact, ArtifactId, ContextId, Message as NativeMessage, MessageId,
-    Part as NativePart, PartContent, Role as NativeRole, Task as NativeTask, TaskId,
+    Artifact as NativeArtifact, ArtifactId, AuthenticationInfo as NativeAuthInfo, ContextId,
+    Message as NativeMessage, MessageId, Part as NativePart, PartContent, Role as NativeRole,
+    Task as NativeTask, TaskId, TaskPushNotificationConfig as NativeTaskPushConfig,
     TaskState as NativeTaskState, TaskStatus as NativeTaskStatus,
 };
+
+/// Converts a proto string to `Option<String>`, treating empty as `None`.
+pub(crate) fn none_if_empty(s: String) -> Option<String> {
+    if s.is_empty() { None } else { Some(s) }
+}
 
 impl From<NativeTaskState> for proto::TaskState {
     fn from(state: NativeTaskState) -> Self {
@@ -81,7 +87,7 @@ impl From<NativePart> for proto::Part {
         let mut proto_part = Self {
             filename: part.filename.unwrap_or_default(),
             media_type: part.media_type.unwrap_or_default(),
-            metadata: part.metadata.and_then(hashmap_to_struct),
+            metadata: part.metadata.map(hashmap_to_struct),
             ..Default::default()
         };
         match part.content {
@@ -95,9 +101,7 @@ impl From<NativePart> for proto::Part {
                 proto_part.content = Some(proto::part::Content::Url(url));
             }
             PartContent::Data(value) => {
-                if let Some(prost_val) = json_to_prost_value(value) {
-                    proto_part.content = Some(proto::part::Content::Data(prost_val));
-                }
+                proto_part.content = Some(proto::part::Content::Data(json_to_prost_value(value)));
             }
         }
         proto_part
@@ -106,7 +110,7 @@ impl From<NativePart> for proto::Part {
 
 impl From<proto::Part> for NativePart {
     fn from(part: proto::Part) -> Self {
-        let metadata = part.metadata.and_then(struct_to_hashmap);
+        let metadata = part.metadata.map(struct_to_hashmap);
         let filename = if part.filename.is_empty() {
             None
         } else {
@@ -145,7 +149,7 @@ impl From<NativeMessage> for proto::Message {
             task_id: msg.task_id.map_or(String::new(), |t| t.to_string()),
             role: proto::Role::from(msg.role).into(),
             parts: msg.parts.into_iter().map(proto::Part::from).collect(),
-            metadata: msg.metadata.and_then(hashmap_to_struct),
+            metadata: msg.metadata.map(hashmap_to_struct),
             extensions: msg.extensions,
             reference_task_ids: msg
                 .reference_task_ids
@@ -173,7 +177,7 @@ impl From<proto::Message> for NativeMessage {
         } else {
             Some(TaskId::from(msg.task_id.as_str()))
         };
-        native.metadata = msg.metadata.and_then(struct_to_hashmap);
+        native.metadata = msg.metadata.map(struct_to_hashmap);
         native.extensions = msg.extensions;
         native.reference_task_ids = msg
             .reference_task_ids
@@ -191,7 +195,7 @@ impl From<NativeArtifact> for proto::Artifact {
             name: artifact.name.unwrap_or_default(),
             description: artifact.description.unwrap_or_default(),
             parts: artifact.parts.into_iter().map(proto::Part::from).collect(),
-            metadata: artifact.metadata.and_then(hashmap_to_struct),
+            metadata: artifact.metadata.map(hashmap_to_struct),
             extensions: artifact.extensions,
         }
     }
@@ -212,7 +216,7 @@ impl From<proto::Artifact> for NativeArtifact {
                 Some(artifact.description)
             },
             parts: artifact.parts.into_iter().map(NativePart::from).collect(),
-            metadata: artifact.metadata.and_then(struct_to_hashmap),
+            metadata: artifact.metadata.map(struct_to_hashmap),
             extensions: artifact.extensions,
         }
     }
@@ -261,7 +265,7 @@ impl From<NativeTask> for proto::Task {
                 .map(proto::Artifact::from)
                 .collect(),
             history: task.history.into_iter().map(proto::Message::from).collect(),
-            metadata: task.metadata.and_then(hashmap_to_struct),
+            metadata: task.metadata.map(hashmap_to_struct),
         }
     }
 }
@@ -284,30 +288,72 @@ impl From<proto::Task> for NativeTask {
             .map(NativeArtifact::from)
             .collect();
         native.history = task.history.into_iter().map(NativeMessage::from).collect();
-        native.metadata = task.metadata.and_then(struct_to_hashmap);
+        native.metadata = task.metadata.map(struct_to_hashmap);
         native
+    }
+}
+
+impl From<NativeAuthInfo> for proto::AuthenticationInfo {
+    fn from(a: NativeAuthInfo) -> Self {
+        Self {
+            scheme: a.scheme,
+            credentials: a.credentials.unwrap_or_default(),
+        }
+    }
+}
+
+impl From<proto::AuthenticationInfo> for NativeAuthInfo {
+    fn from(a: proto::AuthenticationInfo) -> Self {
+        Self {
+            scheme: a.scheme,
+            credentials: none_if_empty(a.credentials),
+        }
+    }
+}
+
+impl From<NativeTaskPushConfig> for proto::TaskPushNotificationConfig {
+    fn from(c: NativeTaskPushConfig) -> Self {
+        Self {
+            tenant: c.tenant.unwrap_or_default(),
+            id: c.id.unwrap_or_default(),
+            task_id: c.task_id.map(|t| t.to_string()).unwrap_or_default(),
+            url: c.url,
+            token: c.token.unwrap_or_default(),
+            authentication: c.authentication.map(proto::AuthenticationInfo::from),
+        }
+    }
+}
+
+impl From<proto::TaskPushNotificationConfig> for NativeTaskPushConfig {
+    fn from(c: proto::TaskPushNotificationConfig) -> Self {
+        Self {
+            tenant: none_if_empty(c.tenant),
+            id: none_if_empty(c.id),
+            task_id: none_if_empty(c.task_id).map(TaskId::from),
+            url: c.url,
+            token: none_if_empty(c.token),
+            authentication: c.authentication.map(NativeAuthInfo::from),
+        }
     }
 }
 
 /// Converts a `HashMap` metadata to a protobuf Struct.
 #[must_use]
-pub fn hashmap_to_struct(map: HashMap<String, serde_json::Value>) -> Option<prost_types::Struct> {
+pub fn hashmap_to_struct(map: HashMap<String, serde_json::Value>) -> prost_types::Struct {
     let fields: BTreeMap<String, prost_types::Value> = map
         .into_iter()
-        .filter_map(|(k, v)| json_to_prost_value(v).map(|pv| (k, pv)))
+        .map(|(k, v)| (k, json_to_prost_value(v)))
         .collect();
-    Some(prost_types::Struct { fields })
+    prost_types::Struct { fields }
 }
 
 /// Converts a protobuf Struct to a `HashMap` metadata.
 #[must_use]
-pub fn struct_to_hashmap(s: prost_types::Struct) -> Option<HashMap<String, serde_json::Value>> {
-    let map: HashMap<String, serde_json::Value> = s
-        .fields
+pub fn struct_to_hashmap(s: prost_types::Struct) -> HashMap<String, serde_json::Value> {
+    s.fields
         .into_iter()
         .filter_map(|(k, v)| prost_value_to_json(v).map(|jv| (k, jv)))
-        .collect();
-    Some(map)
+        .collect()
 }
 
 /// Converts a JSON value to a protobuf Struct.
@@ -317,7 +363,7 @@ pub fn json_to_struct(value: serde_json::Value) -> Option<prost_types::Struct> {
         serde_json::Value::Object(map) => {
             let fields: BTreeMap<String, prost_types::Value> = map
                 .into_iter()
-                .filter_map(|(k, v)| json_to_prost_value(v).map(|pv| (k, pv)))
+                .map(|(k, v)| (k, json_to_prost_value(v)))
                 .collect();
             Some(prost_types::Struct { fields })
         }
@@ -327,17 +373,17 @@ pub fn json_to_struct(value: serde_json::Value) -> Option<prost_types::Struct> {
 
 /// Converts a protobuf Struct to a JSON value.
 #[must_use]
-pub fn struct_to_json(s: prost_types::Struct) -> Option<serde_json::Value> {
+pub fn struct_to_json(s: prost_types::Struct) -> serde_json::Value {
     let map: serde_json::Map<String, serde_json::Value> = s
         .fields
         .into_iter()
         .filter_map(|(k, v)| prost_value_to_json(v).map(|jv| (k, jv)))
         .collect();
-    Some(serde_json::Value::Object(map))
+    serde_json::Value::Object(map)
 }
 
 /// Converts a JSON value to a prost Value.
-fn json_to_prost_value(value: serde_json::Value) -> Option<prost_types::Value> {
+fn json_to_prost_value(value: serde_json::Value) -> prost_types::Value {
     let kind = match value {
         serde_json::Value::Null => prost_types::value::Kind::NullValue(0),
         serde_json::Value::Bool(b) => prost_types::value::Kind::BoolValue(b),
@@ -347,18 +393,18 @@ fn json_to_prost_value(value: serde_json::Value) -> Option<prost_types::Value> {
         serde_json::Value::String(s) => prost_types::value::Kind::StringValue(s),
         serde_json::Value::Array(arr) => {
             let values: Vec<prost_types::Value> =
-                arr.into_iter().filter_map(json_to_prost_value).collect();
+                arr.into_iter().map(json_to_prost_value).collect();
             prost_types::value::Kind::ListValue(prost_types::ListValue { values })
         }
         serde_json::Value::Object(map) => {
             let fields: BTreeMap<String, prost_types::Value> = map
                 .into_iter()
-                .filter_map(|(k, v)| json_to_prost_value(v).map(|pv| (k, pv)))
+                .map(|(k, v)| (k, json_to_prost_value(v)))
                 .collect();
             prost_types::value::Kind::StructValue(prost_types::Struct { fields })
         }
     };
-    Some(prost_types::Value { kind: Some(kind) })
+    prost_types::Value { kind: Some(kind) }
 }
 
 /// Converts a prost Value to a JSON value.
@@ -378,6 +424,6 @@ fn prost_value_to_json(value: prost_types::Value) -> Option<serde_json::Value> {
                 .collect();
             Some(serde_json::Value::Array(arr))
         }
-        prost_types::value::Kind::StructValue(s) => struct_to_json(s),
+        prost_types::value::Kind::StructValue(s) => Some(struct_to_json(s)),
     }
 }

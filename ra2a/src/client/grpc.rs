@@ -99,7 +99,7 @@ impl GrpcTransport {
                     history_length: config.history_length,
                     return_immediately: config.return_immediately,
                 });
-        let metadata = req.metadata.clone().and_then(hashmap_to_struct);
+        let metadata = req.metadata.clone().map(hashmap_to_struct);
 
         proto::SendMessageRequest {
             tenant: req.tenant.clone().unwrap_or_default(),
@@ -153,9 +153,10 @@ impl Transport for GrpcTransport {
                 .await
                 .map_err(|e| A2AError::Other(e.to_string()))?;
 
-            Ok(Box::pin(GrpcEventStream {
+            let stream: EventStream = Box::pin(GrpcEventStream {
                 inner: response.into_inner(),
-            }) as EventStream)
+            });
+            Ok(stream)
         })
     }
 
@@ -202,7 +203,7 @@ impl Transport for GrpcTransport {
             let request = proto::CancelTaskRequest {
                 tenant: req.tenant.clone().unwrap_or_default(),
                 id: req.id.to_string(),
-                metadata: req.metadata.clone().and_then(hashmap_to_struct),
+                metadata: req.metadata.clone().map(hashmap_to_struct),
             };
             let response = self
                 .client
@@ -233,9 +234,10 @@ impl Transport for GrpcTransport {
                 .await
                 .map_err(|e| A2AError::Other(e.to_string()))?;
 
-            Ok(Box::pin(GrpcEventStream {
+            let stream: EventStream = Box::pin(GrpcEventStream {
                 inner: response.into_inner(),
-            }) as EventStream)
+            });
+            Ok(stream)
         })
     }
 
@@ -319,10 +321,14 @@ impl Stream for GrpcEventStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match Pin::new(&mut self.inner).poll_next(cx) {
-            Poll::Ready(Some(Ok(response))) => if let Some(event) = convert_stream_response(response) { Poll::Ready(Some(Ok(event))) } else {
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            },
+            Poll::Ready(Some(Ok(response))) => {
+                if let Some(event) = convert_stream_response(response) {
+                    Poll::Ready(Some(Ok(event)))
+                } else {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            }
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(A2AError::Other(e.to_string())))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
@@ -337,7 +343,7 @@ fn convert_stream_response(response: proto::StreamResponse) -> Option<StreamResp
                 .status
                 .map_or_else(|| TaskStatus::new(TaskState::Unspecified), TaskStatus::from);
             let mut event = TaskStatusUpdateEvent::new(update.task_id, update.context_id, status);
-            event.metadata = update.metadata.and_then(struct_to_hashmap);
+            event.metadata = update.metadata.map(struct_to_hashmap);
             Some(StreamResponse::StatusUpdate(event))
         }
         Some(proto::stream_response::Payload::ArtifactUpdate(update)) => {
@@ -348,7 +354,7 @@ fn convert_stream_response(response: proto::StreamResponse) -> Option<StreamResp
                 TaskArtifactUpdateEvent::new(update.task_id, update.context_id, artifact);
             event.append = update.append;
             event.last_chunk = update.last_chunk;
-            event.metadata = update.metadata.and_then(struct_to_hashmap);
+            event.metadata = update.metadata.map(struct_to_hashmap);
             Some(StreamResponse::ArtifactUpdate(event))
         }
         _ => None,

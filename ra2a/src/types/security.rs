@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Maps to proto `SecurityScheme` (oneof scheme). Serialized using JSON
 /// member name as discriminator: `{"apiKey": {...}}`, `{"http": {...}}`, etc.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SecurityScheme {
     /// API key-based authentication.
     ApiKey(ApiKeySecurityScheme),
@@ -138,7 +138,7 @@ impl HttpAuthSecurityScheme {
 /// OAuth 2.0 security scheme.
 ///
 /// Maps to proto `OAuth2SecurityScheme`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuth2SecurityScheme {
     /// An optional description.

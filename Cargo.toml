@@ -178,7 +178,7 @@ missing_assert_message = "warn"
 empty_line_after_doc_comments = "warn"
 empty_line_after_outer_attr = "warn"
 
-missing_docs_in_private_items = "allow"
+missing_docs_in_private_items = "warn"
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"
 missing_safety_doc = "warn"

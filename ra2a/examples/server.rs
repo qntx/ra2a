@@ -1,3 +1,4 @@
+#![allow(unused_crate_dependencies)]
 //! Example: A2A Server
 //!
 //! Mount A2A routes on your own Axum router — the SDK provides composable

@@ -39,6 +39,7 @@ enum EventAction {
 ///
 /// Coordinates between `AgentExecutor`, task storage, `QueueManager`,
 /// and optional push notification components — event-driven, aligned with Go.
+#[allow(missing_debug_implementations)]
 pub struct DefaultRequestHandler {
     executor: Arc<dyn AgentExecutor>,
     agent_card: crate::types::AgentCard,
@@ -459,6 +460,17 @@ impl DefaultRequestHandler {
         self.push_config_store.save(task_id, config).await
     }
 
+    /// Validates that push notifications are supported and the task exists.
+    async fn require_push_support(&self, task_id: &str) -> Result<()> {
+        if !self.agent_card.supports_push_notifications() {
+            return Err(A2AError::PushNotificationNotSupported);
+        }
+        self.get_task_internal(task_id)
+            .await
+            .ok_or_else(|| A2AError::TaskNotFound(task_id.to_owned()))?;
+        Ok(())
+    }
+
     /// Sends push notifications for a task state change.
     ///
     /// Aligned with Go's `processor.processEvent`: after each task state change,
@@ -545,7 +557,8 @@ impl RequestHandler for DefaultRequestHandler {
             let stream = futures::stream::unfold(receiver, broadcast_recv_next);
 
             info!(task_id = %task_id, "Started streaming message");
-            Ok(Box::pin(stream) as EventStream)
+            let pinned: EventStream = Box::pin(stream);
+            Ok(pinned)
         })
     }
 
@@ -647,16 +660,11 @@ impl RequestHandler for DefaultRequestHandler {
                 .ok_or_else(|| A2AError::TaskNotFound(params.id.to_string()))?;
 
             let receiver = queue.subscribe();
-            let stream = futures::stream::unfold(receiver, |mut rx| async move {
-                match rx.recv().await {
-                    Ok(event) => Some((Ok(event), rx)),
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => None,
-                }
-            });
+            let stream = futures::stream::unfold(receiver, broadcast_recv_next);
 
             info!(task_id = %params.id, "Resubscribed to task");
-            Ok(Box::pin(stream) as EventStream)
+            let pinned: EventStream = Box::pin(stream);
+            Ok(pinned)
         })
     }
 
@@ -665,18 +673,12 @@ impl RequestHandler for DefaultRequestHandler {
         params: TaskPushNotificationConfig,
     ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + '_>> {
         Box::pin(async move {
-            let card = &self.agent_card;
-            if !card.supports_push_notifications() {
-                return Err(A2AError::PushNotificationNotSupported);
-            }
             let task_id_str = params
                 .task_id
                 .as_ref()
                 .map(ToString::to_string)
                 .unwrap_or_default();
-            self.get_task_internal(&task_id_str)
-                .await
-                .ok_or_else(|| A2AError::TaskNotFound(task_id_str.clone()))?;
+            self.require_push_support(&task_id_str).await?;
 
             let push_config = PushNotificationConfig {
                 id: params.id.clone(),
@@ -704,13 +706,7 @@ impl RequestHandler for DefaultRequestHandler {
         params: GetTaskPushNotificationConfigRequest,
     ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + '_>> {
         Box::pin(async move {
-            let card = &self.agent_card;
-            if !card.supports_push_notifications() {
-                return Err(A2AError::PushNotificationNotSupported);
-            }
-            self.get_task_internal(&params.task_id)
-                .await
-                .ok_or_else(|| A2AError::TaskNotFound(params.task_id.to_string()))?;
+            self.require_push_support(&params.task_id).await?;
 
             let config = self
                 .push_config_store
@@ -733,13 +729,7 @@ impl RequestHandler for DefaultRequestHandler {
     ) -> Pin<Box<dyn Future<Output = Result<ListTaskPushNotificationConfigsResponse>> + Send + '_>>
     {
         Box::pin(async move {
-            let card = &self.agent_card;
-            if !card.supports_push_notifications() {
-                return Err(A2AError::PushNotificationNotSupported);
-            }
-            self.get_task_internal(&params.task_id)
-                .await
-                .ok_or_else(|| A2AError::TaskNotFound(params.task_id.to_string()))?;
+            self.require_push_support(&params.task_id).await?;
 
             let configs = self.push_config_store.list(&params.task_id).await?;
             Ok(ListTaskPushNotificationConfigsResponse {
@@ -765,13 +755,7 @@ impl RequestHandler for DefaultRequestHandler {
         params: DeleteTaskPushNotificationConfigRequest,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
         Box::pin(async move {
-            let card = &self.agent_card;
-            if !card.supports_push_notifications() {
-                return Err(A2AError::PushNotificationNotSupported);
-            }
-            self.get_task_internal(&params.task_id)
-                .await
-                .ok_or_else(|| A2AError::TaskNotFound(params.task_id.to_string()))?;
+            self.require_push_support(&params.task_id).await?;
 
             self.push_config_store
                 .delete(&params.task_id, &params.id)

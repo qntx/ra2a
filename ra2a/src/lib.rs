@@ -16,6 +16,22 @@
 #![deny(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
 
+#[cfg(test)]
+extern crate mockito as _;
+#[cfg(test)]
+extern crate pretty_assertions as _;
+#[cfg(test)]
+extern crate tokio_test as _;
+#[cfg(test)]
+extern crate tracing_subscriber as _;
+
+#[cfg(feature = "grpc")]
+extern crate google_api_proto as _;
+#[cfg(feature = "telemetry")]
+extern crate opentelemetry as _;
+#[cfg(feature = "telemetry")]
+extern crate tracing_opentelemetry as _;
+
 pub mod error;
 pub(crate) mod jsonrpc;
 pub mod types;

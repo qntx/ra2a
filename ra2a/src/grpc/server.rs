@@ -6,12 +6,12 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
-use super::convert::{hashmap_to_struct, struct_to_hashmap};
+use super::convert::{hashmap_to_struct, none_if_empty, struct_to_hashmap};
 use super::proto::{
     self, CancelTaskRequest, DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
     GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigsRequest,
@@ -43,6 +43,12 @@ pub struct GrpcServiceImpl<H: RequestHandler> {
     agent_card: Arc<AgentCard>,
 }
 
+impl<H: RequestHandler> std::fmt::Debug for GrpcServiceImpl<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GrpcServiceImpl").finish_non_exhaustive()
+    }
+}
+
 impl<H: RequestHandler> GrpcServiceImpl<H> {
     /// Creates a new gRPC service with the given handler and agent card.
     pub fn new(handler: H, agent_card: AgentCard) -> Self {
@@ -70,66 +76,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         &self,
         request: Request<SendMessageRequest>,
     ) -> Result<Response<SendMessageResponse>, Status> {
-        let req = request.into_inner();
-
-        // Convert proto message to native type
-        let message = req
-            .message
-            .map(NativeMessage::from)
-            .ok_or_else(|| Status::invalid_argument("message is required"))?;
-
-        let mut native_req = NativeSendMessageReq::new(message);
-
-        if let Some(config) = req.configuration {
-            let mut send_config = SendMessageConfiguration {
-                return_immediately: config.return_immediately,
-                accepted_output_modes: config.accepted_output_modes,
-                ..Default::default()
-            };
-            if let Some(history_length) = config.history_length {
-                send_config.history_length = Some(history_length);
-            }
-            if let Some(tpc) = config.task_push_notification_config {
-                send_config.task_push_notification_config = Some(NativeTaskPushConfig {
-                    tenant: if tpc.tenant.is_empty() {
-                        None
-                    } else {
-                        Some(tpc.tenant)
-                    },
-                    id: if tpc.id.is_empty() {
-                        None
-                    } else {
-                        Some(tpc.id)
-                    },
-                    task_id: if tpc.task_id.is_empty() {
-                        None
-                    } else {
-                        Some(TaskId::from(tpc.task_id.as_str()))
-                    },
-                    url: tpc.url,
-                    token: if tpc.token.is_empty() {
-                        None
-                    } else {
-                        Some(tpc.token)
-                    },
-                    authentication: tpc
-                        .authentication
-                        .map(|a| crate::types::AuthenticationInfo {
-                            scheme: a.scheme,
-                            credentials: if a.credentials.is_empty() {
-                                None
-                            } else {
-                                Some(a.credentials)
-                            },
-                        }),
-                });
-            }
-            native_req.configuration = Some(send_config);
-        }
-
-        if let Some(metadata) = req.metadata {
-            native_req.metadata = struct_to_hashmap(metadata);
-        }
+        let native_req = convert_send_message_request(request.into_inner())?;
 
         let result = self
             .handler
@@ -157,66 +104,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         &self,
         request: Request<SendMessageRequest>,
     ) -> Result<Response<Self::SendStreamingMessageStream>, Status> {
-        let req = request.into_inner();
-
-        // Convert proto message to native type
-        let message = req
-            .message
-            .map(NativeMessage::from)
-            .ok_or_else(|| Status::invalid_argument("message is required"))?;
-
-        let mut native_req = NativeSendMessageReq::new(message);
-
-        if let Some(config) = req.configuration {
-            let mut send_config = SendMessageConfiguration {
-                return_immediately: config.return_immediately,
-                accepted_output_modes: config.accepted_output_modes,
-                ..Default::default()
-            };
-            if let Some(history_length) = config.history_length {
-                send_config.history_length = Some(history_length);
-            }
-            if let Some(tpc) = config.task_push_notification_config {
-                send_config.task_push_notification_config = Some(NativeTaskPushConfig {
-                    tenant: if tpc.tenant.is_empty() {
-                        None
-                    } else {
-                        Some(tpc.tenant)
-                    },
-                    id: if tpc.id.is_empty() {
-                        None
-                    } else {
-                        Some(tpc.id)
-                    },
-                    task_id: if tpc.task_id.is_empty() {
-                        None
-                    } else {
-                        Some(TaskId::from(tpc.task_id.as_str()))
-                    },
-                    url: tpc.url,
-                    token: if tpc.token.is_empty() {
-                        None
-                    } else {
-                        Some(tpc.token)
-                    },
-                    authentication: tpc
-                        .authentication
-                        .map(|a| crate::types::AuthenticationInfo {
-                            scheme: a.scheme,
-                            credentials: if a.credentials.is_empty() {
-                                None
-                            } else {
-                                Some(a.credentials)
-                            },
-                        }),
-                });
-            }
-            native_req.configuration = Some(send_config);
-        }
-
-        if let Some(metadata) = req.metadata {
-            native_req.metadata = struct_to_hashmap(metadata);
-        }
+        let native_req = convert_send_message_request(request.into_inner())?;
 
         let stream = self
             .handler
@@ -224,34 +112,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        // Create channel for streaming
-        let (tx, rx) = mpsc::channel(32);
-
-        // Spawn task to convert and forward events
-        tokio::spawn(async move {
-            use futures::StreamExt;
-            let mut stream = stream;
-
-            while let Some(event) = stream.next().await {
-                let response = match event {
-                    Ok(crate::server::Event::StatusUpdate(update)) => {
-                        convert_status_update_to_response(update)
-                    }
-                    Ok(crate::server::Event::ArtifactUpdate(update)) => {
-                        convert_artifact_update_to_response(update)
-                    }
-                    Ok(crate::server::Event::Task(_)) => continue,
-                    Ok(crate::server::Event::Message(_)) => continue,
-                    Err(_) => break,
-                };
-                if tx.send(Ok(response)).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        let output_stream = ReceiverStream::new(rx);
-        Ok(Response::new(Box::pin(output_stream) as ResponseStream))
+        Ok(Response::new(spawn_event_stream(stream)))
     }
 
     async fn get_task(
@@ -261,11 +122,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeGetTaskReq {
-            tenant: if req.tenant.is_empty() {
-                None
-            } else {
-                Some(req.tenant)
-            },
+            tenant: none_if_empty(req.tenant),
             id: TaskId::from(req.id.as_str()),
             history_length: req.history_length,
         };
@@ -286,23 +143,11 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeListTasksReq {
-            tenant: if req.tenant.is_empty() {
-                None
-            } else {
-                Some(req.tenant)
-            },
-            context_id: if req.context_id.is_empty() {
-                None
-            } else {
-                Some(req.context_id)
-            },
+            tenant: none_if_empty(req.tenant),
+            context_id: none_if_empty(req.context_id),
             status: None,
             page_size: req.page_size,
-            page_token: if req.page_token.is_empty() {
-                None
-            } else {
-                Some(req.page_token)
-            },
+            page_token: none_if_empty(req.page_token),
             history_length: req.history_length,
             status_timestamp_after: None,
             include_artifacts: req.include_artifacts,
@@ -331,11 +176,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeCancelTaskRequest {
-            tenant: if req.tenant.is_empty() {
-                None
-            } else {
-                Some(req.tenant)
-            },
+            tenant: none_if_empty(req.tenant),
             id: TaskId::from(req.id.as_str()),
             metadata: None,
         };
@@ -356,11 +197,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeSubscribeReq {
-            tenant: if req.tenant.is_empty() {
-                None
-            } else {
-                Some(req.tenant)
-            },
+            tenant: none_if_empty(req.tenant),
             id: TaskId::from(req.id.as_str()),
         };
 
@@ -370,34 +207,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        // Create channel for streaming
-        let (tx, rx) = mpsc::channel(32);
-
-        // Spawn task to convert and forward events
-        tokio::spawn(async move {
-            use futures::StreamExt;
-            let mut stream = stream;
-
-            while let Some(event) = stream.next().await {
-                let response = match event {
-                    Ok(crate::server::Event::StatusUpdate(update)) => {
-                        convert_status_update_to_response(update)
-                    }
-                    Ok(crate::server::Event::ArtifactUpdate(update)) => {
-                        convert_artifact_update_to_response(update)
-                    }
-                    Ok(crate::server::Event::Task(_)) => continue,
-                    Ok(crate::server::Event::Message(_)) => continue,
-                    Err(_) => break,
-                };
-                if tx.send(Ok(response)).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        let output_stream = ReceiverStream::new(rx);
-        Ok(Response::new(Box::pin(output_stream) as ResponseStream))
+        Ok(Response::new(spawn_event_stream(stream)))
     }
 
     async fn create_task_push_notification_config(
@@ -406,47 +216,13 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
     ) -> Result<Response<TaskPushNotificationConfig>, Status> {
         let req = request.into_inner();
 
-        let native_req = NativeTaskPushConfig {
-            tenant: if req.tenant.is_empty() {
-                None
-            } else {
-                Some(req.tenant)
-            },
-            id: if req.id.is_empty() {
-                None
-            } else {
-                Some(req.id)
-            },
-            task_id: if req.task_id.is_empty() {
-                None
-            } else {
-                Some(TaskId::from(req.task_id.as_str()))
-            },
-            url: req.url,
-            token: if req.token.is_empty() {
-                None
-            } else {
-                Some(req.token)
-            },
-            authentication: req
-                .authentication
-                .map(|a| crate::types::AuthenticationInfo {
-                    scheme: a.scheme,
-                    credentials: if a.credentials.is_empty() {
-                        None
-                    } else {
-                        Some(a.credentials)
-                    },
-                }),
-        };
-
         let result = self
             .handler
-            .on_create_task_push_config(native_req)
+            .on_create_task_push_config(NativeTaskPushConfig::from(req))
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        Ok(Response::new(native_to_proto_push_config(result)))
+        Ok(Response::new(TaskPushNotificationConfig::from(result)))
     }
 
     async fn get_task_push_notification_config(
@@ -456,11 +232,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeGetPushReq {
-            tenant: if req.tenant.is_empty() {
-                None
-            } else {
-                Some(req.tenant)
-            },
+            tenant: none_if_empty(req.tenant),
             task_id: TaskId::from(req.task_id.as_str()),
             id: req.id,
         };
@@ -471,7 +243,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        Ok(Response::new(native_to_proto_push_config(result)))
+        Ok(Response::new(TaskPushNotificationConfig::from(result)))
     }
 
     async fn list_task_push_notification_configs(
@@ -481,22 +253,14 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeListPushReq {
-            tenant: if req.tenant.is_empty() {
-                None
-            } else {
-                Some(req.tenant)
-            },
+            tenant: none_if_empty(req.tenant),
             task_id: TaskId::from(req.task_id.as_str()),
             page_size: if req.page_size > 0 {
                 Some(req.page_size)
             } else {
                 None
             },
-            page_token: if req.page_token.is_empty() {
-                None
-            } else {
-                Some(req.page_token)
-            },
+            page_token: none_if_empty(req.page_token),
         };
 
         let result = self
@@ -508,7 +272,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let proto_configs = result
             .configs
             .into_iter()
-            .map(native_to_proto_push_config)
+            .map(TaskPushNotificationConfig::from)
             .collect();
 
         Ok(Response::new(ListTaskPushNotificationConfigsResponse {
@@ -547,11 +311,7 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
         let req = request.into_inner();
 
         let native_req = NativeDeletePushReq {
-            tenant: if req.tenant.is_empty() {
-                None
-            } else {
-                Some(req.tenant)
-            },
+            tenant: none_if_empty(req.tenant),
             task_id: TaskId::from(req.task_id.as_str()),
             id: req.id,
         };
@@ -565,21 +325,62 @@ impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H
     }
 }
 
-/// Converts a native `TaskPushNotificationConfig` to its proto equivalent.
-fn native_to_proto_push_config(
-    c: crate::types::TaskPushNotificationConfig,
-) -> TaskPushNotificationConfig {
-    TaskPushNotificationConfig {
-        tenant: c.tenant.unwrap_or_default(),
-        id: c.id.unwrap_or_default(),
-        task_id: c.task_id.map(|t| t.to_string()).unwrap_or_default(),
-        url: c.url,
-        token: c.token.unwrap_or_default(),
-        authentication: c.authentication.map(|a| proto::AuthenticationInfo {
-            scheme: a.scheme,
-            credentials: a.credentials.unwrap_or_default(),
-        }),
+/// Converts a proto `SendMessageRequest` to its native equivalent.
+fn convert_send_message_request(req: SendMessageRequest) -> Result<NativeSendMessageReq, Status> {
+    let message = req
+        .message
+        .map(NativeMessage::from)
+        .ok_or_else(|| Status::invalid_argument("message is required"))?;
+
+    let mut native_req = NativeSendMessageReq::new(message);
+
+    if let Some(config) = req.configuration {
+        native_req.configuration = Some(SendMessageConfiguration {
+            return_immediately: config.return_immediately,
+            accepted_output_modes: config.accepted_output_modes,
+            history_length: config.history_length,
+            task_push_notification_config: config
+                .task_push_notification_config
+                .map(NativeTaskPushConfig::from),
+        });
     }
+
+    if let Some(metadata) = req.metadata {
+        native_req.metadata = Some(struct_to_hashmap(metadata));
+    }
+
+    Ok(native_req)
+}
+
+/// Spawns a task that converts native events to proto `StreamResponse`s
+/// and forwards them through a channel.
+fn spawn_event_stream(
+    stream: impl Stream<Item = Result<crate::server::Event, crate::error::A2AError>> + Send + 'static,
+) -> ResponseStream {
+    let (tx, rx) = mpsc::channel(32);
+
+    tokio::spawn(async move {
+        let mut stream = std::pin::pin!(stream);
+        while let Some(event) = stream.next().await {
+            let response = match event {
+                Ok(crate::server::Event::StatusUpdate(update)) => {
+                    convert_status_update_to_response(update)
+                }
+                Ok(crate::server::Event::ArtifactUpdate(update)) => {
+                    convert_artifact_update_to_response(update)
+                }
+                Ok(crate::server::Event::Task(_) | crate::server::Event::Message(_)) => {
+                    continue;
+                }
+                Err(_) => break,
+            };
+            if tx.send(Ok(response)).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    Box::pin(ReceiverStream::new(rx))
 }
 
 /// Converts a `TaskStatusUpdateEvent` to a proto `StreamResponse`.
@@ -592,7 +393,7 @@ fn convert_status_update_to_response(
                 task_id: update.task_id.to_string(),
                 context_id: update.context_id.to_string(),
                 status: Some(proto::TaskStatus::from(update.status)),
-                metadata: update.metadata.and_then(hashmap_to_struct),
+                metadata: update.metadata.map(hashmap_to_struct),
             },
         )),
     }
@@ -609,7 +410,7 @@ fn convert_artifact_update_to_response(
                 artifact: Some(proto::Artifact::from(update.artifact)),
                 append: update.append,
                 last_chunk: update.last_chunk,
-                metadata: update.metadata.and_then(hashmap_to_struct),
+                metadata: update.metadata.map(hashmap_to_struct),
             },
         )),
     }

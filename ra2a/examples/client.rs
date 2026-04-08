@@ -1,3 +1,4 @@
+#![allow(unused_crate_dependencies)]
 //! Example: A2A Client
 //!
 //! Run the server example first, then:
@@ -22,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match result {
         SendMessageResponse::Task(task) => {
             let state = &task.status.state;
-            let reply = task.status.message.as_ref().and_then(ra2a::Message::text_content);
+            let reply = task.status.message.as_ref().and_then(Message::text_content);
             println!("[{state:?}] {}", reply.unwrap_or_default());
         }
         SendMessageResponse::Message(msg) => {

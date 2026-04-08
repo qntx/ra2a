@@ -80,6 +80,14 @@ pub struct HandlerBuilder {
     extended_card_producer: Option<Arc<dyn AgentCardProducer>>,
 }
 
+impl std::fmt::Debug for HandlerBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HandlerBuilder")
+            .field("agent_card", &self.agent_card)
+            .finish_non_exhaustive()
+    }
+}
+
 impl HandlerBuilder {
     /// Creates a new builder with the given agent executor and agent card.
     pub fn new(executor: impl AgentExecutor + 'static, agent_card: AgentCard) -> Self {

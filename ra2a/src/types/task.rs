@@ -130,7 +130,7 @@ impl<'de> Deserialize<'de> for TaskState {
 /// Status of a task at a specific point in time.
 ///
 /// Maps to proto `TaskStatus`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TaskStatus {
     /// The current state.
     pub state: TaskState,
@@ -199,7 +199,7 @@ impl Default for TaskStatus {
 /// A stateful operation or conversation between a client and an agent.
 ///
 /// Maps to proto `Task`. v1.0 does **not** use a `kind` discriminator.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
     /// Unique identifier for the task.

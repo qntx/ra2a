@@ -153,6 +153,14 @@ pub struct Client {
     config: ClientConfig,
 }
 
+impl std::fmt::Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Client")
+            .field("config", &self.config)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Client {
     /// Creates a new client wrapping the given transport.
     #[must_use]
@@ -242,7 +250,10 @@ impl Client {
             return result;
         }
         let (payload, err) = match result {
-            Ok(r) => (Some(Box::new(r) as Box<dyn Any + Send>), None),
+            Ok(r) => {
+                let boxed: Box<dyn Any + Send> = Box::new(r);
+                (Some(boxed), None)
+            }
             Err(e) => (None, Some(e)),
         };
         let mut resp = Response {
@@ -301,7 +312,8 @@ impl Client {
                 SendMessageResponse::Task(t) => StreamResponse::Task(t),
                 SendMessageResponse::Message(m) => StreamResponse::Message(m),
             };
-            return Ok(Box::pin(futures::stream::once(async move { Ok(event) })) as EventStream);
+            let stream: EventStream = Box::pin(futures::stream::once(async move { Ok(event) }));
+            return Ok(stream);
         }
 
         let stream = SERVICE_PARAMS

@@ -42,7 +42,8 @@ impl TransportBuilder for JsonRpcBuilder {
     fn build<'a>(&'a self, endpoint: &'a AgentInterface) -> TransportBuildFuture<'a> {
         Box::pin(async move {
             let transport = JsonRpcTransport::new(TransportConfig::new(&endpoint.url))?;
-            Ok(Box::new(transport) as Box<dyn Transport>)
+            let t: Box<dyn Transport> = Box::new(transport);
+            Ok(t)
         })
     }
 }
@@ -54,7 +55,8 @@ impl TransportBuilder for RestBuilder {
     fn build<'a>(&'a self, endpoint: &'a AgentInterface) -> TransportBuildFuture<'a> {
         Box::pin(async move {
             let transport = RestTransport::new(&endpoint.url)?;
-            Ok(Box::new(transport) as Box<dyn Transport>)
+            let t: Box<dyn Transport> = Box::new(transport);
+            Ok(t)
         })
     }
 }
@@ -79,6 +81,14 @@ pub struct ClientFactory {
     config: ClientConfig,
     interceptors: Vec<Arc<dyn CallInterceptor>>,
     builders: HashMap<String, Arc<dyn TransportBuilder>>,
+}
+
+impl std::fmt::Debug for ClientFactory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientFactory")
+            .field("config", &self.config)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ClientFactory {
@@ -225,6 +235,14 @@ impl Default for ClientFactory {
 pub struct TenantTransportDecorator {
     inner: Box<dyn Transport>,
     tenant: String,
+}
+
+impl std::fmt::Debug for TenantTransportDecorator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TenantTransportDecorator")
+            .field("tenant", &self.tenant)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Transport for TenantTransportDecorator {

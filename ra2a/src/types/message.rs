@@ -64,7 +64,7 @@ impl<'de> Deserialize<'de> for Role {
 /// A single message in the conversation between a user and an agent.
 ///
 /// Maps to the proto `Message` message. v1.0 does **not** emit a `kind` field.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Message {
     /// Unique identifier for the message (required).

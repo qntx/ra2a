@@ -14,7 +14,7 @@
 //! and attach [`GrpcServiceImpl`] via [`A2aServiceServer`].
 
 // Include the generated protobuf code
-#[allow(missing_docs)]
+#[allow(missing_docs, unused_qualifications)]
 #[allow(clippy::all)]
 pub mod proto {
     //! Generated protobuf types and service definitions.

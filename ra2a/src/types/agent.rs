@@ -107,7 +107,7 @@ impl AgentInterface {
 ///
 /// Maps to proto `AgentCard`. v1.0 uses `supported_interfaces` as the primary
 /// field for declaring endpoints (replaces the old `url` + `protocolVersion` pattern).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentCard {
     /// A human-readable name for the agent.

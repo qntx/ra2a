@@ -184,13 +184,14 @@ pub trait PushSender: Send + Sync {
 /// HTTP-based push notification sender.
 ///
 /// Aligned with Go's `HTTPPushSender` in `push/sender.go`.
+#[derive(Debug)]
 pub struct HttpPushSender {
     client: reqwest::Client,
     fail_on_error: bool,
 }
 
 /// Configuration for [`HttpPushSender`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct HttpPushSenderConfig {
     /// HTTP request timeout.
     pub timeout: std::time::Duration,

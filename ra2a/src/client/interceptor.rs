@@ -74,6 +74,7 @@ impl ServiceParams {
 }
 
 /// Transport-agnostic outgoing request that interceptors can observe and modify.
+#[allow(missing_debug_implementations)]
 pub struct Request {
     /// The method being called (e.g. `"SendMessage"`).
     pub method: String,
@@ -86,6 +87,7 @@ pub struct Request {
 }
 
 /// Transport-agnostic response that interceptors can observe and modify.
+#[allow(missing_debug_implementations)]
 pub struct Response {
     /// The method that was called.
     pub method: String,
@@ -121,6 +123,7 @@ pub trait CallInterceptor: Send + Sync {
 }
 
 /// No-op interceptor.
+#[derive(Debug, Clone, Copy)]
 pub struct PassthroughInterceptor;
 
 impl CallInterceptor for PassthroughInterceptor {}
@@ -138,6 +141,7 @@ impl CallInterceptor for PassthroughInterceptor {}
 /// params.append("x-api-key", "my-secret");
 /// // client.with_interceptor(StaticParamsInjector::new(params));
 /// ```
+#[derive(Debug)]
 pub struct StaticParamsInjector {
     inject: ServiceParams,
 }

@@ -23,7 +23,7 @@ use super::{Artifact, Message, Metadata, Task, TaskStatus};
 /// Notifies the client of a task status change.
 ///
 /// Maps to proto `TaskStatusUpdateEvent`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskStatusUpdateEvent {
     /// The task ID.
@@ -56,7 +56,7 @@ impl TaskStatusUpdateEvent {
 /// Notifies the client of an artifact creation or update.
 ///
 /// Maps to proto `TaskArtifactUpdateEvent`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskArtifactUpdateEvent {
     /// The task ID.
@@ -103,7 +103,7 @@ impl TaskArtifactUpdateEvent {
 /// - `{"message": {...}}`
 /// - `{"statusUpdate": {...}}`
 /// - `{"artifactUpdate": {...}}`
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StreamResponse {
     /// A complete task snapshot.
     Task(Task),
@@ -196,7 +196,7 @@ impl<'de> Deserialize<'de> for StreamResponse {
 /// Maps to proto `SendMessageResponse` (oneof payload).
 ///
 /// Serialized as `{"task": {...}}` or `{"message": {...}}`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SendMessageResponse {
     /// A task was created or updated.
     Task(Task),

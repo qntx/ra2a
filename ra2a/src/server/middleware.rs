@@ -75,9 +75,7 @@ impl RequestMeta {
     /// Performs a case-insensitive lookup.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&[String]> {
-        self.kv
-            .get(&key.to_lowercase())
-            .map(Vec::as_slice)
+        self.kv.get(&key.to_lowercase()).map(Vec::as_slice)
     }
 
     /// Sets a single value for the given key (replacing any existing values).
@@ -336,6 +334,7 @@ pub trait CallInterceptor: Send + Sync {
 /// A no-op interceptor that passes everything through unchanged.
 ///
 /// Embed this in your interceptor if you only need one of `before`/`after`.
+#[derive(Debug, Clone, Copy)]
 pub struct PassthroughInterceptor;
 
 impl CallInterceptor for PassthroughInterceptor {

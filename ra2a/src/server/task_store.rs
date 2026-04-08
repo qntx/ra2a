@@ -356,6 +356,7 @@ pub(super) mod sql {
         ) => {
             #[doc = concat!("SQL-backed task store for the `", $feat, "` database backend.")]
             #[cfg(feature = $feat)]
+            #[allow(unreachable_pub)]
             pub mod $mod {
                 use sqlx::Row;
 
