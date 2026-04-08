@@ -62,6 +62,7 @@ impl PropagatorContext {
     ///
     /// Requires that the current task is running within [`init_propagation`].
     /// Returns `true` if stored successfully.
+    #[must_use]
     pub fn install(self) -> bool {
         PROPAGATOR_CTX
             .try_with(|cell| {
@@ -102,12 +103,12 @@ pub async fn init_propagation<F: Future>(f: F) -> F::Output {
 ///
 /// Receives the list of requested extension URIs and the metadata key.
 /// Returns `true` if the key should be propagated.
-pub type ServerMetadataPredicate = Arc<dyn Fn(&[String], &str) -> bool + Send + Sync>;
+pub(crate) type ServerMetadataPredicate = Arc<dyn Fn(&[String], &str) -> bool + Send + Sync>;
 
 /// Predicate function for filtering request headers on the server side.
 ///
 /// Receives the header key. Returns `true` if the header should be propagated.
-pub type ServerHeaderPredicate = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+pub(crate) type ServerHeaderPredicate = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 /// Configuration for [`ServerPropagator`].
 ///
@@ -155,11 +156,13 @@ impl ServerPropagator {
     /// Default behavior:
     /// - Propagates metadata keys matching client-requested extension URIs
     /// - Propagates the `x-a2a-extensions` header
+    #[must_use]
     pub fn new() -> Self {
         Self::with_config(ServerPropagatorConfig::default())
     }
 
     /// Creates a new server propagator with custom configuration.
+    #[must_use]
     pub fn with_config(config: ServerPropagatorConfig) -> Self {
         let metadata_predicate = config.metadata_predicate.unwrap_or_else(|| {
             Arc::new(|requested_uris: &[String], key: &str| requested_uris.iter().any(|u| u == key))
@@ -188,48 +191,47 @@ impl std::fmt::Debug for ServerPropagator {
     }
 }
 
+impl ServerPropagator {
+    fn propagate_server(&self, ctx: &mut ra2a::server::CallContext, req: &ra2a::server::Request) {
+        let mut prop_ctx = PropagatorContext::default();
+
+        let requested = ctx.requested_extension_uris();
+
+        extract_metadata(
+            req,
+            &requested,
+            &self.metadata_predicate,
+            &mut prop_ctx.metadata,
+        );
+
+        let request_meta = ctx.request_meta();
+        for (header_name, header_values) in request_meta.iter() {
+            if (self.header_predicate)(header_name) {
+                prop_ctx
+                    .request_headers
+                    .insert(header_name.to_owned(), header_values.to_vec());
+            }
+        }
+
+        if let Some(ext_values) = prop_ctx.request_headers.get(SVC_PARAM_EXTENSIONS) {
+            for uri in ext_values {
+                ctx.activate_extension(uri);
+            }
+        }
+
+        // Best-effort install; fails silently if not inside init_propagation.
+        let _installed = prop_ctx.install();
+    }
+}
+
 impl ra2a::server::CallInterceptor for ServerPropagator {
     fn before<'a>(
         &'a self,
         ctx: &'a mut ra2a::server::CallContext,
         req: &'a mut ra2a::server::Request,
     ) -> Pin<Box<dyn Future<Output = Result<(), A2AError>> + Send + 'a>> {
-        Box::pin(async move {
-            let mut prop_ctx = PropagatorContext::default();
-
-            // Collect requested extension URIs for the metadata predicate.
-            let requested = ctx.requested_extension_uris();
-
-            // Extract matching metadata from the request payload.
-            extract_metadata(
-                req,
-                &requested,
-                &self.metadata_predicate,
-                &mut prop_ctx.metadata,
-            );
-
-            // Extract matching headers from request metadata.
-            let request_meta = ctx.request_meta();
-            for (header_name, header_values) in request_meta.iter() {
-                if (self.header_predicate)(header_name) {
-                    prop_ctx
-                        .request_headers
-                        .insert(header_name.to_owned(), header_values.to_vec());
-                }
-            }
-
-            // Also activate extensions in the CallContext for downstream use.
-            if let Some(ext_values) = prop_ctx.request_headers.get(SVC_PARAM_EXTENSIONS) {
-                for uri in ext_values {
-                    ctx.activate_extension(uri);
-                }
-            }
-
-            // Store in task-local (requires init_propagation wrapper).
-            prop_ctx.install();
-
-            Ok(())
-        })
+        self.propagate_server(ctx, req);
+        Box::pin(std::future::ready(Ok(())))
     }
 
     fn after<'a>(
@@ -273,14 +275,15 @@ fn collect_matching_metadata(
 ///
 /// Receives the target server's agent card (if available), the list of
 /// requested extension URIs, and the metadata key.
-pub type ClientMetadataPredicate =
+pub(crate) type ClientMetadataPredicate =
     Arc<dyn Fn(Option<&AgentCard>, &[String], &str) -> bool + Send + Sync>;
 
 /// Predicate function for filtering request headers on the client side.
 ///
 /// Receives the target server's agent card (if available), the header key
 /// and value. Returns `true` if the header should be forwarded.
-pub type ClientHeaderPredicate = Arc<dyn Fn(Option<&AgentCard>, &str, &str) -> bool + Send + Sync>;
+pub(crate) type ClientHeaderPredicate =
+    Arc<dyn Fn(Option<&AgentCard>, &str, &str) -> bool + Send + Sync>;
 
 /// Configuration for [`ClientPropagator`].
 #[derive(Default)]
@@ -323,31 +326,21 @@ pub struct ClientPropagator {
 
 impl ClientPropagator {
     /// Creates a new client propagator with default configuration.
+    #[must_use]
     pub fn new() -> Self {
         Self::with_config(ClientPropagatorConfig::default())
     }
 
     /// Creates a new client propagator with custom configuration.
+    #[must_use]
     pub fn with_config(config: ClientPropagatorConfig) -> Self {
-        let metadata_predicate = config.metadata_predicate.unwrap_or_else(|| {
-            Arc::new(
-                |card: Option<&AgentCard>, requested: &[String], key: &str| {
-                    if !requested.iter().any(|u| u == key) {
-                        return false;
-                    }
-                    is_extension_supported(card, key)
-                },
-            )
-        });
+        let metadata_predicate = config
+            .metadata_predicate
+            .unwrap_or_else(|| Arc::new(default_client_metadata_predicate));
 
-        let header_predicate = config.header_predicate.unwrap_or_else(|| {
-            Arc::new(|card: Option<&AgentCard>, key: &str, val: &str| {
-                if !key.eq_ignore_ascii_case(SVC_PARAM_EXTENSIONS) {
-                    return false;
-                }
-                is_extension_supported(card, val)
-            })
-        });
+        let header_predicate = config
+            .header_predicate
+            .unwrap_or_else(|| Arc::new(default_client_header_predicate));
 
         Self {
             metadata_predicate,
@@ -368,46 +361,64 @@ impl std::fmt::Debug for ClientPropagator {
     }
 }
 
+impl ClientPropagator {
+    fn propagate_client(&self, req: &mut ra2a::client::Request) {
+        let Some(prop_ctx) = PropagatorContext::current() else {
+            return;
+        };
+
+        let requested: Vec<String> = prop_ctx
+            .request_headers
+            .get(SVC_PARAM_EXTENSIONS)
+            .cloned()
+            .unwrap_or_default();
+
+        if !prop_ctx.metadata.is_empty() {
+            inject_metadata(
+                &mut *req.payload,
+                &prop_ctx.metadata,
+                req.card.as_ref(),
+                &requested,
+                &self.metadata_predicate,
+            );
+        }
+
+        for (name, val) in prop_ctx
+            .request_headers
+            .iter()
+            .flat_map(|(k, vs)| vs.iter().map(move |v| (k, v)))
+        {
+            if (self.header_predicate)(req.card.as_ref(), name, val) {
+                req.service_params.append(name, val);
+            }
+        }
+    }
+}
+
 impl ra2a::client::CallInterceptor for ClientPropagator {
     fn before<'a>(
         &'a self,
         req: &'a mut ra2a::client::Request,
     ) -> Pin<Box<dyn Future<Output = ra2a::error::Result<()>> + Send + 'a>> {
-        Box::pin(async move {
-            let Some(prop_ctx) = PropagatorContext::current() else {
-                return Ok(());
-            };
-
-            // Collect requested URIs from propagated headers for the predicate.
-            let requested: Vec<String> = prop_ctx
-                .request_headers
-                .get(SVC_PARAM_EXTENSIONS)
-                .cloned()
-                .unwrap_or_default();
-
-            // Inject matching metadata into the outgoing payload.
-            if !prop_ctx.metadata.is_empty() {
-                inject_metadata(
-                    &mut *req.payload,
-                    &prop_ctx.metadata,
-                    req.card.as_ref(),
-                    &requested,
-                    &self.metadata_predicate,
-                );
-            }
-
-            // Inject matching headers.
-            for (header_name, header_values) in &prop_ctx.request_headers {
-                for header_value in header_values {
-                    if (self.header_predicate)(req.card.as_ref(), header_name, header_value) {
-                        req.service_params.append(header_name, header_value);
-                    }
-                }
-            }
-
-            Ok(())
-        })
+        self.propagate_client(req);
+        Box::pin(std::future::ready(Ok(())))
     }
+}
+
+/// Default metadata predicate for [`ClientPropagator`]: propagates keys that
+/// are in the requested list and supported by the downstream agent card.
+fn default_client_metadata_predicate(
+    card: Option<&AgentCard>,
+    requested: &[String],
+    key: &str,
+) -> bool {
+    requested.iter().any(|u| u == key) && is_extension_supported(card, key)
+}
+
+/// Default header predicate for [`ClientPropagator`]: propagates
+/// `x-a2a-extensions` header values for extensions supported by the downstream agent.
+fn default_client_header_predicate(card: Option<&AgentCard>, key: &str, val: &str) -> bool {
+    key.eq_ignore_ascii_case(SVC_PARAM_EXTENSIONS) && is_extension_supported(card, val)
 }
 
 /// Injects matching metadata into known outgoing payload types.
@@ -440,7 +451,7 @@ fn inject_matching_metadata(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, reason = "tests use unwrap for brevity")]
 mod tests {
     use ra2a::client::{CallInterceptor as _, ServiceParams};
     use ra2a::types::{

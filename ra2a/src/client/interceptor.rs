@@ -154,10 +154,12 @@ impl CallInterceptor for StaticParamsInjector {
         req: &'a mut Request,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async move {
-            for (key, values) in self.inject.iter() {
-                for value in values {
-                    req.service_params.append(key, value);
-                }
+            for (key, value) in self
+                .inject
+                .iter()
+                .flat_map(|(k, vs)| vs.iter().map(move |v| (k, v)))
+            {
+                req.service_params.append(key, value);
             }
             Ok(())
         })

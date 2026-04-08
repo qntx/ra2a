@@ -240,63 +240,74 @@ impl PushSender for HttpPushSender {
         config: &'a PushNotificationConfig,
         task: &'a Task,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
-        Box::pin(async move {
-            let json_data = serde_json::to_vec(task)
-                .map_err(|e| A2AError::ServerError(format!("failed to serialize task: {e}")))?;
+        Box::pin(self.send_push(config, task))
+    }
+}
 
-            let mut req = self
-                .client
-                .post(&config.url)
-                .header("Content-Type", "application/json")
-                .body(json_data);
+impl HttpPushSender {
+    async fn send_push(&self, config: &PushNotificationConfig, task: &Task) -> Result<()> {
+        let json_data = serde_json::to_vec(task)
+            .map_err(|e| A2AError::ServerError(format!("failed to serialize task: {e}")))?;
 
-            // Attach verification token header (Go: X-A2A-Notification-Token)
-            if let Some(ref token) = config.token
-                && !token.is_empty()
-            {
-                req = req.header("X-A2A-Notification-Token", token);
+        let mut req = self
+            .client
+            .post(&config.url)
+            .header("Content-Type", "application/json")
+            .body(json_data);
+
+        if let Some(ref token) = config.token
+            && !token.is_empty()
+        {
+            req = req.header("X-A2A-Notification-Token", token);
+        }
+
+        if let Some(ref auth) = config.authentication
+            && let Some(ref credentials) = auth.credentials
+            && !credentials.is_empty()
+        {
+            req = self.apply_auth(req, &auth.scheme, credentials);
+        }
+
+        let result = req.send().await;
+        self.handle_push_result(result)
+    }
+
+    fn apply_auth(
+        &self,
+        req: reqwest::RequestBuilder,
+        scheme: &str,
+        credentials: &str,
+    ) -> reqwest::RequestBuilder {
+        match scheme.to_lowercase().as_str() {
+            "bearer" => req.header("Authorization", format!("Bearer {credentials}")),
+            "basic" => req.header("Authorization", format!("Basic {credentials}")),
+            _ => req,
+        }
+    }
+
+    fn handle_push_result(
+        &self,
+        result: std::result::Result<reqwest::Response, reqwest::Error>,
+    ) -> Result<()> {
+        match result {
+            Ok(resp) if !resp.status().is_success() => {
+                let msg = format!(
+                    "push notification endpoint returned non-success status: {}",
+                    resp.status()
+                );
+                self.maybe_fail(msg)
             }
+            Ok(_) => Ok(()),
+            Err(e) => self.maybe_fail(format!("failed to send push notification: {e}")),
+        }
+    }
 
-            if let Some(ref auth) = config.authentication
-                && let Some(ref credentials) = auth.credentials
-                && !credentials.is_empty()
-            {
-                let scheme = auth.scheme.to_lowercase();
-                match scheme.as_str() {
-                    "bearer" => {
-                        req = req.header("Authorization", format!("Bearer {credentials}"));
-                    }
-                    "basic" => {
-                        req = req.header("Authorization", format!("Basic {credentials}"));
-                    }
-                    _ => {}
-                }
-            }
-
-            match req.send().await {
-                Ok(resp) => {
-                    if !resp.status().is_success() {
-                        let msg = format!(
-                            "push notification endpoint returned non-success status: {}",
-                            resp.status()
-                        );
-                        if self.fail_on_error {
-                            return Err(A2AError::ServerError(msg));
-                        }
-                        tracing::error!("{msg}");
-                    }
-                    Ok(())
-                }
-                Err(e) => {
-                    let msg = format!("failed to send push notification: {e}");
-                    if self.fail_on_error {
-                        Err(A2AError::ServerError(msg))
-                    } else {
-                        tracing::error!("{msg}");
-                        Ok(())
-                    }
-                }
-            }
-        })
+    fn maybe_fail(&self, msg: String) -> Result<()> {
+        if self.fail_on_error {
+            Err(A2AError::ServerError(msg))
+        } else {
+            tracing::error!("{msg}");
+            Ok(())
+        }
     }
 }

@@ -85,10 +85,8 @@ impl JsonRpcTransport {
         match super::current_service_params() {
             Some(sp) if !sp.is_empty() => {
                 let mut b = builder;
-                for (key, values) in sp.iter() {
-                    for value in values {
-                        b = b.header(key, value);
-                    }
+                for (key, value) in sp.iter().flat_map(|(k, vs)| vs.iter().map(move |v| (k, v))) {
+                    b = b.header(key, value);
                 }
                 b
             }
@@ -268,6 +266,20 @@ impl Transport for JsonRpcTransport {
     }
 }
 
+/// Tries to extract a complete SSE event from the buffer.
+///
+/// Scans for double-newline delimiters; returns `None` when more data is needed.
+fn try_extract_sse_event(buf: &mut String) -> Option<Result<StreamResponse>> {
+    loop {
+        let pos = buf.find("\n\n")?;
+        let raw = buf[..pos].to_string();
+        *buf = buf[pos + 2..].to_string();
+        if let Some(event) = parse_sse_message(&raw) {
+            return Some(event);
+        }
+    }
+}
+
 /// Parses an HTTP response body as an SSE stream of JSON-RPC–wrapped [`StreamResponse`]s.
 fn parse_sse_stream(response: reqwest::Response) -> EventStream {
     let byte_stream = response.bytes_stream();
@@ -277,27 +289,13 @@ fn parse_sse_stream(response: reqwest::Response) -> EventStream {
         |(mut bytes, mut buf)| async move {
             use futures::TryStreamExt;
             loop {
-                // Look for a complete SSE message (double newline).
-                if let Some(pos) = buf.find("\n\n") {
-                    let raw = buf[..pos].to_string();
-                    buf = buf[pos + 2..].to_string();
-
-                    if let Some(event) = parse_sse_message(&raw) {
-                        return Some((event, (bytes, buf)));
-                    }
-                    continue;
+                if let Some(event) = try_extract_sse_event(&mut buf) {
+                    return Some((event, (bytes, buf)));
                 }
-
                 match bytes.try_next().await {
-                    Ok(Some(chunk)) => {
-                        if let Ok(text) = std::str::from_utf8(&chunk) {
-                            buf.push_str(text);
-                        }
-                    }
+                    Ok(Some(chunk)) => buf.extend(std::str::from_utf8(&chunk)),
                     Ok(None) => return None,
-                    Err(e) => {
-                        return Some((Err(A2AError::Other(e.to_string())), (bytes, buf)));
-                    }
+                    Err(e) => return Some((Err(A2AError::Other(e.to_string())), (bytes, buf))),
                 }
             }
         },

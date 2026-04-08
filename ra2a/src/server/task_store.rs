@@ -9,6 +9,10 @@ use crate::error::Result;
 use crate::server::event::Event;
 use crate::types::{ListTasksRequest, ListTasksResponse, Task};
 
+/// Return type for [`TaskStore::get`].
+pub(crate) type GetTaskFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Option<(Task, TaskVersion)>>> + Send + 'a>>;
+
 /// Version of a task stored on the server, used for optimistic concurrency control.
 ///
 /// A value of `0` (`MISSING`) means version tracking is not active.
@@ -58,11 +62,7 @@ pub trait TaskStore: Send + Sync {
     /// Retrieves a task and its version from the store by ID.
     ///
     /// Returns `None` if the task does not exist.
-    #[allow(clippy::type_complexity)]
-    fn get<'a>(
-        &'a self,
-        task_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<(Task, TaskVersion)>>> + Send + 'a>>;
+    fn get<'a>(&'a self, task_id: &'a str) -> GetTaskFuture<'a>;
 
     /// Deletes a task from the store by ID.
     fn delete<'a>(
@@ -137,10 +137,7 @@ impl TaskStore for InMemoryTaskStore {
         })
     }
 
-    fn get<'a>(
-        &'a self,
-        task_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<(Task, TaskVersion)>>> + Send + 'a>> {
+    fn get<'a>(&'a self, task_id: &'a str) -> GetTaskFuture<'a> {
         Box::pin(async move {
             let tasks = self.tasks.read().await;
             Ok(tasks.get(task_id).map(|vt| (vt.task.clone(), vt.version)))
@@ -295,13 +292,11 @@ pub mod sql {
                 } else {
                     serde_json::to_string(&task.artifacts).ok()
                 },
-                metadata: task.metadata.as_ref().and_then(|m| {
-                    if m.is_empty() {
-                        None
-                    } else {
-                        serde_json::to_string(m).ok()
-                    }
-                }),
+                metadata: task
+                    .metadata
+                    .as_ref()
+                    .filter(|m| !m.is_empty())
+                    .and_then(|m| serde_json::to_string(m).ok()),
             }
         }
 
@@ -424,10 +419,7 @@ pub mod sql {
                         })
                     }
 
-                    fn get<'a>(
-                        &'a self,
-                        task_id: &'a str,
-                    ) -> Pin<Box<dyn Future<Output = Result<Option<(Task, TaskVersion)>>> + Send + 'a>> {
+                    fn get<'a>(&'a self, task_id: &'a str) -> crate::server::task_store::GetTaskFuture<'a> {
                         Box::pin(async move {
                             let row = sqlx::query($task_get)
                                 .bind(task_id)

@@ -1,20 +1,76 @@
-# Cognitive complexity threshold for functions
-cognitive-complexity-threshold = 30
+cognitive-complexity-threshold = 20
+excessive-nesting-threshold = 4
+too-many-lines-threshold = 120
+too-many-arguments-threshold = 7
+type-complexity-threshold = 250
+struct-field-name-threshold = 8
+enum-variant-size-threshold = 200
 
-# Maximum allowed nesting depth
-excessive-nesting-threshold = 6
-
-# Disallowed methods (security-sensitive)
-disallowed-methods = [
-    { path = "std::env::set_var", reason = "Environment manipulation should be avoided in library code" },
-    { path = "std::env::remove_var", reason = "Environment manipulation should be avoided in library code" },
+single-char-binding-names-threshold = 4
+min-ident-chars-threshold = 2
+allowed-idents-below-min-chars = [
+    "i",
+    "j",
+    "k",
+    "x",
+    "y",
+    "z",
+    "w",
+    "n",
+    "e",
+    "v",
+    "f",
+    "_",
 ]
 
-# Type complexity threshold
-type-complexity-threshold = 300
+pass-by-value-size-limit = 128
+trivial-copy-size-limit = 8
 
-# Maximum number of lines in a single expression
-single-char-binding-names-threshold = 4
+large-error-threshold = 128
 
-# Avoid panics in library code
-avoid-breaking-exported-api = true
+avoid-breaking-exported-api = false
+check-private-items = false
+
+allow-dbg-in-tests = true
+allow-print-in-tests = true
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+
+suppress-restriction-lint-in-const = true
+
+literal-representation-threshold = 4
+
+doc-valid-idents = [
+    "GitHub",
+    "GitLab",
+    "API",
+    "HTTP",
+    "HTTPS",
+    "JSON",
+    "UUID",
+    "Ethereum",
+    "EVM",
+    "WebSocket",
+    "OAuth",
+    "GraphQL",
+    "IPv4",
+    "IPv6",
+    "OpenAPI",
+    "TODO",
+    "FIXME",
+    "..",
+]
+
+disallowed-methods = [
+    { path = "std::env::set_var", reason = "Not thread-safe; use a dedicated config struct" },
+    { path = "std::env::remove_var", reason = "Not thread-safe; use a dedicated config struct" },
+    { path = "std::mem::transmute", reason = "Use safe alternatives: from_bits, as_ptr, bytemuck" },
+    { path = "std::mem::forget", reason = "Use ManuallyDrop instead of mem::forget" },
+    { path = "std::process::exit", reason = "Unwinds nothing; return from main or use a Result" },
+    { path = "std::thread::sleep", reason = "In async code use tokio::time::sleep; in sync code justify with #[allow]" },
+]
+
+# disallowed-types = [
+#     { path = "std::collections::HashMap", reason = "Use a hasher-explicit HashMap (e.g. ahash, foldhash, or std with BuildHasherDefault)", allow-invalid = true },
+#     { path = "std::collections::HashSet", reason = "Use a hasher-explicit HashSet (e.g. ahash, foldhash, or std with BuildHasherDefault)", allow-invalid = true },
+# ]

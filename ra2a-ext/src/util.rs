@@ -6,7 +6,7 @@ use ra2a::types::AgentCard;
 ///
 /// If no card is provided (e.g. client created from an `AgentInterface`),
 /// assumes the extension is supported — matching Go's pragmatic default.
-pub fn is_extension_supported(card: Option<&AgentCard>, ext_uri: &str) -> bool {
+pub(crate) fn is_extension_supported(card: Option<&AgentCard>, ext_uri: &str) -> bool {
     let Some(c) = card else {
         // No card available — assume server supports all extensions.
         return true;

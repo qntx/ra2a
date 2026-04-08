@@ -16,7 +16,9 @@ use futures::StreamExt;
 use super::{EventStream, RequestHandler};
 use crate::error::{A2AError, Result};
 use crate::jsonrpc;
-use crate::server::middleware::{CallContext, CallInterceptor, Request, Response, request_meta};
+use crate::server::middleware::{
+    CallContext, CallInterceptor, Request, RequestMeta, Response, request_meta,
+};
 use crate::types::{
     AgentCard, CancelTaskRequest, DeleteTaskPushNotificationConfigRequest,
     GetExtendedAgentCardRequest, GetTaskPushNotificationConfigRequest, GetTaskRequest,
@@ -113,26 +115,8 @@ impl InterceptedHandler {
             let interceptors = interceptors.clone();
             let meta = meta.clone();
             async move {
-                match event_result {
-                    Ok(event) => {
-                        let mut resp = Response::ok(event);
-                        let ctx = CallContext::new(method, meta);
-                        for interceptor in interceptors.iter().rev() {
-                            interceptor.after(&ctx, &mut resp).await?;
-                        }
-                        if let Some(err) = resp.err {
-                            return Err(err);
-                        }
-                        match resp
-                            .payload
-                            .and_then(|p| p.downcast::<crate::server::event::Event>().ok())
-                        {
-                            Some(e) => Ok(*e),
-                            None => Err(A2AError::Other("missing event after interceptor".into())),
-                        }
-                    }
-                    Err(e) => Err(e),
-                }
+                let event = event_result?;
+                apply_stream_after(&interceptors, method, meta, event).await
             }
         });
         Box::pin(wrapped)
@@ -283,4 +267,25 @@ impl RequestHandler for InterceptedHandler {
             self.run_after_typed(&ctx, result).await
         })
     }
+}
+
+/// Applies after-interceptors to a single stream event.
+async fn apply_stream_after(
+    interceptors: &[Arc<dyn CallInterceptor>],
+    method: &str,
+    meta: RequestMeta,
+    event: crate::server::event::Event,
+) -> Result<crate::server::event::Event> {
+    let mut resp = Response::ok(event);
+    let ctx = CallContext::new(method, meta);
+    for interceptor in interceptors.iter().rev() {
+        interceptor.after(&ctx, &mut resp).await?;
+    }
+    if let Some(err) = resp.err {
+        return Err(err);
+    }
+    resp.payload
+        .and_then(|p| p.downcast::<crate::server::event::Event>().ok())
+        .map(|e| *e)
+        .ok_or_else(|| A2AError::Other("missing event after interceptor".into()))
 }

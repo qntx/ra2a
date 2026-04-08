@@ -25,23 +25,21 @@ use crate::types::{
     SubscribeToTaskRequest, Task, TaskPushNotificationConfig, TransportProtocol,
 };
 
+/// Return type for [`TransportBuilder::build`].
+type TransportBuildFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Box<dyn Transport>>> + Send + 'a>>;
+
 /// Trait for building a [`Transport`] from an [`AgentInterface`].
 pub trait TransportBuilder: Send + Sync {
     /// Attempts to create a transport connection to the given endpoint.
-    fn build<'a>(
-        &'a self,
-        endpoint: &'a AgentInterface,
-    ) -> Pin<Box<dyn Future<Output = Result<Box<dyn Transport>>> + Send + 'a>>;
+    fn build<'a>(&'a self, endpoint: &'a AgentInterface) -> TransportBuildFuture<'a>;
 }
 
 /// Builds a [`JsonRpcTransport`].
 struct JsonRpcBuilder;
 
 impl TransportBuilder for JsonRpcBuilder {
-    fn build<'a>(
-        &'a self,
-        endpoint: &'a AgentInterface,
-    ) -> Pin<Box<dyn Future<Output = Result<Box<dyn Transport>>> + Send + 'a>> {
+    fn build<'a>(&'a self, endpoint: &'a AgentInterface) -> TransportBuildFuture<'a> {
         Box::pin(async move {
             let transport = JsonRpcTransport::new(TransportConfig::new(&endpoint.url))?;
             Ok(Box::new(transport) as Box<dyn Transport>)
@@ -53,10 +51,7 @@ impl TransportBuilder for JsonRpcBuilder {
 struct RestBuilder;
 
 impl TransportBuilder for RestBuilder {
-    fn build<'a>(
-        &'a self,
-        endpoint: &'a AgentInterface,
-    ) -> Pin<Box<dyn Future<Output = Result<Box<dyn Transport>>> + Send + 'a>> {
+    fn build<'a>(&'a self, endpoint: &'a AgentInterface) -> TransportBuildFuture<'a> {
         Box::pin(async move {
             let transport = RestTransport::new(&endpoint.url)?;
             Ok(Box::new(transport) as Box<dyn Transport>)
@@ -173,25 +168,27 @@ impl ClientFactory {
 
         let mut errors = Vec::new();
         for (iface, builder, _) in &candidates {
-            match builder.build(iface).await {
-                Ok(mut transport) => {
-                    if let Some(ref tenant) = iface.tenant
-                        && !tenant.is_empty()
-                    {
-                        transport = Box::new(TenantTransportDecorator {
-                            inner: transport,
-                            tenant: tenant.clone(),
-                        });
-                    }
-                    let mut client = Client::new(transport);
-                    client.set_card(card.clone());
-                    for interceptor in &self.interceptors {
-                        client = client.with_interceptor_arc(Arc::clone(interceptor));
-                    }
-                    return Ok(client);
+            let mut transport = match builder.build(iface).await {
+                Ok(t) => t,
+                Err(e) => {
+                    errors.push(format!("{}: {e}", iface.url));
+                    continue;
                 }
-                Err(e) => errors.push(format!("{}: {e}", iface.url)),
+            };
+            if let Some(ref tenant) = iface.tenant
+                && !tenant.is_empty()
+            {
+                transport = Box::new(TenantTransportDecorator {
+                    inner: transport,
+                    tenant: tenant.clone(),
+                });
             }
+            let mut client = Client::new(transport);
+            client.set_card(card.clone());
+            for interceptor in &self.interceptors {
+                client = client.with_interceptor_arc(Arc::clone(interceptor));
+            }
+            return Ok(client);
         }
 
         Err(A2AError::Other(format!(

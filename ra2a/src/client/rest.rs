@@ -339,6 +339,32 @@ impl Transport for RestTransport {
     }
 }
 
+/// Strips the `data: ` or `data:` prefix from an SSE line.
+fn strip_sse_data_prefix(line: &str) -> Option<&str> {
+    line.strip_prefix("data: ").or(line.strip_prefix("data:"))
+}
+
+/// Tries to extract a complete REST SSE event from the buffer.
+///
+/// Scans for double-newline delimiters; returns `None` when more data is needed.
+fn try_extract_rest_event(buf: &mut String) -> Option<Result<StreamResponse>> {
+    loop {
+        let pos = buf.find("\n\n")?;
+        let event_text = buf[..pos].to_string();
+        *buf = buf[pos + 2..].to_string();
+
+        let data = event_text
+            .lines()
+            .filter_map(strip_sse_data_prefix)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if !data.is_empty() {
+            return Some(serde_json::from_str(&data).map_err(|e| A2AError::Other(e.to_string())));
+        }
+    }
+}
+
 /// Parses an HTTP response as an SSE stream of raw [`StreamResponse`]s.
 ///
 /// Unlike JSON-RPC SSE, REST SSE events contain raw `StreamResponse` JSON
@@ -350,31 +376,11 @@ fn parse_rest_sse_stream(response: reqwest::Response) -> EventStream {
         |(mut byte_stream, mut buffer)| async move {
             use futures::TryStreamExt;
             loop {
-                if let Some(pos) = buffer.find("\n\n") {
-                    let event_text = buffer[..pos].to_string();
-                    buffer = buffer[pos + 2..].to_string();
-
-                    let data = event_text
-                        .lines()
-                        .filter_map(|line| {
-                            line.strip_prefix("data: ").or(line.strip_prefix("data:"))
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-
-                    if data.is_empty() {
-                        continue;
-                    }
-
-                    let result: Result<StreamResponse> =
-                        serde_json::from_str(&data).map_err(|e| A2AError::Other(e.to_string()));
-                    return Some((result, (byte_stream, buffer)));
+                if let Some(event) = try_extract_rest_event(&mut buffer) {
+                    return Some((event, (byte_stream, buffer)));
                 }
-
                 match byte_stream.try_next().await {
-                    Ok(Some(bytes)) => {
-                        buffer.push_str(&String::from_utf8_lossy(&bytes));
-                    }
+                    Ok(Some(bytes)) => buffer.push_str(&String::from_utf8_lossy(&bytes)),
                     Ok(None) => return None,
                     Err(e) => {
                         return Some((

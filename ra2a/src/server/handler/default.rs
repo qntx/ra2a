@@ -29,6 +29,12 @@ use crate::types::{
     TaskPushNotificationConfig, TaskStatus,
 };
 
+/// Flow-control result from [`DefaultRequestHandler::process_event`].
+enum EventAction {
+    Return(SendMessageResponse),
+    Continue(Event),
+}
+
 /// Default request handler for all incoming A2A requests.
 ///
 /// Coordinates between `AgentExecutor`, task storage, `QueueManager`,
@@ -159,16 +165,15 @@ impl DefaultRequestHandler {
 
     /// Applies history length limit to a task.
     fn apply_history_length(task: &mut Task, history_length: Option<i32>) {
-        if let Some(len) = history_length {
-            if len <= 0 {
-                task.history.clear();
-            } else {
-                let len = len as usize;
-                if task.history.len() > len {
-                    let start = task.history.len() - len;
-                    task.history = task.history.drain(start..).collect();
-                }
-            }
+        let Some(len) = history_length else { return };
+        if len <= 0 {
+            task.history.clear();
+            return;
+        }
+        let len = len as usize;
+        if task.history.len() > len {
+            let start = task.history.len() - len;
+            task.history = task.history.drain(start..).collect();
         }
     }
 
@@ -303,66 +308,79 @@ impl DefaultRequestHandler {
 
         loop {
             match rx.recv().await {
-                Ok(event) => {
-                    // Persist task snapshots and send push notifications
-                    match &event {
-                        Event::Task(t) => {
-                            self.store_task(t).await;
-                            self.notify_push(t).await;
-                        }
-                        Event::StatusUpdate(e) => {
-                            if let Some(mut t) = self.get_task_internal(&e.task_id).await {
-                                t.status = TaskStatus::new(e.status.state);
-                                self.store_task(&t).await;
-                                self.notify_push(&t).await;
-                            }
-                        }
-                        _ => {}
-                    }
-
-                    // Check shouldInterruptNonStreaming conditions
-                    if let Some((task_id, should_interrupt)) =
-                        Self::should_interrupt_non_streaming(is_non_blocking, &event)
-                        && should_interrupt
-                    {
-                        let t = self
-                            .get_task_internal(&task_id)
-                            .await
-                            .unwrap_or_else(|| Task::new(&task_id, ""));
-                        return Ok(SendMessageResponse::Task(t));
-                    }
-
-                    if event.is_terminal() {
-                        return match event {
-                            Event::Task(t) => Ok(SendMessageResponse::Task(t)),
-                            Event::Message(m) => Ok(SendMessageResponse::Message(m)),
-                            Event::StatusUpdate(e) => {
-                                let t = self
-                                    .get_task_internal(&e.task_id)
-                                    .await
-                                    .unwrap_or_else(|| Task::new(&e.task_id, ""));
-                                Ok(SendMessageResponse::Task(t))
-                            }
-                            _ => Err(A2AError::Other("Unexpected terminal event".into())),
-                        };
-                    }
-
-                    last_event = Some(event);
-                }
+                Ok(event) => match self.process_event(event, is_non_blocking).await? {
+                    EventAction::Return(resp) => return Ok(resp),
+                    EventAction::Continue(ev) => last_event = Some(ev),
+                },
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    let Some(event) = last_event else {
-                        return Err(A2AError::Other("Event queue closed unexpectedly".into()));
-                    };
-                    return match event {
-                        Event::Task(t) => Ok(SendMessageResponse::Task(t)),
-                        Event::Message(m) => Ok(SendMessageResponse::Message(m)),
-                        _ => self.resolve_task_from_event(&event).await,
-                    };
+                    return self.finalize_on_close(last_event).await;
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    warn!("Event stream lagged by {} messages", n);
+                    warn!("Event stream lagged by {n} messages");
                 }
             }
+        }
+    }
+
+    /// Persists task snapshots and sends push notifications for an event.
+    async fn persist_event_snapshot(&self, event: &Event) {
+        match event {
+            Event::Task(t) => {
+                self.store_task(t).await;
+                self.notify_push(t).await;
+            }
+            Event::StatusUpdate(e) => {
+                if let Some(mut t) = self.get_task_internal(&e.task_id).await {
+                    t.status = TaskStatus::new(e.status.state);
+                    self.store_task(&t).await;
+                    self.notify_push(&t).await;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Processes a single event received in `collect_result`.
+    async fn process_event(&self, event: Event, is_non_blocking: bool) -> Result<EventAction> {
+        self.persist_event_snapshot(&event).await;
+
+        if let Some((task_id, true)) = Self::should_interrupt_non_streaming(is_non_blocking, &event)
+        {
+            let t = self
+                .get_task_internal(&task_id)
+                .await
+                .unwrap_or_else(|| Task::new(&task_id, ""));
+            return Ok(EventAction::Return(SendMessageResponse::Task(t)));
+        }
+
+        if event.is_terminal() {
+            let resp = match event {
+                Event::Task(t) => SendMessageResponse::Task(t),
+                Event::Message(m) => SendMessageResponse::Message(m),
+                Event::StatusUpdate(e) => {
+                    let t = self
+                        .get_task_internal(&e.task_id)
+                        .await
+                        .unwrap_or_else(|| Task::new(&e.task_id, ""));
+                    SendMessageResponse::Task(t)
+                }
+                _ => return Err(A2AError::Other("Unexpected terminal event".into())),
+            };
+            return Ok(EventAction::Return(resp));
+        }
+
+        Ok(EventAction::Continue(event))
+    }
+
+    /// Handles the final event when the broadcast channel closes.
+    async fn finalize_on_close(&self, last_event: Option<Event>) -> Result<SendMessageResponse> {
+        let Some(event) = last_event else {
+            return Err(A2AError::Other("Event queue closed unexpectedly".into()));
+        };
+        match event {
+            Event::Task(t) => Ok(SendMessageResponse::Task(t)),
+            Event::Message(m) => Ok(SendMessageResponse::Message(m)),
+            ref ev => self.resolve_task_from_event(ev).await,
         }
     }
 
@@ -377,6 +395,23 @@ impl DefaultRequestHandler {
             .await
             .unwrap_or_else(|| Task::new(tid, ""));
         Ok(SendMessageResponse::Task(t))
+    }
+
+    /// Executes a cancellation in a spawned task.
+    async fn run_cancel(
+        executor: Arc<dyn AgentExecutor>,
+        ctx: RequestContext,
+        q: Arc<EventQueue>,
+        task_store: Arc<dyn TaskStore>,
+        tid: String,
+    ) {
+        if let Err(e) = executor.cancel(&ctx, &q).await {
+            error!(error = %e, task_id = %tid, "Cancel execution failed");
+            let mut t = Task::new(&tid, &ctx.context_id);
+            t.status = TaskStatus::failed(e.to_string());
+            let _ = task_store.save(&t, None, TaskVersion::MISSING).await;
+            let _ = q.send(Event::Task(t));
+        }
     }
 
     /// Determines if a non-streaming message/send should be interrupted.
@@ -447,6 +482,19 @@ impl DefaultRequestHandler {
     }
 }
 
+/// Receives the next event from a broadcast channel, mapping it for `stream::unfold`.
+async fn broadcast_recv_next(
+    mut rx: tokio::sync::broadcast::Receiver<Event>,
+) -> Option<(Result<Event>, tokio::sync::broadcast::Receiver<Event>)> {
+    match rx.recv().await {
+        Ok(event) => Some((Ok(event), rx)),
+        Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
+        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+            Some((Err(A2AError::Other(format!("Lagged by {n} events"))), rx))
+        }
+    }
+}
+
 impl RequestHandler for DefaultRequestHandler {
     fn on_message_send(
         &self,
@@ -491,16 +539,7 @@ impl RequestHandler for DefaultRequestHandler {
             // Subscribe BEFORE spawning so we don't miss any events
             let receiver = queue.subscribe();
             self.spawn_execution(ctx, Arc::clone(&queue));
-            let stream = futures::stream::unfold(receiver, |mut rx| async move {
-                match rx.recv().await {
-                    Ok(event) => Some((Ok(event), rx)),
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        warn!("Event stream lagged by {} messages", n);
-                        Some((Err(A2AError::Other(format!("Lagged by {n} events"))), rx))
-                    }
-                }
-            });
+            let stream = futures::stream::unfold(receiver, broadcast_recv_next);
 
             info!(task_id = %task_id, "Started streaming message");
             Ok(Box::pin(stream) as EventStream)
@@ -544,12 +583,11 @@ impl RequestHandler for DefaultRequestHandler {
             }
 
             // Abort the running task if exists
-            {
-                let mut running = self.running_tasks.write().await;
-                if let Some(handle) = running.remove(params.id.as_ref()) {
-                    handle.abort();
-                }
+            let mut running = self.running_tasks.write().await;
+            if let Some(handle) = running.remove(params.id.as_ref()) {
+                handle.abort();
             }
+            drop(running);
 
             // Execute cancel via event queue (aligned with Go)
             let queue = self
@@ -566,15 +604,7 @@ impl RequestHandler for DefaultRequestHandler {
             let q = Arc::clone(&queue);
             let task_store = Arc::clone(&self.task_store);
             let tid = params.id.to_string();
-            tokio::spawn(async move {
-                if let Err(e) = executor.cancel(&ctx, &q).await {
-                    error!(error = %e, task_id = %tid, "Cancel execution failed");
-                    let mut t = Task::new(&tid, &ctx.context_id);
-                    t.status = TaskStatus::failed(e.to_string());
-                    let _ = task_store.save(&t, None, TaskVersion::MISSING).await;
-                    let _ = q.send(Event::Task(t));
-                }
-            });
+            tokio::spawn(Self::run_cancel(executor, ctx, q, task_store, tid));
 
             // Cancel always blocks until completion
             let result = self.collect_result(rx, false).await?;

@@ -38,6 +38,7 @@ pub struct ExtensionActivator {
 
 impl ExtensionActivator {
     /// Creates a new activator for the given extension URIs.
+    #[must_use]
     pub const fn new(extension_uris: Vec<String>) -> Self {
         Self { extension_uris }
     }
@@ -48,26 +49,30 @@ impl CallInterceptor for ExtensionActivator {
         &'a self,
         req: &'a mut Request,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
-        Box::pin(async move {
-            // If the card has no extensions declared, skip entirely.
-            if let Some(card) = &req.card
-                && card.capabilities.extensions.is_empty()
-            {
-                return Ok(());
-            }
+        self.activate(req);
+        Box::pin(std::future::ready(Ok(())))
+    }
+}
 
-            for uri in &self.extension_uris {
-                if is_extension_supported(req.card.as_ref(), uri) {
-                    req.service_params.append(SVC_PARAM_EXTENSIONS, uri.clone());
-                }
+impl ExtensionActivator {
+    fn activate(&self, req: &mut Request) {
+        // If the card has no extensions declared, skip entirely.
+        if let Some(card) = &req.card
+            && card.capabilities.extensions.is_empty()
+        {
+            return;
+        }
+
+        for uri in &self.extension_uris {
+            if is_extension_supported(req.card.as_ref(), uri) {
+                req.service_params.append(SVC_PARAM_EXTENSIONS, uri.clone());
             }
-            Ok(())
-        })
+        }
     }
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, reason = "tests use unwrap for brevity")]
 mod tests {
     use ra2a::client::ServiceParams;
     use ra2a::types::{

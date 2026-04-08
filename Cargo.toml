@@ -4,14 +4,14 @@ default-members = ["ra2a"]
 resolver = "3"
 
 [workspace.package]
-version = "0.9.3"
+version = "0.10.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/qntx/ra2a"
 description = "Comprehensive Rust SDK for the Agent2Agent (A2A) Protocol"
 
 [workspace.dependencies]
-ra2a = { version = "0.9", path = "ra2a", features = ["server", "client"] }
+ra2a = { version = "0.10", path = "ra2a", features = ["server", "client"] }
 
 axum = "0.8.8"
 base64 = "0.22.1"
@@ -43,7 +43,7 @@ uuid = { version = "1.23.0", features = ["v4", "v7", "serde"] }
 
 [profile.release]
 codegen-units = 1
-lto = true
+lto = "thin"
 panic = "abort"
 strip = true
 
@@ -63,55 +63,138 @@ debug = true
 inherits = "release"
 
 [workspace.lints.rust]
+unsafe_code = "deny"
 elided_lifetimes_in_paths = "warn"
+single_use_lifetimes = "warn"
+unused_lifetimes = "warn"
 missing_copy_implementations = "warn"
 missing_debug_implementations = "warn"
 missing_docs = "warn"
-rust_2024_compatibility = { level = "warn", priority = -1 }
-single_use_lifetimes = "warn"
 trivial_casts = "warn"
 trivial_numeric_casts = "warn"
-unsafe_code = "warn"
-unused_lifetimes = "warn"
-unused_qualifications = "warn"
 variant_size_differences = "warn"
+unused_qualifications = "warn"
+unused_imports = "warn"
+unused_macro_rules = "warn"
+unused_must_use = "deny"
+unreachable_pub = "warn"
+unused_crate_dependencies = "warn"
+non_ascii_idents = "deny"
+non_camel_case_types = "warn"
+non_snake_case = "warn"
+non_upper_case_globals = "warn"
+keyword_idents = { level = "warn", priority = -1 }
+macro_use_extern_crate = "warn"
+meta_variable_misuse = "warn"
+rust_2018_idioms = { level = "deny", priority = -1 }
+rust_2024_compatibility = { level = "warn", priority = -1 }
+
+[workspace.lints.rustdoc]
+all = { level = "warn", priority = -1 }
+broken_intra_doc_links = "warn"
+private_intra_doc_links = "warn"
+missing_crate_level_docs = "warn"
+invalid_codeblock_attributes = "warn"
+invalid_html_tags = "warn"
+invalid_rust_codeblocks = "warn"
+bare_urls = "warn"
+unescaped_backticks = "warn"
 
 [workspace.lints.clippy]
-cargo = { level = "warn", priority = -1 }
-clone_on_ref_ptr = "warn"
-complexity = { level = "warn", priority = -1 }
 correctness = { level = "deny", priority = -1 }
-dbg_macro = "warn"
-doc_markdown = "allow"
-exhaustive_enums = "warn"
-exhaustive_structs = "warn"
-expect_used = "warn"
-fn_params_excessive_bools = "allow"
-future_not_send = "allow"
-implicit_hasher = "allow"
-missing_docs_in_private_items = "warn"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
-module_name_repetitions = "allow"
-multiple_crate_versions = "allow"
-must_use_candidate = "allow"
-nursery = { level = "warn", priority = -1 }
-option_if_let_else = "allow"
-panic = "warn"
-pedantic = { level = "warn", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+complexity = { level = "warn", priority = -1 }
 perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+restriction = { level = "allow", priority = -1 }
+
+dbg_macro = "warn"
 print_stderr = "warn"
 print_stdout = "warn"
-shadow_reuse = "warn"
-shadow_same = "warn"
-shadow_unrelated = "warn"
-significant_drop_tightening = "allow"
-similar_names = "allow"
-struct_excessive_bools = "allow"
-style = { level = "warn", priority = -1 }
-suspicious = { level = "warn", priority = -1 }
 todo = "warn"
-too_many_lines = "allow"
 unimplemented = "warn"
-unwrap_in_result = "warn"
+panic = "warn"
 unwrap_used = "warn"
+unwrap_in_result = "warn"
+expect_used = "warn"
+panic_in_result_fn = "warn"
+indexing_slicing = "warn"
+exit = "warn"
+
+undocumented_unsafe_blocks = "warn"
+multiple_unsafe_ops_per_block = "warn"
+mem_forget = "warn"
+clone_on_ref_ptr = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
+
+fallible_impl_from = "warn"
+error_impl_error = "warn"
+let_underscore_must_use = "warn"
+
+rest_pat_in_fully_bound_structs = "warn"
+fn_params_excessive_bools = "warn"
+struct_excessive_bools = "warn"
+large_types_passed_by_value = "warn"
+implicit_hasher = "warn"
+redundant_type_annotations = "warn"
+
+str_to_string = "warn"
+# string_to_string removed: clippy::implicit_clone covers it
+string_lit_as_bytes = "warn"
+needless_raw_string_hashes = "warn"
+format_push_string = "warn"
+
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+cast_lossless = "warn"
+as_underscore = "warn"
+cast_precision_loss = "allow"
+
+future_not_send = "warn"
+await_holding_lock = "warn"
+await_holding_refcell_ref = "warn"
+significant_drop_tightening = "warn"
+
+match_wildcard_for_single_variants = "warn"
+match_same_arms = "warn"
+option_if_let_else = "warn"
+wildcard_enum_match_arm = "allow"
+
+cognitive_complexity = "warn"
+too_many_lines = "warn"
+excessive_nesting = "warn"
+
+used_underscore_binding = "warn"
+verbose_file_reads = "warn"
+tests_outside_test_module = "warn"
+unnecessary_self_imports = "warn"
+infinite_loop = "warn"
+allow_attributes_without_reason = "warn"
+missing_assert_message = "warn"
+empty_line_after_doc_comments = "warn"
+empty_line_after_outer_attr = "warn"
+
+missing_docs_in_private_items = "allow"
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+missing_safety_doc = "warn"
+doc_markdown = "warn"
+must_use_candidate = "warn"
+return_self_not_must_use = "warn"
+
+exhaustive_enums = "allow"
+exhaustive_structs = "allow"
+module_name_repetitions = "allow"
+similar_names = "allow"
+shadow_reuse = "allow"
+shadow_same = "allow"
+shadow_unrelated = "warn"
+multiple_crate_versions = "allow"
+cargo_common_metadata = "allow"
+semicolon_inside_block = "allow"
+semicolon_outside_block = "allow"
+redundant_pub_crate = "allow"

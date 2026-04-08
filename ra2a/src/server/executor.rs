@@ -124,29 +124,33 @@ impl RequestContextInterceptor for ReferencedTasksLoader {
         &'a self,
         ctx: &'a mut RequestContext,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
-        Box::pin(async move {
-            let reference_ids = match ctx.message.as_ref() {
-                Some(m) if !m.reference_task_ids.is_empty() => m.reference_task_ids.clone(),
-                _ => return Ok(()),
-            };
+        Box::pin(self.load_referenced_tasks(ctx))
+    }
+}
 
-            let mut tasks = Vec::new();
-            for task_id in &reference_ids {
-                match self.store.get(task_id).await {
-                    Ok(Some((t, _version))) => tasks.push(t),
-                    Ok(None) => {
-                        tracing::info!(referenced_task_id = %task_id, "Referenced task not found");
-                    }
-                    Err(e) => {
-                        tracing::info!(error = %e, referenced_task_id = %task_id, "Failed to load referenced task");
-                    }
+impl ReferencedTasksLoader {
+    async fn load_referenced_tasks(&self, ctx: &mut RequestContext) -> Result<()> {
+        let reference_ids = match ctx.message.as_ref() {
+            Some(m) if !m.reference_task_ids.is_empty() => m.reference_task_ids.clone(),
+            _ => return Ok(()),
+        };
+
+        let mut tasks = Vec::new();
+        for task_id in &reference_ids {
+            match self.store.get(task_id).await {
+                Ok(Some((t, _version))) => tasks.push(t),
+                Ok(None) => {
+                    tracing::info!(referenced_task_id = %task_id, "Referenced task not found")
+                }
+                Err(e) => {
+                    tracing::info!(error = %e, referenced_task_id = %task_id, "Failed to load referenced task")
                 }
             }
+        }
 
-            if !tasks.is_empty() {
-                ctx.related_tasks = tasks;
-            }
-            Ok(())
-        })
+        if !tasks.is_empty() {
+            ctx.related_tasks = tasks;
+        }
+        Ok(())
     }
 }
