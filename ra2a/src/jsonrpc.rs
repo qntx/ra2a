@@ -24,8 +24,8 @@ pub(crate) const METHOD_TASKS_CANCEL: &str = "tasks/cancel";
 pub(crate) const METHOD_TASKS_RESUBSCRIBE: &str = "tasks/resubscribe";
 /// Method name for `tasks/pushNotificationConfig/get`.
 pub(crate) const METHOD_PUSH_CONFIG_GET: &str = "tasks/pushNotificationConfig/get";
-/// Method name for `tasks/pushNotificationConfig/set`.
-pub(crate) const METHOD_PUSH_CONFIG_SET: &str = "tasks/pushNotificationConfig/set";
+/// Method name for `tasks/pushNotificationConfig/create`.
+pub(crate) const METHOD_PUSH_CONFIG_CREATE: &str = "tasks/pushNotificationConfig/create";
 /// Method name for `tasks/pushNotificationConfig/list`.
 pub(crate) const METHOD_PUSH_CONFIG_LIST: &str = "tasks/pushNotificationConfig/list";
 /// Method name for `tasks/pushNotificationConfig/delete`.

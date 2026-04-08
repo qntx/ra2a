@@ -212,7 +212,7 @@ impl RequestHandler for InterceptedHandler {
     ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + '_>> {
         Box::pin(async move {
             let (ctx, req) = self
-                .run_before_typed(jsonrpc::METHOD_PUSH_CONFIG_SET, req)
+                .run_before_typed(jsonrpc::METHOD_PUSH_CONFIG_CREATE, req)
                 .await?;
             let result = self.inner.on_create_task_push_config(req).await;
             self.run_after_typed(&ctx, result).await

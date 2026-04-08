@@ -225,7 +225,7 @@ impl Transport for JsonRpcTransport {
         _params: &'a ServiceParams,
         req: &'a TaskPushNotificationConfig,
     ) -> Pin<Box<dyn Future<Output = Result<TaskPushNotificationConfig>> + Send + 'a>> {
-        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_SET, req).await })
+        Box::pin(async move { self.rpc_call(jsonrpc::METHOD_PUSH_CONFIG_CREATE, req).await })
     }
 
     fn get_task_push_config<'a>(

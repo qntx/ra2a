@@ -157,7 +157,7 @@ pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<S
             let resp = handler.on_list_tasks(req).await?;
             serialize_success(&id, &resp)
         }
-        jsonrpc::METHOD_PUSH_CONFIG_SET => {
+        jsonrpc::METHOD_PUSH_CONFIG_CREATE => {
             let req = parse_params::<TaskPushNotificationConfig>(&request)?;
             let config = handler.on_create_task_push_config(req).await?;
             serialize_success(&id, &config)

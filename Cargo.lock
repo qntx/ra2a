@@ -1824,7 +1824,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "ra2a"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "axum 0.8.8",
  "base64",
@@ -1855,7 +1855,7 @@ dependencies = [
 
 [[package]]
 name = "ra2a-ext"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "ra2a",
  "serde_json",

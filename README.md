@@ -3,34 +3,48 @@
 # RA2A
 
 [![CI][ci-badge]][ci-url]
+[![crates.io][ra2a-crate]][ra2a-crate-url]
+[![docs.rs][ra2a-doc]][ra2a-doc-url]
 [![License][license-badge]][license-url]
 [![Rust][rust-badge]][rust-url]
 
 [ci-badge]: https://github.com/qntx/ra2a/actions/workflows/rust.yml/badge.svg
 [ci-url]: https://github.com/qntx/ra2a/actions/workflows/rust.yml
+[ra2a-crate]: https://img.shields.io/crates/v/ra2a.svg
+[ra2a-crate-url]: https://crates.io/crates/ra2a
+[ra2a-doc]: https://img.shields.io/docsrs/ra2a.svg
+[ra2a-doc-url]: https://docs.rs/ra2a
 [license-badge]: https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg
 [license-url]: LICENSE-MIT
 [rust-badge]: https://img.shields.io/badge/rust-edition%202024-orange.svg
 [rust-url]: https://doc.rust-lang.org/edition-guide/
 
-**Comprehensive Rust SDK for the [Agent2Agent (A2A) Protocol v1.0][a2a-spec] — event-driven server, streaming client, gRPC transport, push notifications, and pluggable SQL task storage.**
+**Comprehensive Rust SDK for the [Agent2Agent (A2A) Protocol][a2a-spec] v1.0 — event-driven server, streaming client, gRPC transport, push notifications, and pluggable SQL task storage.**
 
-ra2a implements the full [A2A protocol specification][a2a-spec] **v1.0** with an idiomatic Rust API, providing a `Client` → `Transport` → `AgentCard` discovery flow on the client side and an `AgentExecutor` → `EventQueue` → `RequestHandler` pipeline on the server side. It is functionally aligned with the official [Go SDK][go-sdk] — same protocol version, same 12 JSON-RPC methods, same type definitions, same error codes.
+ra2a implements the full [A2A v1.0 specification][a2a-spec] (released 2026-03-12) with an idiomatic Rust API. Functionally aligned with the official [Go SDK][go-sdk] — same protocol version, same type definitions, same error codes.
 
 [a2a-spec]: https://a2a-protocol.org/latest/specification/
 [go-sdk]: https://github.com/a2aproject/a2a-go
+
+## Features
+
+- **Three protocol bindings** — JSON-RPC, HTTP+JSON/REST, and gRPC from the same `AgentExecutor`
+- **Composable server** — Axum handlers you mount on your own router; you own the listener, TLS, and middleware
+- **Transport-agnostic client** — `ClientFactory` auto-selects transport from `AgentCard.supported_interfaces`
+- **Streaming** — SSE (`message/stream`, `tasks/subscribe`) with automatic non-streaming fallback
+- **Push notifications** — webhook delivery with HMAC-SHA256 verification
+- **Pluggable storage** — in-memory, PostgreSQL, MySQL, SQLite via sqlx
+- **Multi-tenancy** — `a2a_tenant_router` with path-based tenant isolation
+- **Interceptors** — `CallInterceptor` on both client and server for auth, telemetry, extension propagation
+- **Extension support** — via companion crate `ra2a-ext`
 
 ## Crates
 
 | Crate | | Description |
 | --- | --- | --- |
-| **[`ra2a`](ra2a/)** | [![crates.io][ra2a-crate]][ra2a-crate-url] [![docs.rs][ra2a-doc]][ra2a-doc-url] | SDK — Client, Server, Types, gRPC, task storage |
-| **[`ra2a-ext`](ra2a-ext/)** | [![crates.io][ext-crate]][ext-crate-url] [![docs.rs][ext-doc]][ext-doc-url] | Extensions — extension activator, metadata propagator interceptors |
+| **[`ra2a`](ra2a/)** | [![crates.io][ra2a-crate]][ra2a-crate-url] [![docs.rs][ra2a-doc]][ra2a-doc-url] | Core SDK — types, client, server, gRPC, storage |
+| **[`ra2a-ext`](ra2a-ext/)** | [![crates.io][ext-crate]][ext-crate-url] [![docs.rs][ext-doc]][ext-doc-url] | Extensions — `ExtensionActivator`, `ServerPropagator`/`ClientPropagator` interceptors |
 
-[ra2a-crate]: https://img.shields.io/crates/v/ra2a.svg
-[ra2a-crate-url]: https://crates.io/crates/ra2a
-[ra2a-doc]: https://img.shields.io/docsrs/ra2a.svg
-[ra2a-doc-url]: https://docs.rs/ra2a
 [ext-crate]: https://img.shields.io/crates/v/ra2a-ext.svg
 [ext-crate-url]: https://crates.io/crates/ra2a-ext
 [ext-doc]: https://img.shields.io/docsrs/ra2a-ext.svg
@@ -39,8 +53,6 @@ ra2a implements the full [A2A protocol specification][a2a-spec] **v1.0** with an
 ## Quick Start
 
 ### Server
-
-The SDK provides composable Axum handlers — you own the router, listener, TLS, and middleware.
 
 ```rust
 use std::{future::Future, pin::Pin};
@@ -61,7 +73,7 @@ impl AgentExecutor for EchoAgent {
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async move {
             let input = ctx.message.as_ref()
-                .and_then(ra2a::Message::text_content)
+                .and_then(Message::text_content)
                 .unwrap_or_default();
             let mut task = Task::new(&ctx.task_id, &ctx.context_id);
             task.status = TaskStatus::with_message(
@@ -136,109 +148,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Architecture
-
-### ra2a crate
-
-| Layer | Key types | Role |
-| --- | --- | --- |
-| **Types** | `AgentCard`, `AgentInterface`, `Task`, `Message`, `Part` | Full A2A v1.0 type definitions with serde, proto-aligned |
-| **Server** | `AgentExecutor`, `EventQueue`, `DefaultRequestHandler` | Event-driven agent execution; composable Axum handlers — JSON-RPC (`a2a_router`), REST (`rest_router`), combined (`a2a_full_router`), multi-tenant (`a2a_tenant_router`) |
-| **Client** | `Client`, `Transport`, `ClientFactory` | Transport-agnostic client with interceptor middleware, streaming fallback, and auto transport selection from `AgentCard` |
-| **Storage** | `TaskStore`, `PushNotificationConfigStore` | Pluggable persistence (in-memory, PostgreSQL, MySQL, SQLite) |
-| **gRPC** | `GrpcTransport`, `GrpcServiceImpl` | Alternative transport via tonic/prost, compiled from the [official proto][a2a-proto] |
-
-[a2a-proto]: https://github.com/a2aproject/A2A/blob/main/specification/a2a.proto
-
-### ra2a-ext crate
-
-| Component | Role |
-| --- | --- |
-| `ExtensionActivator` | Client interceptor — requests extension activation filtered by `AgentCard` capabilities |
-| `ServerPropagator` / `ClientPropagator` | Interceptor pair — propagates extension metadata and headers across agent chains (A → B → C) |
-| `PropagatorContext` | Task-local data carrier connecting server and client interceptors |
-
 ## Feature Flags
 
 | Feature | Default | Description |
 | --- | :---: | --- |
-| `client` | **yes** | JSON-RPC + REST client transports, SSE streaming, `ClientFactory` auto-selection, interceptors |
+| `client` | **yes** | JSON-RPC + REST client transports, SSE streaming, `ClientFactory`, interceptors |
 | `server` | **yes** | JSON-RPC + REST Axum handlers, event queue, task lifecycle, multi-tenant routing |
-| `grpc` | — | gRPC transport via tonic/prost (requires protobuf compiler) |
+| `grpc` | — | gRPC transport via tonic/prost (requires `protoc`) |
 | `telemetry` | — | OpenTelemetry tracing spans and metrics |
-| `postgresql` | — | PostgreSQL task store via sqlx |
-| `mysql` | — | MySQL task store via sqlx |
-| `sqlite` | — | SQLite task store via sqlx |
+| `postgresql` | — | PostgreSQL task store (sqlx) |
+| `mysql` | — | MySQL task store (sqlx) |
+| `sqlite` | — | SQLite task store (sqlx) |
 | `sql` | — | All SQL backends (`postgresql` + `mysql` + `sqlite`) |
 | `full` | — | Everything (`server` + `grpc` + `telemetry` + `sql`) |
 
-## Proto Source
+## A2A Protocol Reference
 
-The protobuf definition (`a2a.proto`) is sourced directly from the [official A2A repository][a2a-repo] via git submodule, pinned to the `v1.0.0` tag. The `googleapis` dependency is also vendored as a submodule.
+### Protocol Operations
 
-[a2a-repo]: https://github.com/a2aproject/A2A
+All 12 operations defined by the A2A v1.0 specification are implemented on both client and server. Method names follow PascalCase per the spec (§9.1):
 
-After cloning, initialize both submodules:
-
-```sh
-git submodule update --init --recursive
-```
-
-To upgrade the proto to a new release:
-
-```sh
-git -C ra2a/proto/a2a checkout <new-tag>
-git add ra2a/proto/a2a
-git commit -m "build(proto): bump A2A proto to <new-tag>"
-```
-
-## A2A Protocol Overview
-
-### Protocol Version
-
-ra2a targets [**A2A v1.0**][a2a-spec] (released 2026-03-12). The `a2a.proto` is the normative source for the protocol data model; JSON-RPC and gRPC are separate protocol bindings derived from it.
-
-### JSON-RPC Methods
-
-All 12 methods defined by the A2A specification are implemented on both client and server:
-
-| Method | Description |
-| --- | --- |
-| `message/send` | Send a message, receive Task or Message |
-| `message/stream` | Send a message, receive SSE event stream |
-| `tasks/get` | Retrieve task by ID with optional history |
-| `tasks/list` | List tasks with pagination and filtering |
-| `tasks/cancel` | Request task cancellation |
-| `tasks/resubscribe` | Reconnect to an ongoing task's event stream |
-| `tasks/pushNotificationConfig/create` | Create a push notification config for a task |
-| `tasks/pushNotificationConfig/get` | Retrieve a push notification config |
-| `tasks/pushNotificationConfig/list` | List push notification configs for a task |
-| `tasks/pushNotificationConfig/delete` | Delete a push notification config |
-| `agent/getAuthenticatedExtendedCard` | Retrieve authenticated extended agent card |
+| Operation | JSON-RPC | REST | Description |
+| --- | --- | --- | --- |
+| Send message | `SendMessage` | `POST /message:send` | Send a message, receive Task or Message |
+| Stream message | `SendStreamingMessage` | `POST /message:stream` | Send a message, receive SSE event stream |
+| Get task | `GetTask` | `GET /tasks/{id}` | Retrieve task by ID with optional history |
+| List tasks | `ListTasks` | `GET /tasks` | List tasks with pagination and filtering |
+| Cancel task | `CancelTask` | `POST /tasks/{id}:cancel` | Request task cancellation |
+| Subscribe to task | `SubscribeToTask` | `POST /tasks/{id}:subscribe` | Reconnect to an ongoing task's event stream |
+| Create push config | `CreateTaskPushNotificationConfig` | `POST /tasks/{id}/pushNotificationConfigs` | Create a push notification config |
+| Get push config | `GetTaskPushNotificationConfig` | `GET /tasks/{id}/pushNotificationConfigs/{configId}` | Retrieve a push notification config |
+| List push configs | `ListTaskPushNotificationConfigs` | `GET /tasks/{id}/pushNotificationConfigs` | List push notification configs |
+| Delete push config | `DeleteTaskPushNotificationConfig` | `DELETE /tasks/{id}/pushNotificationConfigs/{configId}` | Delete a push notification config |
+| Get extended card | `GetExtendedAgentCard` | `GET /extendedAgentCard` | Retrieve authenticated extended agent card |
 
 ### Task Lifecycle
 
-Tasks progress through well-defined states with terminal conditions:
-
 ```text
 Submitted → Working → Completed
-                   → Failed
-                   → Canceled
-                   → Rejected
+                    → Failed
+                    → Canceled
+                    → Rejected
            Input Required ←→ Working
            Auth Required  ←→ Working
 Unknown (initial/query state)
 ```
 
-Terminal states (`Completed`, `Failed`, `Canceled`, `Rejected`) end the task lifecycle. `InputRequired` and `AuthRequired` are interactive states that resume to `Working` when the client responds.
+**Terminal states** — `Completed`, `Failed`, `Canceled`, `Rejected` — end the task lifecycle. **Interactive states** — `InputRequired`, `AuthRequired` — resume to `Working` when the client responds.
 
 ### Agent Discovery
 
-Agents declare one or more `AgentInterface` entries in their `AgentCard`, each specifying a URL, transport protocol (`JSONRPC`, `GRPC`, or `HTTP+JSON`), and protocol version. The card is published at `/.well-known/agent-card.json`. The client's card resolver fetches and caches it automatically. Agents may also expose an authenticated extended card via `agent/getAuthenticatedExtendedCard` for capabilities that require authorization to discover.
+Agents declare `AgentInterface` entries in their `AgentCard`, each specifying a URL, transport protocol (`JSONRPC`, `GRPC`, or `HTTP+JSON`), and protocol version. The card is published at `/.well-known/agent-card.json` and fetched automatically by the client. Agents may also expose an authenticated extended card via `GetExtendedAgentCard`.
 
 ### Security Model
-
-A2A supports five security scheme types in the `AgentCard`:
 
 | Scheme | Description |
 | --- | --- |
@@ -252,7 +214,7 @@ Push notifications use HMAC-SHA256 verification to authenticate webhook deliveri
 
 ## Security
 
-This library has **not** been independently audited. See [SECURITY.md](SECURITY.md) for full disclaimer, supported versions, and vulnerability reporting instructions.
+This library has **not** been independently audited. See [SECURITY.md](SECURITY.md) for supported versions and vulnerability reporting.
 
 ## License
 
