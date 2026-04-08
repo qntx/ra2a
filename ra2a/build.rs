@@ -5,13 +5,11 @@
 //!
 //! Google API dependencies are provided by the `google-api-proto` crate.
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     #[cfg(feature = "grpc")]
     {
-        compile_protos()?;
+        compile_protos().expect("failed to compile A2A protos");
     }
-
-    Ok(())
 }
 
 #[cfg(feature = "grpc")]
