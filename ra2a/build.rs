@@ -5,10 +5,13 @@
 //!
 //! Google API dependencies are provided by the `google-api-proto` crate.
 
+#[allow(clippy::panic, reason = "build scripts must panic to fail the build")]
 fn main() {
     #[cfg(feature = "grpc")]
     {
-        compile_protos().expect("failed to compile A2A protos");
+        if let Err(e) = compile_protos() {
+            panic!("failed to compile A2A protos: {e}");
+        }
     }
 }
 
