@@ -25,7 +25,7 @@ pub enum Role {
 }
 
 impl Role {
-    fn as_str(self) -> &'static str {
+    const fn as_str(self) -> &'static str {
         match self {
             Self::Unspecified => "ROLE_UNSPECIFIED",
             Self::User => "ROLE_USER",
@@ -92,6 +92,7 @@ pub struct Message {
 
 impl Message {
     /// Creates a new message with the given role and parts, auto-generating an ID.
+    #[must_use]
     pub fn new(role: Role, parts: Vec<Part>) -> Self {
         Self {
             message_id: MessageId::random(),
@@ -106,11 +107,13 @@ impl Message {
     }
 
     /// Creates a user message with an auto-generated ID.
+    #[must_use]
     pub fn user(parts: Vec<Part>) -> Self {
         Self::new(Role::User, parts)
     }
 
     /// Creates an agent message with an auto-generated ID.
+    #[must_use]
     pub fn agent(parts: Vec<Part>) -> Self {
         Self::new(Role::Agent, parts)
     }
@@ -188,7 +191,7 @@ mod tests {
         let decoded: Message = serde_json::from_str(&json).unwrap();
         assert_eq!(msg.message_id, decoded.message_id);
         assert_eq!(decoded.task_id, Some(TaskId::from("task-1")));
-        assert_eq!(decoded.context_id, Some("ctx-1".to_string()));
+        assert_eq!(decoded.context_id, Some("ctx-1".to_owned()));
         assert_eq!(decoded.role, Role::User);
     }
 

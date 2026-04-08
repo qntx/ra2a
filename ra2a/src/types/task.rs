@@ -1,4 +1,4 @@
-//! Task, TaskState, and TaskStatus types for the A2A protocol.
+//! Task, `TaskState`, and `TaskStatus` types for the A2A protocol.
 //!
 //! Maps to proto `Task`, `TaskState`, `TaskStatus` messages.
 
@@ -69,7 +69,7 @@ impl TaskState {
         }
     }
 
-    fn as_str(self) -> &'static str {
+    const fn as_str(self) -> &'static str {
         match self {
             Self::Unspecified => "TASK_STATE_UNSPECIFIED",
             Self::Submitted => "TASK_STATE_SUBMITTED",
@@ -144,6 +144,7 @@ pub struct TaskStatus {
 
 impl TaskStatus {
     /// Creates a status with the given state and current timestamp.
+    #[must_use]
     pub fn new(state: TaskState) -> Self {
         Self {
             state,
@@ -153,6 +154,7 @@ impl TaskStatus {
     }
 
     /// Creates a status with a message.
+    #[must_use]
     pub fn with_message(state: TaskState, message: Message) -> Self {
         Self {
             state,
@@ -162,16 +164,19 @@ impl TaskStatus {
     }
 
     /// Creates a submitted status.
+    #[must_use]
     pub fn submitted() -> Self {
         Self::new(TaskState::Submitted)
     }
 
     /// Creates a working status.
+    #[must_use]
     pub fn working() -> Self {
         Self::new(TaskState::Working)
     }
 
     /// Creates a completed status.
+    #[must_use]
     pub fn completed() -> Self {
         Self::new(TaskState::Completed)
     }
@@ -227,7 +232,8 @@ impl Task {
         }
     }
 
-    /// Creates a new task with auto-generated UUIDv7 IDs.
+    /// Creates a new task with auto-generated `UUIDv7` IDs.
+    #[must_use]
     pub fn create() -> Self {
         Self::new(TaskId::random(), ContextId::random())
     }
@@ -250,13 +256,13 @@ impl Task {
 
     /// Returns `true` if the task is in a terminal state.
     #[must_use]
-    pub fn is_terminal(&self) -> bool {
+    pub const fn is_terminal(&self) -> bool {
         self.status.state.is_terminal()
     }
 
     /// Returns the current state.
     #[must_use]
-    pub fn state(&self) -> TaskState {
+    pub const fn state(&self) -> TaskState {
         self.status.state
     }
 

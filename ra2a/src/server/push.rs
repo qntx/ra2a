@@ -72,7 +72,7 @@ impl PushNotificationConfigStore for InMemoryPushNotificationConfigStore {
         task_id: &'a str,
         config: &'a PushNotificationConfig,
     ) -> Pin<Box<dyn Future<Output = Result<PushNotificationConfig>> + Send + 'a>> {
-        let task_id = task_id.to_string();
+        let task_id = task_id.to_owned();
         let config = config.clone();
         Box::pin(async move {
             validate_push_config(&config)?;
@@ -98,8 +98,8 @@ impl PushNotificationConfigStore for InMemoryPushNotificationConfigStore {
         task_id: &'a str,
         config_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<PushNotificationConfig>> + Send + 'a>> {
-        let task_id = task_id.to_string();
-        let config_id = config_id.to_string();
+        let task_id = task_id.to_owned();
+        let config_id = config_id.to_owned();
         Box::pin(async move {
             let store = self.configs.read().await;
             store
@@ -114,7 +114,7 @@ impl PushNotificationConfigStore for InMemoryPushNotificationConfigStore {
         &'a self,
         task_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<PushNotificationConfig>>> + Send + 'a>> {
-        let task_id = task_id.to_string();
+        let task_id = task_id.to_owned();
         Box::pin(async move {
             let store = self.configs.read().await;
             Ok(store
@@ -129,8 +129,8 @@ impl PushNotificationConfigStore for InMemoryPushNotificationConfigStore {
         task_id: &'a str,
         config_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
-        let task_id = task_id.to_string();
-        let config_id = config_id.to_string();
+        let task_id = task_id.to_owned();
+        let config_id = config_id.to_owned();
         Box::pin(async move {
             let mut store = self.configs.write().await;
             if let Some(m) = store.get_mut(&task_id) {
@@ -144,7 +144,7 @@ impl PushNotificationConfigStore for InMemoryPushNotificationConfigStore {
         &'a self,
         task_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
-        let task_id = task_id.to_string();
+        let task_id = task_id.to_owned();
         Box::pin(async move {
             let mut store = self.configs.write().await;
             store.remove(&task_id);

@@ -29,7 +29,7 @@ impl AgentExecutor for EchoAgent {
             let input = ctx
                 .message
                 .as_ref()
-                .and_then(ra2a::Message::text_content)
+                .and_then(Message::text_content)
                 .unwrap_or_default();
 
             let mut task = Task::new(&ctx.task_id, &ctx.context_id);

@@ -10,7 +10,7 @@ use super::id::TaskId;
 /// Configuration for setting up push notifications for task updates.
 ///
 /// Maps to proto `PushNotificationConfig`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PushNotificationConfig {
     /// A unique identifier for this push notification configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -40,7 +40,7 @@ impl PushNotificationConfig {
 /// Authentication details for a push notification endpoint.
 ///
 /// Maps to proto `AuthenticationInfo`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AuthenticationInfo {
     /// HTTP Authentication Scheme (e.g. `"Bearer"`, `"Basic"`).
     pub scheme: String,
@@ -53,7 +53,7 @@ pub struct AuthenticationInfo {
 ///
 /// Maps to proto `TaskPushNotificationConfig`. This is a **flat** structure —
 /// all fields are at the top level per the v1.0 proto specification.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskPushNotificationConfig {
     /// Optional tenant ID.

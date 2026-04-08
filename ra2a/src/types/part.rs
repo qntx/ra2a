@@ -23,7 +23,7 @@ use super::Metadata;
 ///
 /// Corresponds to the proto `Part` message. The `content` field is a `oneof`
 /// discriminated by the JSON member name (`text` / `raw` / `url` / `data`).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Part {
     /// The content payload.
     pub content: PartContent,
@@ -36,7 +36,7 @@ pub struct Part {
 }
 
 /// The content payload of a [`Part`] — a discriminated union.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PartContent {
     /// Plain text content.
     Text(String),
@@ -80,6 +80,7 @@ impl Part {
     }
 
     /// Creates a structured data part.
+    #[must_use]
     pub fn data(value: serde_json::Value) -> Self {
         Self {
             content: PartContent::Data(value),
@@ -139,7 +140,7 @@ impl Part {
 
     /// Returns the structured data if this is a data part.
     #[must_use]
-    pub fn as_data(&self) -> Option<&serde_json::Value> {
+    pub const fn as_data(&self) -> Option<&serde_json::Value> {
         match &self.content {
             PartContent::Data(v) => Some(v),
             _ => None,

@@ -351,7 +351,7 @@ fn json_to_prost_value(value: serde_json::Value) -> Option<prost_types::Value> {
             prost_types::value::Kind::ListValue(prost_types::ListValue { values })
         }
         serde_json::Value::Object(map) => {
-            let fields: std::collections::BTreeMap<String, prost_types::Value> = map
+            let fields: BTreeMap<String, prost_types::Value> = map
                 .into_iter()
                 .filter_map(|(k, v)| json_to_prost_value(v).map(|pv| (k, pv)))
                 .collect();

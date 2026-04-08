@@ -144,7 +144,7 @@ impl A2AError {
         let message = {
             let s = self.to_string();
             if s.is_empty() {
-                default_msg.to_string()
+                default_msg.to_owned()
             } else {
                 s
             }
@@ -358,7 +358,7 @@ impl A2AError {
         if let Some(tid) = task_id
             && !tid.is_empty()
         {
-            metadata.insert("taskId".into(), tid.to_string());
+            metadata.insert("taskId".into(), tid.to_owned());
         }
         let info = RestErrorInfo {
             at_type: "type.googleapis.com/google.rpc.ErrorInfo".into(),

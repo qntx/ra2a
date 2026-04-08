@@ -53,6 +53,9 @@ sqlite = ["sqlx", "sqlx/sqlite"]
 sql = ["postgresql", "mysql", "sqlite"]
 full = ["server", "grpc", "telemetry", "sql"]
 
+[lints]
+workspace = true
+
 [[example]]
 name = "client"
 path = "examples/client.rs"

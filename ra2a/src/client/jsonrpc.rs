@@ -58,7 +58,7 @@ pub struct JsonRpcTransport {
 impl JsonRpcTransport {
     /// Creates a new transport with the given configuration.
     pub fn new(config: TransportConfig) -> Result<Self> {
-        let base_url = config.base_url.trim_end_matches('/').to_string();
+        let base_url = config.base_url.trim_end_matches('/').to_owned();
         let card_url = crate::agent_card_url(&base_url);
 
         let client = reqwest::Client::builder()

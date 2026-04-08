@@ -103,6 +103,7 @@ impl HandlerBuilder {
     }
 
     /// Overrides the event queue manager (default: in-memory).
+    #[must_use]
     pub fn with_queue_manager(mut self, manager: Arc<QueueManager>) -> Self {
         self.queue_manager = Some(manager);
         self
@@ -137,6 +138,7 @@ impl HandlerBuilder {
     /// Sets a static extended authenticated agent card.
     ///
     /// Aligned with Go's `WithExtendedAgentCard`.
+    #[must_use]
     pub fn with_extended_agent_card(mut self, card: AgentCard) -> Self {
         self.extended_card_producer = Some(Arc::new(card));
         self
@@ -154,6 +156,7 @@ impl HandlerBuilder {
     }
 
     /// Builds the final [`InterceptedHandler`] wrapping a [`DefaultRequestHandler`].
+    #[must_use]
     pub fn build(self) -> InterceptedHandler {
         let mut handler = DefaultRequestHandler::new_from_boxed(self.executor, self.agent_card);
 

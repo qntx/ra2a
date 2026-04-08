@@ -205,7 +205,7 @@ pub(crate) fn parse_params<T: serde::de::DeserializeOwned>(
 
 /// Serializes a success response.
 fn serialize_success<T: serde::Serialize>(
-    id: &crate::jsonrpc::RequestId,
+    id: &jsonrpc::RequestId,
     result: &T,
 ) -> Result<String> {
     let response = JsonRpcSuccessResponse::new(Some(id.clone()), result);

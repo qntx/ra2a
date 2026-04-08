@@ -140,10 +140,10 @@ impl ReferencedTasksLoader {
             match self.store.get(task_id).await {
                 Ok(Some((t, _version))) => tasks.push(t),
                 Ok(None) => {
-                    tracing::info!(referenced_task_id = %task_id, "Referenced task not found")
+                    tracing::info!(referenced_task_id = %task_id, "Referenced task not found");
                 }
                 Err(e) => {
-                    tracing::info!(error = %e, referenced_task_id = %task_id, "Failed to load referenced task")
+                    tracing::info!(error = %e, referenced_task_id = %task_id, "Failed to load referenced task");
                 }
             }
         }

@@ -23,7 +23,7 @@ use crate::types::{
 
 /// HTTP+JSON REST transport for the A2A protocol.
 ///
-/// Maps each A2A operation to the corresponding RESTful HTTP endpoint
+/// Maps each A2A operation to the corresponding `RESTful` HTTP endpoint
 /// defined by the proto `google.api.http` annotations.
 #[derive(Debug, Clone)]
 pub struct RestTransport {
@@ -44,7 +44,7 @@ impl RestTransport {
         timeout: Duration,
         headers: HeaderMap,
     ) -> Result<Self> {
-        let base_url = base_url.into().trim_end_matches('/').to_string();
+        let base_url = base_url.into().trim_end_matches('/').to_owned();
         let card_url = crate::agent_card_url(&base_url);
         let client = reqwest::Client::builder()
             .timeout(timeout)
@@ -276,7 +276,7 @@ impl Transport for RestTransport {
             let task_id = req
                 .task_id
                 .as_ref()
-                .map(|t| t.to_string())
+                .map(ToString::to_string)
                 .unwrap_or_default();
             self.post_json(&format!("/tasks/{task_id}/pushNotificationConfigs"), req)
                 .await

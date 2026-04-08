@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
 
 use crate::error::{A2AError, Result};
-pub use crate::types::StreamResponse;
+pub(super) use crate::types::StreamResponse;
 
 /// Re-export for backward compatibility within the server module.
 pub type Event = StreamResponse;
@@ -86,7 +86,7 @@ impl QueueManager {
             return None;
         }
         let queue = Arc::new(EventQueue::new(self.capacity));
-        queues.insert(task_id.to_string(), Arc::clone(&queue));
+        queues.insert(task_id.to_owned(), Arc::clone(&queue));
         Some(queue)
     }
 
@@ -109,7 +109,7 @@ impl QueueManager {
             return Arc::clone(queue);
         }
         let queue = Arc::new(EventQueue::new(self.capacity));
-        queues.insert(task_id.to_string(), Arc::clone(&queue));
+        queues.insert(task_id.to_owned(), Arc::clone(&queue));
         queue
     }
 

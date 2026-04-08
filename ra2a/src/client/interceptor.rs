@@ -17,8 +17,9 @@ tokio::task_local! {
 }
 
 /// Returns a clone of the current request's [`ServiceParams`], if set.
+#[must_use]
 pub fn current_service_params() -> Option<ServiceParams> {
-    SERVICE_PARAMS.try_with(|m| m.clone()).ok()
+    SERVICE_PARAMS.try_with(Clone::clone).ok()
 }
 
 /// A2A service parameters carried through interceptor chains and transport calls.
@@ -61,7 +62,7 @@ impl ServiceParams {
 
     /// Returns the full map.
     #[must_use]
-    pub fn as_map(&self) -> &HashMap<String, Vec<String>> {
+    pub const fn as_map(&self) -> &HashMap<String, Vec<String>> {
         &self.inner
     }
 
@@ -143,7 +144,8 @@ pub struct StaticParamsInjector {
 
 impl StaticParamsInjector {
     /// Creates a new injector.
-    pub fn new(params: ServiceParams) -> Self {
+    #[must_use]
+    pub const fn new(params: ServiceParams) -> Self {
         Self { inject: params }
     }
 }

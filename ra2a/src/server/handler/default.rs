@@ -64,6 +64,7 @@ impl DefaultRequestHandler {
     ///
     /// Used by [`HandlerBuilder`](super::HandlerBuilder) which stores
     /// the executor as `Box<dyn AgentExecutor>`.
+    #[must_use]
     pub fn new_from_boxed(
         executor: Box<dyn AgentExecutor>,
         agent_card: crate::types::AgentCard,
@@ -84,6 +85,7 @@ impl DefaultRequestHandler {
     /// Sets a custom queue manager (default: in-memory).
     ///
     /// Aligned with Go's `WithEventQueueManager`.
+    #[must_use]
     pub fn with_queue_manager(mut self, manager: Arc<QueueManager>) -> Self {
         self.queue_manager = manager;
         self
@@ -124,6 +126,7 @@ impl DefaultRequestHandler {
     /// Sets a static extended authenticated agent card.
     ///
     /// Aligned with Go's `WithExtendedAgentCard`.
+    #[must_use]
     pub fn with_extended_agent_card(mut self, card: crate::types::AgentCard) -> Self {
         self.authenticated_card_producer = Some(Arc::new(card));
         self
@@ -142,7 +145,7 @@ impl DefaultRequestHandler {
 
     /// Returns the agent card.
     #[must_use]
-    pub fn agent_card(&self) -> &crate::types::AgentCard {
+    pub const fn agent_card(&self) -> &crate::types::AgentCard {
         &self.agent_card
     }
 
@@ -669,7 +672,7 @@ impl RequestHandler for DefaultRequestHandler {
             let task_id_str = params
                 .task_id
                 .as_ref()
-                .map(|t| t.to_string())
+                .map(ToString::to_string)
                 .unwrap_or_default();
             self.get_task_internal(&task_id_str)
                 .await

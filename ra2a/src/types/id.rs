@@ -1,7 +1,7 @@
 //! Strongly-typed identifiers for the A2A protocol.
 //!
 //! Each identifier is a newtype wrapper around `String`, providing compile-time
-//! safety against accidental ID type misuse. New IDs are generated using UUIDv7
+//! safety against accidental ID type misuse. New IDs are generated using `UUIDv7`
 //! for time-ordered uniqueness.
 
 use std::fmt;
@@ -36,7 +36,7 @@ macro_rules! define_id {
 
             /// Returns `true` if the identifier is empty.
             #[must_use]
-            pub fn is_empty(&self) -> bool {
+            pub const fn is_empty(&self) -> bool {
                 self.0.is_empty()
             }
         }

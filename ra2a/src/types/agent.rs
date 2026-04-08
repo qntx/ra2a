@@ -214,7 +214,7 @@ impl AgentCard {
 ///
 /// Maps to proto `AgentCapabilities`. v1.0 moves `extended_agent_card` here
 /// (previously a top-level `AgentCard` field).
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentCapabilities {
     /// Indicates if the agent supports streaming responses.
@@ -234,7 +234,7 @@ pub struct AgentCapabilities {
 /// A distinct capability or function that an agent can perform.
 ///
 /// Maps to proto `AgentSkill`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSkill {
     /// A unique identifier for the skill.
@@ -290,7 +290,7 @@ impl AgentSkill {
 /// A protocol extension supported by an agent.
 ///
 /// Maps to proto `AgentExtension`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentExtension {
     /// The unique URI identifying the extension.
     pub uri: String,
@@ -329,7 +329,7 @@ impl AgentProvider {
 /// A JWS signature of an `AgentCard` (RFC 7515).
 ///
 /// Maps to proto `AgentCardSignature`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentCardSignature {
     /// The protected JWS header (Base64url-encoded JSON object).
     pub protected: String,

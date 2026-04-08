@@ -85,7 +85,7 @@ impl GrpcTransport {
                             task_id: tpc
                                 .task_id
                                 .as_ref()
-                                .map(|t| t.to_string())
+                                .map(ToString::to_string)
                                 .unwrap_or_default(),
                             url: tpc.url.clone(),
                             token: tpc.token.clone().unwrap_or_default(),
@@ -319,12 +319,9 @@ impl Stream for GrpcEventStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match Pin::new(&mut self.inner).poll_next(cx) {
-            Poll::Ready(Some(Ok(response))) => match convert_stream_response(response) {
-                Some(event) => Poll::Ready(Some(Ok(event))),
-                None => {
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                }
+            Poll::Ready(Some(Ok(response))) => if let Some(event) = convert_stream_response(response) { Poll::Ready(Some(Ok(event))) } else {
+                cx.waker().wake_by_ref();
+                Poll::Pending
             },
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(A2AError::Other(e.to_string())))),
             Poll::Ready(None) => Poll::Ready(None),

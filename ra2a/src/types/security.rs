@@ -20,7 +20,7 @@ pub enum SecurityScheme {
     Http(HttpAuthSecurityScheme),
     /// OAuth 2.0 authentication.
     OAuth2(Box<OAuth2SecurityScheme>),
-    /// OpenID Connect authentication.
+    /// `OpenID` Connect authentication.
     OpenIdConnect(OpenIdConnectSecurityScheme),
     /// Mutual TLS authentication.
     MutualTLS(MutualTlsSecurityScheme),
@@ -86,7 +86,7 @@ pub enum ApiKeyLocation {
 /// API key-based security scheme.
 ///
 /// Maps to proto `APIKeySecurityScheme`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ApiKeySecurityScheme {
     /// An optional description.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -100,7 +100,7 @@ pub struct ApiKeySecurityScheme {
 /// HTTP authentication security scheme.
 ///
 /// Maps to proto `HTTPAuthSecurityScheme`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct HttpAuthSecurityScheme {
     /// An optional description.
@@ -146,28 +146,28 @@ pub struct OAuth2SecurityScheme {
     pub description: Option<String>,
     /// Configuration for the supported OAuth 2.0 flow.
     pub flows: OAuthFlow,
-    /// URL to the OAuth2 authorization server metadata (RFC 8414).
+    /// URL to the `OAuth2` authorization server metadata (RFC 8414).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oauth2_metadata_url: Option<String>,
 }
 
-/// OpenID Connect security scheme.
+/// `OpenID` Connect security scheme.
 ///
 /// Maps to proto `OpenIdConnectSecurityScheme`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenIdConnectSecurityScheme {
     /// An optional description.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// The OpenID Connect Discovery URL.
+    /// The `OpenID` Connect Discovery URL.
     pub open_id_connect_url: String,
 }
 
 /// Mutual TLS security scheme.
 ///
 /// Maps to proto `MutualTlsSecurityScheme`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MutualTlsSecurityScheme {
     /// An optional description.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -180,7 +180,7 @@ pub struct MutualTlsSecurityScheme {
 /// `Implicit` and `Password` deprecated.
 ///
 /// Serialized as a map with a single entry: `{"authorizationCode": {...}}`, etc.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OAuthFlow {
     /// Authorization Code flow.
     AuthorizationCode(AuthorizationCodeOAuthFlow),
@@ -248,7 +248,7 @@ impl<'de> Deserialize<'de> for OAuthFlow {
 /// OAuth 2.0 Authorization Code flow.
 ///
 /// Maps to proto `AuthorizationCodeOAuthFlow`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthorizationCodeOAuthFlow {
     /// The authorization URL.
@@ -268,7 +268,7 @@ pub struct AuthorizationCodeOAuthFlow {
 /// OAuth 2.0 Client Credentials flow.
 ///
 /// Maps to proto `ClientCredentialsOAuthFlow`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientCredentialsOAuthFlow {
     /// The token URL.
@@ -283,7 +283,7 @@ pub struct ClientCredentialsOAuthFlow {
 /// OAuth 2.0 Device Code flow (RFC 8628).
 ///
 /// Maps to proto `DeviceCodeOAuthFlow`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceCodeOAuthFlow {
     /// The device authorization endpoint URL.
@@ -300,7 +300,7 @@ pub struct DeviceCodeOAuthFlow {
 /// Deprecated: OAuth 2.0 Implicit flow.
 ///
 /// Maps to proto `ImplicitOAuthFlow`. Use Authorization Code + PKCE instead.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ImplicitOAuthFlow {
     /// The authorization URL.
@@ -316,7 +316,7 @@ pub struct ImplicitOAuthFlow {
 /// Deprecated: OAuth 2.0 Resource Owner Password flow.
 ///
 /// Maps to proto `PasswordOAuthFlow`. Use Authorization Code + PKCE or Device Code instead.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PasswordOAuthFlow {
     /// The token URL.
@@ -333,7 +333,7 @@ pub struct PasswordOAuthFlow {
 /// used together (logical AND). Each map entry is scheme name → required scopes.
 ///
 /// Maps to proto `SecurityRequirement`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SecurityRequirement {
     /// Map of scheme name to required scopes.
     pub schemes: HashMap<String, Vec<String>>,

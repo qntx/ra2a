@@ -44,7 +44,8 @@ impl Artifact {
         }
     }
 
-    /// Creates an artifact with an auto-generated UUIDv7 ID.
+    /// Creates an artifact with an auto-generated `UUIDv7` ID.
+    #[must_use]
     pub fn create(parts: Vec<Part>) -> Self {
         Self::new(ArtifactId::random(), parts)
     }

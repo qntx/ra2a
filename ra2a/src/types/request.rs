@@ -50,7 +50,8 @@ pub struct SendMessageRequest {
 
 impl SendMessageRequest {
     /// Creates a new send message request.
-    pub fn new(message: Message) -> Self {
+    #[must_use]
+    pub const fn new(message: Message) -> Self {
         Self {
             tenant: None,
             message,
@@ -70,7 +71,7 @@ impl SendMessageRequest {
 /// Request for `GetTask`.
 ///
 /// Maps to proto `GetTaskRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GetTaskRequest {
     /// Optional tenant ID.
@@ -86,7 +87,7 @@ pub struct GetTaskRequest {
 /// Request for `ListTasks`.
 ///
 /// Maps to proto `ListTasksRequest`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ListTasksRequest {
     /// Optional tenant ID.
@@ -118,7 +119,7 @@ pub struct ListTasksRequest {
 /// Request for `CancelTask`.
 ///
 /// Maps to proto `CancelTaskRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CancelTaskRequest {
     /// Optional tenant ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -133,7 +134,7 @@ pub struct CancelTaskRequest {
 /// Request for `SubscribeToTask`.
 ///
 /// Maps to proto `SubscribeToTaskRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SubscribeToTaskRequest {
     /// Optional tenant ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -145,7 +146,7 @@ pub struct SubscribeToTaskRequest {
 /// Request for `GetTaskPushNotificationConfig`.
 ///
 /// Maps to proto `GetTaskPushNotificationConfigRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GetTaskPushNotificationConfigRequest {
     /// Optional tenant ID.
@@ -160,7 +161,7 @@ pub struct GetTaskPushNotificationConfigRequest {
 /// Request for `DeleteTaskPushNotificationConfig`.
 ///
 /// Maps to proto `DeleteTaskPushNotificationConfigRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteTaskPushNotificationConfigRequest {
     /// Optional tenant ID.
@@ -175,7 +176,7 @@ pub struct DeleteTaskPushNotificationConfigRequest {
 /// Request for `ListTaskPushNotificationConfigs`.
 ///
 /// Maps to proto `ListTaskPushNotificationConfigsRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ListTaskPushNotificationConfigsRequest {
     /// Optional tenant ID.
@@ -194,7 +195,7 @@ pub struct ListTaskPushNotificationConfigsRequest {
 /// Request for `GetExtendedAgentCard`.
 ///
 /// Maps to proto `GetExtendedAgentCardRequest`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GetExtendedAgentCardRequest {
     /// Optional tenant ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]

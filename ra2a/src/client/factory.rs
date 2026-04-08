@@ -87,11 +87,11 @@ impl ClientFactory {
     pub fn new() -> Self {
         let mut builders: HashMap<String, Arc<dyn TransportBuilder>> = HashMap::new();
         builders.insert(
-            TransportProtocol::JSONRPC.to_string(),
+            TransportProtocol::JSONRPC.to_owned(),
             Arc::new(JsonRpcBuilder),
         );
         builders.insert(
-            TransportProtocol::HTTP_JSON.to_string(),
+            TransportProtocol::HTTP_JSON.to_owned(),
             Arc::new(RestBuilder),
         );
         Self {

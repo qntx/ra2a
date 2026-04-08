@@ -140,7 +140,7 @@ impl StreamResponse {
 
     /// Returns `true` if this event represents a terminal condition.
     #[must_use]
-    pub fn is_terminal(&self) -> bool {
+    pub const fn is_terminal(&self) -> bool {
         match self {
             Self::Task(t) => t.is_terminal(),
             Self::Message(_) => true,
@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn stream_response_task_serde() {
         let task = Task::create();
-        let resp = StreamResponse::Task(task.clone());
+        let resp = StreamResponse::Task(task);
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json.get("task").is_some());
         assert!(json.get("kind").is_none());

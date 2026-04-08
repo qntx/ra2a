@@ -155,6 +155,7 @@ pub struct Client {
 
 impl Client {
     /// Creates a new client wrapping the given transport.
+    #[must_use]
     pub fn new(transport: Box<dyn Transport>) -> Self {
         Self {
             transport,
@@ -213,7 +214,7 @@ impl Client {
             return Ok((payload, ServiceParams::default()));
         }
         let mut req = Request {
-            method: method.to_string(),
+            method: method.to_owned(),
             card: self.card(),
             service_params: ServiceParams::default(),
             payload: Box::new(payload),
@@ -245,7 +246,7 @@ impl Client {
             Err(e) => (None, Some(e)),
         };
         let mut resp = Response {
-            method: method.to_string(),
+            method: method.to_owned(),
             card: self.card(),
             payload,
             err,

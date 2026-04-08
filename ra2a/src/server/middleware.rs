@@ -20,8 +20,9 @@ tokio::task_local! {
 /// Returns a clone of the current request's [`RequestMeta`], if set.
 ///
 /// Used by [`InterceptedHandler`] to populate [`CallContext`] with transport-set headers.
+#[must_use]
 pub fn request_meta() -> RequestMeta {
-    REQUEST_META.try_with(|m| m.clone()).unwrap_or_default()
+    REQUEST_META.try_with(Clone::clone).unwrap_or_default()
 }
 
 /// Holds metadata associated with a request (e.g. HTTP headers, gRPC metadata).
@@ -76,7 +77,7 @@ impl RequestMeta {
     pub fn get(&self, key: &str) -> Option<&[String]> {
         self.kv
             .get(&key.to_lowercase())
-            .map(std::vec::Vec::as_slice)
+            .map(Vec::as_slice)
     }
 
     /// Sets a single value for the given key (replacing any existing values).
@@ -215,7 +216,7 @@ impl CallContext {
     pub fn requested_extension_uris(&self) -> Vec<String> {
         self.request_meta
             .get(crate::SVC_PARAM_EXTENSIONS)
-            .map(<[std::string::String]>::to_vec)
+            .map(<[String]>::to_vec)
             .unwrap_or_default()
     }
 
@@ -244,6 +245,7 @@ impl Request {
     }
 
     /// Attempts to downcast the payload to a concrete type.
+    #[must_use]
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
         self.payload.downcast_ref()
     }
@@ -286,6 +288,7 @@ impl Response {
     }
 
     /// Creates an error response.
+    #[must_use]
     pub fn error(err: crate::error::A2AError) -> Self {
         Self {
             payload: None,
@@ -294,6 +297,7 @@ impl Response {
     }
 
     /// Attempts to downcast the payload to a concrete type.
+    #[must_use]
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
         self.payload.as_ref()?.downcast_ref()
     }

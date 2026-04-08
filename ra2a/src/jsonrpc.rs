@@ -69,9 +69,9 @@ pub(crate) struct JsonRpcRequest<P> {
 
 impl<P> JsonRpcRequest<P> {
     /// Creates a new JSON-RPC request.
-    pub fn new(method: impl Into<String>, params: P) -> Self {
+    pub(crate) fn new(method: impl Into<String>, params: P) -> Self {
         Self {
-            jsonrpc: VERSION.to_string(),
+            jsonrpc: VERSION.to_owned(),
             id: RequestId::default(),
             method: method.into(),
             params: Some(params),
@@ -93,9 +93,9 @@ pub(crate) struct JsonRpcSuccessResponse<R> {
 
 impl<R> JsonRpcSuccessResponse<R> {
     /// Creates a new success response.
-    pub fn new(id: Option<RequestId>, result: R) -> Self {
+    pub(crate) fn new(id: Option<RequestId>, result: R) -> Self {
         Self {
-            jsonrpc: VERSION.to_string(),
+            jsonrpc: VERSION.to_owned(),
             id,
             result,
         }
@@ -116,9 +116,9 @@ pub(crate) struct JsonRpcErrorResponse {
 
 impl JsonRpcErrorResponse {
     /// Creates a new error response.
-    pub fn new(id: Option<RequestId>, error: JsonRpcError) -> Self {
+    pub(crate) fn new(id: Option<RequestId>, error: JsonRpcError) -> Self {
         Self {
-            jsonrpc: VERSION.to_string(),
+            jsonrpc: VERSION.to_owned(),
             id,
             error,
         }

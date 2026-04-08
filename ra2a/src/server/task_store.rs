@@ -207,7 +207,7 @@ impl TaskStore for InMemoryTaskStore {
 /// using `SQLx` for `SQLite`, `PostgreSQL`, and `MySQL`.
 #[allow(dead_code)] // Helpers are used inside the impl_sql_task_store! macro expansion
 #[cfg(any(feature = "sqlite", feature = "postgresql", feature = "mysql"))]
-pub mod sql {
+pub(super) mod sql {
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicI64, Ordering};
@@ -216,7 +216,7 @@ pub mod sql {
     use crate::types::{TaskState, TaskStatus};
 
     /// SQL table schema for tasks (`SQLite` compatible).
-    pub const TASK_TABLE_SCHEMA_SQLITE: &str = r"
+    pub(crate) const TASK_TABLE_SCHEMA_SQLITE: &str = r"
         CREATE TABLE IF NOT EXISTS a2a_tasks (
             id TEXT PRIMARY KEY,
             context_id TEXT NOT NULL,
@@ -232,7 +232,7 @@ pub mod sql {
     ";
 
     /// SQL table schema for tasks (`PostgreSQL` compatible).
-    pub const TASK_TABLE_SCHEMA_POSTGRES: &str = r"
+    pub(crate) const TASK_TABLE_SCHEMA_POSTGRES: &str = r"
         CREATE TABLE IF NOT EXISTS a2a_tasks (
             id TEXT PRIMARY KEY,
             context_id TEXT NOT NULL,
@@ -249,7 +249,7 @@ pub mod sql {
 
     /// Row representation for tasks in SQL.
     #[derive(Debug, Clone)]
-    pub struct TaskRow {
+    pub(crate) struct TaskRow {
         /// The unique task identifier.
         pub id: String,
         /// The context identifier for the task.
@@ -271,7 +271,7 @@ pub mod sql {
     impl TaskRow {
         /// Converts a Task to a `TaskRow` for storage.
         #[must_use]
-        pub fn from_task(task: &Task) -> Self {
+        pub(crate) fn from_task(task: &Task) -> Self {
             Self {
                 id: task.id.as_str().to_owned(),
                 context_id: task.context_id.as_str().to_owned(),
@@ -301,7 +301,7 @@ pub mod sql {
         }
 
         /// Converts a `TaskRow` back to a Task.
-        pub fn to_task(&self) -> Result<Task> {
+        pub(crate) fn to_task(&self) -> Result<Task> {
             let state = string_to_task_state(&self.status_state);
 
             let mut task = Task::new(
