@@ -147,9 +147,13 @@ pub struct ClientConfig {
 ///
 /// Wraps a [`Transport`] and applies [`CallInterceptor`]s before/after each call.
 pub struct Client {
+    /// The underlying transport implementation.
     transport: Box<dyn Transport>,
+    /// Call interceptors applied before/after each transport call.
     interceptors: Vec<Arc<dyn CallInterceptor>>,
+    /// Cached agent card for capability checks.
     card: std::sync::RwLock<Option<AgentCard>>,
+    /// Client configuration.
     config: ClientConfig,
 }
 
@@ -174,6 +178,10 @@ impl Client {
     }
 
     /// Creates a client from a base URL using [`JsonRpcTransport`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transport cannot be created.
     pub fn from_url(base_url: impl Into<String>) -> Result<Self> {
         let transport = JsonRpcTransport::from_url(base_url)?;
         Ok(Self::new(Box::new(transport)))
@@ -202,13 +210,19 @@ impl Client {
 
     /// Caches an agent card for capability checks.
     pub fn set_card(&self, card: AgentCard) {
-        *self.card.write().unwrap() = Some(card);
+        *self
+            .card
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(card);
     }
 
     /// Returns the cached agent card, if any.
     #[must_use]
     pub fn card(&self) -> Option<AgentCard> {
-        self.card.read().unwrap().clone()
+        self.card
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Runs all `before` interceptors, returning the (possibly modified) payload
@@ -231,12 +245,14 @@ impl Client {
             interceptor.before(&mut req).await?;
         }
         let params = req.service_params;
-        match req.payload.downcast::<P>() {
-            Ok(p) => Ok((*p, params)),
-            Err(_) => Err(A2AError::Other(
-                "interceptor changed request payload type".into(),
-            )),
-        }
+        req.payload.downcast::<P>().map_or_else(
+            |_| {
+                Err(A2AError::Other(
+                    "interceptor changed request payload type".into(),
+                ))
+            },
+            |p| Ok((*p, params)),
+        )
     }
 
     /// Runs all `after` interceptors on a transport result.
@@ -249,7 +265,7 @@ impl Client {
         if self.interceptors.is_empty() {
             return result;
         }
-        let (payload, err) = match result {
+        let (payload, response_err) = match result {
             Ok(r) => {
                 let boxed: Box<dyn Any + Send> = Box::new(r);
                 (Some(boxed), None)
@@ -260,28 +276,38 @@ impl Client {
             method: method.to_owned(),
             card: self.card(),
             payload,
-            err,
+            err: response_err,
         };
         for interceptor in &self.interceptors {
             interceptor.after(&mut resp).await?;
         }
-        if let Some(err) = resp.err {
-            return Err(err);
+        if let Some(e) = resp.err {
+            return Err(e);
         }
-        match resp.payload {
-            Some(p) => match p.downcast::<R>() {
-                Ok(r) => Ok(*r),
-                Err(_) => Err(A2AError::Other(
-                    "interceptor changed response payload type".into(),
-                )),
+        resp.payload.map_or_else(
+            || {
+                Err(A2AError::Other(
+                    "no response payload after interceptor".into(),
+                ))
             },
-            None => Err(A2AError::Other(
-                "no response payload after interceptor".into(),
-            )),
-        }
+            |p| {
+                p.downcast::<R>().map_or_else(
+                    |_| {
+                        Err(A2AError::Other(
+                            "interceptor changed response payload type".into(),
+                        ))
+                    },
+                    |r| Ok(*r),
+                )
+            },
+        )
     }
 
     /// Sends a message (non-streaming).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transport or interceptor fails.
     pub async fn send_message(&self, req: &SendMessageRequest) -> Result<SendMessageResponse> {
         let (req, sp) = self.intercept_before("SendMessage", req.clone()).await?;
         let result = SERVICE_PARAMS
@@ -293,6 +319,10 @@ impl Client {
     }
 
     /// Sends a message with streaming response.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transport or interceptor fails.
     pub async fn send_streaming_message(&self, req: &SendMessageRequest) -> Result<EventStream> {
         let (req, sp) = self
             .intercept_before("SendStreamingMessage", req.clone())
@@ -325,6 +355,10 @@ impl Client {
     }
 
     /// Retrieves a task.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transport or interceptor fails.
     pub async fn get_task(&self, req: &GetTaskRequest) -> Result<Task> {
         let (req, sp) = self.intercept_before("GetTask", req.clone()).await?;
         let result = SERVICE_PARAMS
@@ -336,6 +370,10 @@ impl Client {
     }
 
     /// Lists tasks.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transport or interceptor fails.
     pub async fn list_tasks(&self, req: &ListTasksRequest) -> Result<ListTasksResponse> {
         let (req, sp) = self.intercept_before("ListTasks", req.clone()).await?;
         let result = SERVICE_PARAMS
@@ -347,6 +385,10 @@ impl Client {
     }
 
     /// Cancels a task.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transport or interceptor fails.
     pub async fn cancel_task(&self, req: &CancelTaskRequest) -> Result<Task> {
         let (req, sp) = self.intercept_before("CancelTask", req.clone()).await?;
         let result = SERVICE_PARAMS
@@ -358,6 +400,10 @@ impl Client {
     }
 
     /// Subscribes to task updates.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transport or interceptor fails.
     pub async fn subscribe_to_task(&self, req: &SubscribeToTaskRequest) -> Result<EventStream> {
         let (req, sp) = self
             .intercept_before("SubscribeToTask", req.clone())
@@ -373,6 +419,9 @@ impl Client {
     ///
     /// Returns the cached version if available and the agent doesn't support
     /// extended cards.
+    /// # Errors
+    ///
+    /// Returns an error if the transport fails.
     pub async fn get_agent_card(&self) -> Result<AgentCard> {
         if let Some(ref card) = self.card()
             && !card.supports_extended_card()

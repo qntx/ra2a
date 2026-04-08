@@ -55,6 +55,7 @@ impl CallInterceptor for ExtensionActivator {
 }
 
 impl ExtensionActivator {
+    /// Appends supported extension URIs to the request's service params.
     fn activate(&self, req: &mut Request) {
         // If the card has no extensions declared, skip entirely.
         if let Some(card) = &req.card

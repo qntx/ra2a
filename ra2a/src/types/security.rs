@@ -203,9 +203,15 @@ impl Serialize for OAuthFlow {
             Self::AuthorizationCode(v) => map.serialize_entry("authorizationCode", v)?,
             Self::ClientCredentials(v) => map.serialize_entry("clientCredentials", v)?,
             Self::DeviceCode(v) => map.serialize_entry("deviceCode", v)?,
-            #[allow(deprecated)]
+            #[allow(
+                deprecated,
+                reason = "self-deprecated variant still needs serde support"
+            )]
             Self::Implicit(v) => map.serialize_entry("implicit", v)?,
-            #[allow(deprecated)]
+            #[allow(
+                deprecated,
+                reason = "self-deprecated variant still needs serde support"
+            )]
             Self::Password(v) => map.serialize_entry("password", v)?,
         }
         map.end()
@@ -228,12 +234,18 @@ impl<'de> Deserialize<'de> for OAuthFlow {
                 serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
             ))
         } else if let Some(v) = raw.get("implicit") {
-            #[allow(deprecated)]
+            #[allow(
+                deprecated,
+                reason = "self-deprecated variant still needs serde support"
+            )]
             Ok(Self::Implicit(
                 serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
             ))
         } else if let Some(v) = raw.get("password") {
-            #[allow(deprecated)]
+            #[allow(
+                deprecated,
+                reason = "self-deprecated variant still needs serde support"
+            )]
             Ok(Self::Password(
                 serde_json::from_value(v.clone()).map_err(de::Error::custom)?,
             ))

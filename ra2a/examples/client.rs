@@ -1,8 +1,13 @@
-#![allow(unused_crate_dependencies)]
+#![allow(
+    unused_crate_dependencies,
+    reason = "example binary shares workspace deps"
+)]
 //! Example: A2A Client
 //!
 //! Run the server example first, then:
 //! `cargo run --example client --features client`
+
+use std::io::Write;
 
 use ra2a::client::Client;
 use ra2a::types::{Message, Part, SendMessageRequest, SendMessageResponse};
@@ -13,7 +18,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Fetch the agent card
     let card = client.get_agent_card().await?;
-    println!("Agent: {} — {}", card.name, card.description);
+    writeln!(
+        std::io::stdout(),
+        "Agent: {} — {}",
+        card.name,
+        card.description
+    )?;
 
     // Send a message (non-streaming)
     let msg = Message::user(vec![Part::text("Hello!")]);
@@ -24,10 +34,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         SendMessageResponse::Task(task) => {
             let state = &task.status.state;
             let reply = task.status.message.as_ref().and_then(Message::text_content);
-            println!("[{state:?}] {}", reply.unwrap_or_default());
+            writeln!(
+                std::io::stdout(),
+                "[{state:?}] {}",
+                reply.unwrap_or_default()
+            )?;
         }
-        SendMessageResponse::Message(msg) => {
-            println!("{}", msg.text_content().unwrap_or_default());
+        SendMessageResponse::Message(reply) => {
+            writeln!(
+                std::io::stdout(),
+                "{}",
+                reply.text_content().unwrap_or_default()
+            )?;
         }
     }
 

@@ -1,4 +1,7 @@
-#![allow(unused_crate_dependencies)]
+#![allow(
+    unused_crate_dependencies,
+    reason = "example binary shares workspace deps"
+)]
 //! Example: A2A Server
 //!
 //! Mount A2A routes on your own Axum router — the SDK provides composable
@@ -7,6 +10,7 @@
 //! Run: `cargo run --example server --features server`
 
 use std::future::Future;
+use std::io::Write;
 use std::pin::Pin;
 
 use ra2a::{
@@ -18,6 +22,7 @@ use ra2a::{
     },
 };
 
+/// A simple echo agent that mirrors user messages back.
 struct EchoAgent;
 
 impl AgentExecutor for EchoAgent {
@@ -81,8 +86,14 @@ async fn main() -> std::io::Result<()> {
         .merge(a2a_router(state))
         .route("/health", axum::routing::get(|| async { "OK" }));
 
-    println!("A2A server listening on http://localhost:8080");
-    println!("Agent card: http://localhost:8080/.well-known/agent-card.json");
+    writeln!(
+        std::io::stdout(),
+        "A2A server listening on http://localhost:8080"
+    )?;
+    writeln!(
+        std::io::stdout(),
+        "Agent card: http://localhost:8080/.well-known/agent-card.json"
+    )?;
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
     axum::serve(listener, app)

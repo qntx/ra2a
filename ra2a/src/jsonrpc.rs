@@ -3,8 +3,6 @@
 //! These types are transport-layer details and NOT part of the public API.
 //! Items are only used when `client` or `server` features are enabled.
 
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 
 use crate::error::JsonRpcError;

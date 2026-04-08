@@ -39,7 +39,9 @@ type ResponseStream = Pin<Box<dyn Stream<Item = Result<StreamResponse, Status>> 
 /// This struct implements the generated `A2aService` trait by delegating
 /// to the provided `RequestHandler` and converting between proto and native types.
 pub struct GrpcServiceImpl<H: RequestHandler> {
+    /// The request handler to delegate to.
     handler: Arc<H>,
+    /// The agent card for discovery endpoints.
     agent_card: Arc<AgentCard>,
 }
 
@@ -67,6 +69,10 @@ impl<H: RequestHandler> GrpcServiceImpl<H> {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "gRPC trait impl has one method per RPC, cannot be split"
+)]
 #[tonic::async_trait]
 impl<H: RequestHandler + Send + Sync + 'static> A2aService for GrpcServiceImpl<H> {
     type SendStreamingMessageStream = ResponseStream;
@@ -399,6 +405,7 @@ fn convert_status_update_to_response(
     }
 }
 
+/// Converts a native artifact update event into a proto `StreamResponse`.
 fn convert_artifact_update_to_response(
     update: crate::types::TaskArtifactUpdateEvent,
 ) -> StreamResponse {

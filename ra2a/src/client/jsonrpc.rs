@@ -50,13 +50,20 @@ impl TransportConfig {
 /// and this transport unwraps them into protocol [`Event`]s.
 #[derive(Debug, Clone)]
 pub struct JsonRpcTransport {
+    /// HTTP client for making requests.
     client: reqwest::Client,
+    /// Base URL for JSON-RPC requests.
     base_url: String,
+    /// URL for fetching the agent card.
     card_url: String,
 }
 
 impl JsonRpcTransport {
     /// Creates a new transport with the given configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be built.
     pub fn new(config: TransportConfig) -> Result<Self> {
         let base_url = config.base_url.trim_end_matches('/').to_owned();
         let card_url = crate::agent_card_url(&base_url);
@@ -76,6 +83,10 @@ impl JsonRpcTransport {
     }
 
     /// Creates a transport from a base URL with default settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be built.
     pub fn from_url(base_url: impl Into<String>) -> Result<Self> {
         Self::new(TransportConfig::new(base_url))
     }
@@ -108,9 +119,7 @@ impl JsonRpcTransport {
             .json(&request);
         let resp = Self::apply_service_params(builder).send().await?;
 
-        if !resp.status().is_success() {
-            return Err(A2AError::Http(resp.error_for_status().unwrap_err()));
-        }
+        let resp = resp.error_for_status()?;
 
         let rpc: JsonRpcResponse<R> = resp.json().await?;
         match rpc {
@@ -135,9 +144,7 @@ impl JsonRpcTransport {
             .json(&request);
         let resp = Self::apply_service_params(builder).send().await?;
 
-        if !resp.status().is_success() {
-            return Err(A2AError::Http(resp.error_for_status().unwrap_err()));
-        }
+        let resp = resp.error_for_status()?;
 
         let content_type = resp
             .headers()
@@ -151,7 +158,10 @@ impl JsonRpcTransport {
             // Server returned a single JSON-RPC response instead of SSE.
             let rpc: JsonRpcResponse<StreamResponse> = resp.json().await?;
             match rpc {
-                JsonRpcResponse::Success(s) => Ok(Box::pin(stream::iter(vec![Ok(s.result)]))),
+                JsonRpcResponse::Success(s) => {
+                    let stream: EventStream = Box::pin(stream::iter(vec![Ok(s.result)]));
+                    Ok(stream)
+                }
                 JsonRpcResponse::Error(e) => Err(A2AError::JsonRpc(e.error)),
             }
         }
@@ -258,9 +268,7 @@ impl Transport for JsonRpcTransport {
         Box::pin(async move {
             let builder = self.client.get(&self.card_url);
             let resp = Self::apply_service_params(builder).send().await?;
-            if !resp.status().is_success() {
-                return Err(A2AError::Http(resp.error_for_status().unwrap_err()));
-            }
+            let resp = resp.error_for_status()?;
             resp.json().await.map_err(Into::into)
         })
     }

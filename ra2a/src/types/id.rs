@@ -9,6 +9,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Generates a strongly-typed newtype ID wrapper around `String`.
 macro_rules! define_id {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
@@ -17,7 +18,7 @@ macro_rules! define_id {
         pub struct $name(pub String);
 
         impl $name {
-            /// Creates a new identifier with a random UUIDv7 value.
+            /// Creates a new identifier with a random `UUIDv7` value.
             #[must_use]
             pub fn random() -> Self {
                 Self(Uuid::now_v7().to_string())

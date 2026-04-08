@@ -25,6 +25,7 @@ pub enum Role {
 }
 
 impl Role {
+    /// Returns the proto enum string representation.
     const fn as_str(self) -> &'static str {
         match self {
             Self::Unspecified => "ROLE_UNSPECIFIED",
@@ -68,7 +69,8 @@ impl<'de> Deserialize<'de> for Role {
 #[serde(rename_all = "camelCase")]
 pub struct Message {
     /// Unique identifier for the message (required).
-    pub message_id: MessageId,
+    #[serde(rename = "messageId")]
+    pub id: MessageId,
     /// The context ID this message belongs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_id: Option<String>,
@@ -95,7 +97,7 @@ impl Message {
     #[must_use]
     pub fn new(role: Role, parts: Vec<Part>) -> Self {
         Self {
-            message_id: MessageId::random(),
+            id: MessageId::random(),
             context_id: None,
             task_id: None,
             role,
@@ -189,7 +191,7 @@ mod tests {
             .with_context_id("ctx-1");
         let json = serde_json::to_string(&msg).unwrap();
         let decoded: Message = serde_json::from_str(&json).unwrap();
-        assert_eq!(msg.message_id, decoded.message_id);
+        assert_eq!(msg.id, decoded.id);
         assert_eq!(decoded.task_id, Some(TaskId::from("task-1")));
         assert_eq!(decoded.context_id, Some("ctx-1".to_owned()));
         assert_eq!(decoded.role, Role::User);

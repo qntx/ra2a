@@ -44,12 +44,16 @@ use crate::types::{
 /// ```
 #[derive(Debug, Clone)]
 pub struct GrpcTransport {
-    // Arc<Mutex> because tonic client methods take &mut self
+    /// Shared gRPC client wrapped in `Arc<Mutex>` because tonic client methods take `&mut self`.
     client: Arc<Mutex<A2aServiceClient<Channel>>>,
 }
 
 impl GrpcTransport {
     /// Connects to a gRPC endpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection cannot be established.
     pub async fn connect(endpoint: impl Into<String>) -> Result<Self> {
         let endpoint = endpoint.into();
         let channel = Channel::from_shared(endpoint)
@@ -313,6 +317,7 @@ impl Transport for GrpcTransport {
 
 /// Adapts a tonic streaming response into a [`Stream`] of [`StreamResponse`]s.
 struct GrpcEventStream {
+    /// The underlying tonic streaming response.
     inner: tonic::Streaming<proto::StreamResponse>,
 }
 
@@ -321,14 +326,13 @@ impl Stream for GrpcEventStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match Pin::new(&mut self.inner).poll_next(cx) {
-            Poll::Ready(Some(Ok(response))) => {
-                if let Some(event) = convert_stream_response(response) {
-                    Poll::Ready(Some(Ok(event)))
-                } else {
+            Poll::Ready(Some(Ok(response))) => convert_stream_response(response).map_or_else(
+                || {
                     cx.waker().wake_by_ref();
                     Poll::Pending
-                }
-            }
+                },
+                |event| Poll::Ready(Some(Ok(event))),
+            ),
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(A2AError::Other(e.to_string())))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
@@ -336,6 +340,7 @@ impl Stream for GrpcEventStream {
     }
 }
 
+/// Converts a proto `StreamResponse` into a native [`StreamResponse`].
 fn convert_stream_response(response: proto::StreamResponse) -> Option<StreamResponse> {
     match response.payload {
         Some(proto::stream_response::Payload::StatusUpdate(update)) => {

@@ -48,6 +48,10 @@ pub use task::{Task, TaskState, TaskStatus};
 pub type Metadata = std::collections::HashMap<String, serde_json::Value>;
 
 /// Helper for serde: skip serializing boolean fields when `false`.
-pub(crate) fn is_false(v: &bool) -> bool {
-    !v
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde skip_serializing_if requires &T"
+)]
+pub(crate) const fn is_false(v: &bool) -> bool {
+    !(*v)
 }

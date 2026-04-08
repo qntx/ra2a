@@ -25,6 +25,43 @@ use axum::{
 
 use super::{ServerState, handle_request};
 
+/// Builds a response with the given status, content type, and body.
+///
+/// Falls back to a 500 Internal Server Error if the response builder fails
+/// (which should never happen with valid constant headers).
+fn build_response(status: StatusCode, content_type: &str, body: impl Into<Body>) -> Response {
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, content_type)
+        .body(body.into())
+        .unwrap_or_else(|_| {
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .unwrap_or_default()
+        })
+}
+
+/// Builds a JSON response with status 200.
+fn json_ok(body: impl Into<Body>) -> Response {
+    build_response(StatusCode::OK, "application/json", body)
+}
+
+/// Builds a JSON response with status 200 and CORS header.
+fn json_ok_cors(body: impl Into<Body>) -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .body(body.into())
+        .unwrap_or_else(|_| {
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .unwrap_or_default()
+        })
+}
+
 /// Returns an Axum [`Router`] with JSON-RPC protocol binding endpoints.
 ///
 /// Mounts three routes:
@@ -103,22 +140,21 @@ async fn inject_tenant_header(
 /// Calls the [`AgentCardProducer`](super::AgentCardProducer) to generate the card.
 /// Includes CORS headers (`Access-Control-Allow-Origin: *`) for browser discovery.
 /// Equivalent to Go SDK's `NewStaticAgentCardHandler`.
+///
+/// # Panics
+///
+/// Panics if the HTTP response builder fails, which should not happen with valid constant headers.
 pub async fn handle_agent_card(State(state): State<ServerState>) -> Response {
-    match state.card_producer.card().await {
-        Ok(card) => {
-            let body = serde_json::to_string(&card).unwrap_or_default();
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/json")
-                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-                .body(Body::from(body))
-                .unwrap()
-        }
-        Err(_) => Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::empty())
-            .unwrap(),
-    }
+    state.card_producer.card().await.map_or_else(
+        |_| {
+            build_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "text/plain",
+                Body::empty(),
+            )
+        },
+        |card| json_ok_cors(serde_json::to_string(&card).unwrap_or_default()),
+    )
 }
 
 /// Axum handler for the JSON-RPC endpoint.
@@ -130,6 +166,10 @@ pub async fn handle_agent_card(State(state): State<ServerState>) -> Response {
 /// Propagates HTTP request headers to [`InterceptedHandler`](super::InterceptedHandler)
 /// via [`REQUEST_META`](super::REQUEST_META) task-local, matching Go's
 /// `WithCallContext(ctx, NewRequestMeta(req.Header))`.
+///
+/// # Panics
+///
+/// Panics if the HTTP response builder fails, which should not happen with valid constant headers.
 pub async fn handle_jsonrpc(
     State(state): State<ServerState>,
     headers: axum::http::HeaderMap,
@@ -140,26 +180,15 @@ pub async fn handle_jsonrpc(
         .scope(meta, handle_request(&state, &body))
         .await
     {
-        Ok(response) => Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(response))
-            .unwrap(),
-        Err(e) => {
-            let error_body = serde_json::json!({
+        Ok(response) => json_ok(response),
+        Err(e) => json_ok(
+            serde_json::json!({
                 "jsonrpc": "2.0",
-                "error": {
-                    "code": -32603,
-                    "message": e.to_string()
-                },
+                "error": { "code": -32603, "message": e.to_string() },
                 "id": null
-            });
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(error_body.to_string()))
-                .unwrap()
-        }
+            })
+            .to_string(),
+        ),
     }
 }
 
@@ -187,7 +216,7 @@ pub async fn handle_sse(
     let request: JsonRpcRequest<serde_json::Value> = match serde_json::from_str(&body) {
         Ok(req) => req,
         Err(_) => {
-            return sse_error_response(None, JsonRpcError::parse_error());
+            return sse_error_response(None, &JsonRpcError::parse_error());
         }
     };
 
@@ -218,7 +247,7 @@ pub async fn handle_sse(
     let event_stream = match event_stream {
         Ok(s) => s,
         Err(e) => {
-            return sse_error_response(Some(&request_id), e.to_jsonrpc_error());
+            return sse_error_response(Some(&request_id), &e.to_jsonrpc_error());
         }
     };
 
@@ -261,23 +290,15 @@ async fn handle_tenant_jsonrpc(
         .scope(meta, handle_request(&state, &body))
         .await
     {
-        Ok(response) => Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(response))
-            .unwrap(),
-        Err(e) => {
-            let error_body = serde_json::json!({
+        Ok(response) => json_ok(response),
+        Err(e) => json_ok(
+            serde_json::json!({
                 "jsonrpc": "2.0",
                 "error": { "code": -32603, "message": e.to_string() },
                 "id": null
-            });
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(error_body.to_string()))
-                .unwrap()
-        }
+            })
+            .to_string(),
+        ),
     }
 }
 
@@ -304,7 +325,7 @@ async fn handle_tenant_sse(
     let request: JsonRpcRequest<serde_json::Value> = match serde_json::from_str(&body) {
         Ok(req) => req,
         Err(_) => {
-            return sse_error_response(None, JsonRpcError::parse_error());
+            return sse_error_response(None, &JsonRpcError::parse_error());
         }
     };
 
@@ -334,7 +355,7 @@ async fn handle_tenant_sse(
     let event_stream = match event_stream {
         Ok(s) => s,
         Err(e) => {
-            return sse_error_response(Some(&request_id), e.to_jsonrpc_error());
+            return sse_error_response(Some(&request_id), &e.to_jsonrpc_error());
         }
     };
 
@@ -366,16 +387,14 @@ async fn handle_tenant_sse(
 /// Builds a JSON-RPC error response for SSE setup failures.
 fn sse_error_response(
     id: Option<&crate::jsonrpc::RequestId>,
-    error: crate::error::JsonRpcError,
+    error: &crate::error::JsonRpcError,
 ) -> Response {
-    let resp = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "error": { "code": error.code, "message": error.message },
-    });
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(resp.to_string()))
-        .unwrap()
+    json_ok(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": { "code": error.code, "message": error.message },
+        })
+        .to_string(),
+    )
 }

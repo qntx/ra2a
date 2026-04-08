@@ -31,10 +31,19 @@ use crate::types::{
 /// every handler method call.
 ///
 /// Aligned with Go's `InterceptedHandler` in `intercepted_handler.go`.
-#[allow(missing_debug_implementations)]
 pub struct InterceptedHandler {
+    /// The wrapped request handler.
     inner: Arc<dyn RequestHandler>,
+    /// Call interceptors applied before and after each method call.
     interceptors: Vec<Arc<dyn CallInterceptor>>,
+}
+
+impl std::fmt::Debug for InterceptedHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InterceptedHandler")
+            .field("interceptors_count", &self.interceptors.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl InterceptedHandler {
@@ -48,6 +57,7 @@ impl InterceptedHandler {
 
     /// Adds a call interceptor. Interceptors are applied in the order they are added
     /// for `before`, and in reverse order for `after`.
+    #[must_use]
     pub fn with_interceptor(mut self, interceptor: Arc<dyn CallInterceptor>) -> Self {
         self.interceptors.push(interceptor);
         self
@@ -69,12 +79,14 @@ impl InterceptedHandler {
         }
 
         // Downcast the (possibly modified) payload back to P
-        match req.downcast::<P>() {
-            Ok(p) => Ok((ctx, p)),
-            Err(_) => Err(A2AError::Other(
-                "interceptor changed request payload type".into(),
-            )),
-        }
+        req.downcast::<P>().map_or_else(
+            |_| {
+                Err(A2AError::Other(
+                    "interceptor changed request payload type".into(),
+                ))
+            },
+            |p| Ok((ctx, p)),
+        )
     }
 
     /// Runs after-interceptors in reverse order, returning the (possibly modified) result.
@@ -97,15 +109,19 @@ impl InterceptedHandler {
         if let Some(err) = resp.err {
             return Err(err);
         }
-        match resp.payload {
-            Some(p) => match p.downcast::<R>() {
-                Ok(r) => Ok(*r),
-                Err(_) => Err(A2AError::Other(
-                    "interceptor changed response payload type".into(),
-                )),
+        resp.payload.map_or_else(
+            || Err(A2AError::Other("no response payload".into())),
+            |p| {
+                p.downcast::<R>().map_or_else(
+                    |_| {
+                        Err(A2AError::Other(
+                            "interceptor changed response payload type".into(),
+                        ))
+                    },
+                    |r| Ok(*r),
+                )
             },
-            None => Err(A2AError::Other("no response payload".into())),
-        }
+        )
     }
 
     /// Wraps a streaming response to apply after-interceptors on each event.

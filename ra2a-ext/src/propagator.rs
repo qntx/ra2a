@@ -192,6 +192,7 @@ impl std::fmt::Debug for ServerPropagator {
 }
 
 impl ServerPropagator {
+    /// Extracts extension metadata from the incoming request into the call context.
     fn propagate_server(&self, ctx: &mut ra2a::server::CallContext, req: &ra2a::server::Request) {
         let mut prop_ctx = PropagatorContext::default();
 
@@ -362,6 +363,7 @@ impl std::fmt::Debug for ClientPropagator {
 }
 
 impl ClientPropagator {
+    /// Injects extension metadata from the current propagator context into the outgoing request.
     fn propagate_client(&self, req: &mut ra2a::client::Request) {
         let Some(prop_ctx) = PropagatorContext::current() else {
             return;

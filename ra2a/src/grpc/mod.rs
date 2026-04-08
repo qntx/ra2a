@@ -14,8 +14,19 @@
 //! and attach [`GrpcServiceImpl`] via [`A2aServiceServer`].
 
 // Include the generated protobuf code
-#[allow(missing_docs, unused_qualifications)]
-#[allow(clippy::all)]
+#[allow(
+    missing_docs,
+    unused_qualifications,
+    clippy::complexity,
+    clippy::correctness,
+    clippy::nursery,
+    clippy::pedantic,
+    clippy::perf,
+    clippy::restriction,
+    clippy::style,
+    clippy::suspicious,
+    reason = "generated protobuf code from tonic::include_proto!"
+)]
 pub mod proto {
     //! Generated protobuf types and service definitions.
     //!

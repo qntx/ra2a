@@ -144,7 +144,7 @@ impl From<proto::Part> for NativePart {
 impl From<NativeMessage> for proto::Message {
     fn from(msg: NativeMessage) -> Self {
         Self {
-            message_id: msg.message_id.to_string(),
+            message_id: msg.id.to_string(),
             context_id: msg.context_id.unwrap_or_default(),
             task_id: msg.task_id.map_or(String::new(), |t| t.to_string()),
             role: proto::Role::from(msg.role).into(),
@@ -166,7 +166,7 @@ impl From<proto::Message> for NativeMessage {
             NativeRole::from(msg.role),
             msg.parts.into_iter().map(NativePart::from).collect(),
         );
-        native.message_id = MessageId::from(msg.message_id.as_str());
+        native.id = MessageId::from(msg.message_id.as_str());
         native.context_id = if msg.context_id.is_empty() {
             None
         } else {
@@ -232,7 +232,7 @@ impl From<NativeTaskStatus> for proto::TaskStatus {
                     .ok()
                     .map(|dt| prost_types::Timestamp {
                         seconds: dt.timestamp(),
-                        nanos: dt.timestamp_subsec_nanos() as i32,
+                        nanos: i32::try_from(dt.timestamp_subsec_nanos()).unwrap_or(0),
                     })
             }),
         }
@@ -245,7 +245,7 @@ impl From<proto::TaskStatus> for NativeTaskStatus {
             state: NativeTaskState::from(status.state),
             message: status.message.map(NativeMessage::from),
             timestamp: status.timestamp.map(|ts| {
-                chrono::DateTime::from_timestamp(ts.seconds, ts.nanos as u32)
+                chrono::DateTime::from_timestamp(ts.seconds, u32::try_from(ts.nanos).unwrap_or(0))
                     .map(|dt| dt.to_rfc3339())
                     .unwrap_or_default()
             }),
@@ -339,7 +339,9 @@ impl From<proto::TaskPushNotificationConfig> for NativeTaskPushConfig {
 
 /// Converts a `HashMap` metadata to a protobuf Struct.
 #[must_use]
-pub fn hashmap_to_struct(map: HashMap<String, serde_json::Value>) -> prost_types::Struct {
+pub fn hashmap_to_struct<S: std::hash::BuildHasher>(
+    map: HashMap<String, serde_json::Value, S>,
+) -> prost_types::Struct {
     let fields: BTreeMap<String, prost_types::Value> = map
         .into_iter()
         .map(|(k, v)| (k, json_to_prost_value(v)))

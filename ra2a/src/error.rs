@@ -163,7 +163,6 @@ impl A2AError {
             Self::InvalidRequest(_) => (JsonRpcErrorCode::InvalidRequest, "Invalid request"),
             Self::MethodNotFound(_) => (JsonRpcErrorCode::MethodNotFound, "Method not found"),
             Self::InvalidParams(_) => (JsonRpcErrorCode::InvalidParams, "Invalid params"),
-            Self::InternalError(_) => (JsonRpcErrorCode::InternalError, "Internal error"),
             Self::ServerError(_) => (JsonRpcErrorCode::ServerError, "Server error"),
             Self::TaskNotFound(_) => (JsonRpcErrorCode::TaskNotFound, "Task not found"),
             Self::TaskNotCancelable(_) => {
@@ -255,7 +254,7 @@ pub enum JsonRpcErrorCode {
 impl JsonRpcErrorCode {
     /// Returns the default message for this error code.
     #[must_use]
-    pub const fn default_message(&self) -> &'static str {
+    pub const fn default_message(self) -> &'static str {
         match self {
             Self::ParseError => "Invalid JSON payload",
             Self::InvalidRequest => "Request payload validation error",

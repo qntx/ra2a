@@ -4,6 +4,7 @@
 //! REST endpoints follow the proto `google.api.http` annotations.
 //! Error responses are parsed from google.rpc.Status format (AIP-193).
 
+use std::fmt::Write;
 use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
@@ -27,18 +28,29 @@ use crate::types::{
 /// defined by the proto `google.api.http` annotations.
 #[derive(Debug, Clone)]
 pub struct RestTransport {
+    /// HTTP client for making requests.
     client: reqwest::Client,
+    /// Base URL for REST API endpoints.
     base_url: String,
+    /// URL for fetching the agent card.
     card_url: String,
 }
 
 impl RestTransport {
     /// Creates a new REST transport with the given base URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be built.
     pub fn new(base_url: impl Into<String>) -> Result<Self> {
         Self::with_config(base_url, Duration::from_secs(30), HeaderMap::new())
     }
 
     /// Creates a new REST transport with custom configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be built.
     pub fn with_config(
         base_url: impl Into<String>,
         timeout: Duration,
@@ -58,11 +70,13 @@ impl RestTransport {
         })
     }
 
+    /// Builds a full URL by appending the given path to the base URL.
     fn url(&self, path: &str) -> String {
         format!("{}{path}", self.base_url)
     }
 
-    async fn post_json<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
+    /// Sends a POST request with a JSON body and deserializes the response.
+    async fn post_json<Req: serde::Serialize + Sync, Resp: serde::de::DeserializeOwned>(
         &self,
         path: &str,
         body: &Req,
@@ -78,6 +92,7 @@ impl RestTransport {
         Self::parse_response(resp).await
     }
 
+    /// Sends a GET request and deserializes the JSON response.
     async fn get_json<Resp: serde::de::DeserializeOwned>(&self, url: String) -> Result<Resp> {
         let resp = self
             .client
@@ -88,6 +103,7 @@ impl RestTransport {
         Self::parse_response(resp).await
     }
 
+    /// Sends a DELETE request and checks for success.
     async fn delete_request(&self, url: String) -> Result<()> {
         let resp = self.client.delete(url).send().await?;
         if resp.status().is_success() {
@@ -96,6 +112,7 @@ impl RestTransport {
         Err(Self::parse_error_response(resp).await)
     }
 
+    /// Parses a successful response or extracts the error.
     async fn parse_response<T: serde::de::DeserializeOwned>(resp: reqwest::Response) -> Result<T> {
         if resp.status().is_success() {
             let body = resp.text().await?;
@@ -105,6 +122,7 @@ impl RestTransport {
         }
     }
 
+    /// Parses an error response in `google.rpc.Status` format (`AIP-193`).
     async fn parse_error_response(resp: reqwest::Response) -> A2AError {
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
@@ -140,6 +158,7 @@ impl RestTransport {
         A2AError::Other(format!("REST error {status}: {body}"))
     }
 
+    /// Opens a GET SSE stream and returns an event stream.
     async fn sse_stream(&self, url: String) -> Result<EventStream> {
         let resp = self
             .client
@@ -155,7 +174,8 @@ impl RestTransport {
         Ok(parse_rest_sse_stream(resp))
     }
 
-    async fn post_sse_stream<Req: serde::Serialize>(
+    /// Sends a POST request expecting an SSE stream response.
+    async fn post_sse_stream<Req: serde::Serialize + Sync>(
         &self,
         path: &str,
         body: &Req,
@@ -202,7 +222,7 @@ impl Transport for RestTransport {
         Box::pin(async move {
             let mut url = self.url(&format!("/tasks/{}", req.id));
             if let Some(hl) = req.history_length {
-                url.push_str(&format!("?historyLength={hl}"));
+                write!(url, "?historyLength={hl}").ok();
             }
             self.get_json(url).await
         })
@@ -341,7 +361,8 @@ impl Transport for RestTransport {
 
 /// Strips the `data: ` or `data:` prefix from an SSE line.
 fn strip_sse_data_prefix(line: &str) -> Option<&str> {
-    line.strip_prefix("data: ").or(line.strip_prefix("data:"))
+    line.strip_prefix("data: ")
+        .or_else(|| line.strip_prefix("data:"))
 }
 
 /// Tries to extract a complete REST SSE event from the buffer.

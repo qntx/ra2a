@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use base64::Engine;
 use serde::de::{self, MapAccess, Visitor};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -166,7 +167,6 @@ impl Serialize for Part {
         match &self.content {
             PartContent::Text(s) => map.serialize_entry("text", s)?,
             PartContent::Raw(bytes) => {
-                use base64::Engine;
                 let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
                 map.serialize_entry("raw", &encoded)?;
             }
@@ -194,6 +194,7 @@ impl<'de> Deserialize<'de> for Part {
     }
 }
 
+/// Visitor for deserializing `Part` from a JSON map.
 struct PartVisitor;
 
 impl<'de> Visitor<'de> for PartVisitor {
@@ -217,7 +218,6 @@ impl<'de> Visitor<'de> for PartVisitor {
                 }
                 "raw" => {
                     let encoded: String = map.next_value()?;
-                    use base64::Engine;
                     let bytes = base64::engine::general_purpose::STANDARD
                         .decode(&encoded)
                         .map_err(de::Error::custom)?;
@@ -285,9 +285,9 @@ mod tests {
         let part =
             Part::raw(b"hello".to_vec(), "application/octet-stream").with_filename("data.bin");
         let json = serde_json::to_value(&part).unwrap();
-        assert_eq!(json["raw"], "aGVsbG8=");
-        assert_eq!(json["filename"], "data.bin");
-        assert_eq!(json["mediaType"], "application/octet-stream");
+        assert_eq!(json.get("raw").unwrap(), "aGVsbG8=");
+        assert_eq!(json.get("filename").unwrap(), "data.bin");
+        assert_eq!(json.get("mediaType").unwrap(), "application/octet-stream");
     }
 
     #[test]

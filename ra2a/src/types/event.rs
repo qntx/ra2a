@@ -150,6 +150,7 @@ impl StreamResponse {
     }
 }
 
+/// Sentinel empty task ID used when a message has no associated task.
 static EMPTY_TASK_ID: TaskId = TaskId(String::new());
 
 impl Serialize for StreamResponse {

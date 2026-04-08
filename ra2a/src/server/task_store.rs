@@ -80,7 +80,9 @@ pub trait TaskStore: Send + Sync {
 /// A versioned task entry for in-memory storage.
 #[derive(Debug, Clone)]
 struct VersionedTask {
+    /// The stored task.
     task: Task,
+    /// The version counter for optimistic concurrency.
     version: TaskVersion,
 }
 
@@ -89,7 +91,9 @@ struct VersionedTask {
 /// Uses a simple monotonic counter for version tracking.
 #[derive(Debug, Default)]
 pub struct InMemoryTaskStore {
+    /// Map of task ID to versioned task entry.
     tasks: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, VersionedTask>>>,
+    /// Monotonically increasing version counter.
     next_version: std::sync::Arc<std::sync::atomic::AtomicI64>,
 }
 
@@ -98,7 +102,7 @@ impl InMemoryTaskStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            tasks: Default::default(),
+            tasks: std::sync::Arc::default(),
             next_version: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(1)),
         }
     }
@@ -112,27 +116,24 @@ impl TaskStore for InMemoryTaskStore {
         prev: TaskVersion,
     ) -> Pin<Box<dyn Future<Output = Result<TaskVersion>> + Send + 'a>> {
         Box::pin(async move {
-            let mut tasks = self.tasks.write().await;
             let key = task.id.as_str().to_owned();
-
+            let ver = TaskVersion(
+                self.next_version
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            );
+            let entry = VersionedTask {
+                task: task.clone(),
+                version: ver,
+            };
+            let mut tasks = self.tasks.write().await;
             if let Some(existing) = tasks.get(&key)
                 && prev != TaskVersion::MISSING
                 && prev != existing.version
             {
                 return Err(crate::error::A2AError::ConcurrentTaskModification);
             }
-
-            let ver = TaskVersion(
-                self.next_version
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            );
-            tasks.insert(
-                key,
-                VersionedTask {
-                    task: task.clone(),
-                    version: ver,
-                },
-            );
+            tasks.insert(key, entry);
+            drop(tasks);
             Ok(ver)
         })
     }
@@ -149,8 +150,7 @@ impl TaskStore for InMemoryTaskStore {
         task_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async move {
-            let mut tasks = self.tasks.write().await;
-            tasks.remove(task_id);
+            self.tasks.write().await.remove(task_id);
             Ok(())
         })
     }
@@ -163,6 +163,8 @@ impl TaskStore for InMemoryTaskStore {
             let tasks = self.tasks.read().await;
             let mut result: Vec<Task> = tasks.values().map(|vt| vt.task.clone()).collect();
 
+            drop(tasks);
+
             // Apply context_id filter
             if let Some(ref ctx_id) = req.context_id {
                 result.retain(|t| t.context_id.as_str() == ctx_id.as_str());
@@ -173,8 +175,8 @@ impl TaskStore for InMemoryTaskStore {
                 result.retain(|t| t.status.state == *state);
             }
 
-            let total_size = result.len() as i32;
-            let page_size = req.page_size.unwrap_or(50).min(100) as usize;
+            let total_size = i32::try_from(result.len()).unwrap_or(i32::MAX);
+            let page_size = usize::try_from(req.page_size.unwrap_or(50).min(100)).unwrap_or(50);
 
             // Simple offset-based pagination using page_token as numeric offset
             let offset: usize = req
@@ -185,7 +187,7 @@ impl TaskStore for InMemoryTaskStore {
 
             let paged: Vec<Task> = result.into_iter().skip(offset).take(page_size).collect();
             let next_offset = offset + paged.len();
-            let next_page_token = if (next_offset as i32) < total_size {
+            let next_page_token = if i32::try_from(next_offset).unwrap_or(i32::MAX) < total_size {
                 Some(next_offset.to_string())
             } else {
                 None
@@ -194,7 +196,7 @@ impl TaskStore for InMemoryTaskStore {
             Ok(ListTasksResponse {
                 tasks: paged,
                 total_size,
-                page_size: page_size as i32,
+                page_size: i32::try_from(page_size).unwrap_or(i32::MAX),
                 next_page_token: next_page_token.unwrap_or_default(),
             })
         })
@@ -205,7 +207,10 @@ impl TaskStore for InMemoryTaskStore {
 ///
 /// This module provides database-backed implementations of `TaskStore`
 /// using `SQLx` for `SQLite`, `PostgreSQL`, and `MySQL`.
-#[allow(dead_code)] // Helpers are used inside the impl_sql_task_store! macro expansion
+#[allow(
+    dead_code,
+    reason = "helpers are used inside impl_sql_task_store! macro expansion"
+)]
 #[cfg(any(feature = "sqlite", feature = "postgresql", feature = "mysql"))]
 pub(super) mod sql {
     use std::future::Future;
@@ -282,6 +287,7 @@ pub(super) mod sql {
                     .as_ref()
                     .and_then(|m| serde_json::to_string(m).ok()),
                 status_timestamp: task.status.timestamp.clone(),
+
                 history: if task.history.is_empty() {
                     None
                 } else {
@@ -300,8 +306,8 @@ pub(super) mod sql {
             }
         }
 
-        /// Converts a `TaskRow` back to a Task.
-        pub(crate) fn to_task(&self) -> Result<Task> {
+        /// Converts a `TaskRow` back to a `Task`.
+        pub(crate) fn to_task(&self) -> Task {
             let state = string_to_task_state(&self.status_state);
 
             let mut task = Task::new(
@@ -309,7 +315,7 @@ pub(super) mod sql {
                 crate::types::ContextId::from(self.context_id.as_str()),
             );
             task.status = TaskStatus::new(state);
-            task.status.timestamp = self.status_timestamp.clone();
+            task.status.timestamp.clone_from(&self.status_timestamp);
 
             if let Some(ref msg_json) = self.status_message {
                 task.status.message = serde_json::from_str(msg_json).ok();
@@ -327,7 +333,7 @@ pub(super) mod sql {
                 task.metadata = serde_json::from_str(metadata_json).ok();
             }
 
-            Ok(task)
+            task
         }
     }
 
@@ -356,7 +362,7 @@ pub(super) mod sql {
         ) => {
             #[doc = concat!("SQL-backed task store for the `", $feat, "` database backend.")]
             #[cfg(feature = $feat)]
-            #[allow(unreachable_pub)]
+            #[allow(unreachable_pub, reason = "pub required by macro but parent module is pub(super)")]
             pub mod $mod {
                 use sqlx::Row;
 
@@ -364,6 +370,7 @@ pub(super) mod sql {
 
                 type DbPool = $Pool;
 
+                /// Converts a `sqlx` error into an A2A error.
                 fn db_err(e: sqlx::Error) -> crate::error::A2AError {
                     crate::error::A2AError::Database(e.to_string())
                 }
@@ -371,7 +378,9 @@ pub(super) mod sql {
                 /// SQL-backed task store.
                 #[derive(Debug, Clone)]
                 pub struct $TaskStore {
+                    /// Database connection pool.
                     pool: DbPool,
+                    /// Monotonically increasing version counter.
                     next_version: std::sync::Arc<AtomicI64>,
                 }
 
@@ -440,7 +449,7 @@ pub(super) mod sql {
                                         artifacts: r.get("artifacts"),
                                         metadata: r.get("metadata"),
                                     };
-                                    Ok(Some((task_row.to_task()?, TaskVersion::MISSING)))
+                                    Ok(Some((task_row.to_task(), TaskVersion::MISSING)))
                                 }
                                 None => Ok(None),
                             }
@@ -484,10 +493,10 @@ pub(super) mod sql {
                                         artifacts: r.get("artifacts"),
                                         metadata: r.get("metadata"),
                                     };
-                                    task_row.to_task().ok()
+                                    Some(task_row.to_task())
                                 })
                                 .collect();
-                            let total = tasks.len() as i32;
+                            let total = i32::try_from(tasks.len()).unwrap_or(i32::MAX);
                             Ok(ListTasksResponse {
                                 tasks,
                                 total_size: total,

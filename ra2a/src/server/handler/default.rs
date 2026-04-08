@@ -31,7 +31,9 @@ use crate::types::{
 
 /// Flow-control result from [`DefaultRequestHandler::process_event`].
 enum EventAction {
+    /// The event produced a final response to return.
     Return(SendMessageResponse),
+    /// The event was processed; continue with the next event.
     Continue(Event),
 }
 
@@ -39,17 +41,33 @@ enum EventAction {
 ///
 /// Coordinates between `AgentExecutor`, task storage, `QueueManager`,
 /// and optional push notification components — event-driven, aligned with Go.
-#[allow(missing_debug_implementations)]
 pub struct DefaultRequestHandler {
+    /// Agent executor that processes requests.
     executor: Arc<dyn AgentExecutor>,
+    /// The agent card describing this agent's capabilities.
     agent_card: crate::types::AgentCard,
+    /// Persistent task storage backend.
     task_store: Arc<dyn TaskStore>,
+    /// SSE queue manager for streaming responses.
     queue_manager: Arc<QueueManager>,
+    /// Push notification configuration storage.
     push_config_store: Arc<dyn PushNotificationConfigStore>,
+    /// Optional push notification sender.
     push_sender: Option<Arc<dyn PushSender>>,
+    /// Request context interceptors applied before execution.
     req_context_interceptors: Vec<Arc<dyn RequestContextInterceptor>>,
+    /// Tracks currently running background task handles.
     running_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
+    /// Optional producer for authenticated extended agent cards.
     authenticated_card_producer: Option<Arc<dyn crate::server::AgentCardProducer>>,
+}
+
+impl std::fmt::Debug for DefaultRequestHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DefaultRequestHandler")
+            .field("agent_card", &self.agent_card.name)
+            .finish_non_exhaustive()
+    }
 }
 
 impl DefaultRequestHandler {
@@ -95,18 +113,21 @@ impl DefaultRequestHandler {
     /// Sets a custom task store (default: in-memory).
     ///
     /// Aligned with Go's `WithClusterMode` which injects a custom `TaskStore`.
+    #[must_use]
     pub fn with_task_store(mut self, store: Arc<dyn TaskStore>) -> Self {
         self.task_store = store;
         self
     }
 
     /// Sets a custom push config store (default: in-memory).
+    #[must_use]
     pub fn with_push_config_store(mut self, store: Arc<dyn PushNotificationConfigStore>) -> Self {
         self.push_config_store = store;
         self
     }
 
     /// Sets a push sender for delivering notifications to client endpoints.
+    #[must_use]
     pub fn with_push_sender(mut self, sender: Arc<dyn PushSender>) -> Self {
         self.push_sender = Some(sender);
         self
@@ -116,6 +137,7 @@ impl DefaultRequestHandler {
     ///
     /// Aligned with Go's `WithRequestContextInterceptor`. Interceptors run
     /// in registration order before [`RequestContext`] is passed to [`AgentExecutor`].
+    #[must_use]
     pub fn with_request_context_interceptor(
         mut self,
         interceptor: Arc<dyn RequestContextInterceptor>,
@@ -136,6 +158,7 @@ impl DefaultRequestHandler {
     /// Sets a dynamic extended authenticated agent card producer.
     ///
     /// Aligned with Go's `WithExtendedAgentCardProducer`.
+    #[must_use]
     pub fn with_extended_agent_card_producer(
         mut self,
         producer: Arc<dyn crate::server::AgentCardProducer>,
@@ -174,7 +197,7 @@ impl DefaultRequestHandler {
             task.history.clear();
             return;
         }
-        let len = len as usize;
+        let len = usize::try_from(len).unwrap_or(0);
         if task.history.len() > len {
             let start = task.history.len() - len;
             task.history = task.history.drain(start..).collect();
@@ -182,52 +205,54 @@ impl DefaultRequestHandler {
     }
 
     /// Builds a [`RequestContext`] from message params, resolving task/context IDs.
+    #[allow(
+        clippy::cognitive_complexity,
+        reason = "task/context ID resolution logic is inherently complex"
+    )]
     async fn build_request_context(
         &self,
         params: &SendMessageRequest,
     ) -> Result<(RequestContext, Arc<EventQueue>)> {
         let message = &params.message;
 
-        if message.message_id.is_empty() {
+        if message.id.is_empty() {
             return Err(A2AError::InvalidParams("message ID is required".into()));
         }
         if message.parts.is_empty() {
             return Err(A2AError::InvalidParams("message parts is required".into()));
         }
 
-        let has_task_id = message.task_id.is_some();
-        let has_context_id = message.context_id.is_some();
-
-        let (task_id, context_id, stored_task) = match (has_task_id, has_context_id) {
-            (true, true) => {
-                let tid = message.task_id.as_ref().unwrap().as_str();
-                let stored = self.get_task_internal(tid).await;
-                (
-                    tid.to_owned(),
+        let (task_id, context_id, stored_task) =
+            match (message.task_id.as_ref(), message.context_id.as_ref()) {
+                (Some(tid), Some(_)) => {
+                    let tid_str = tid.as_str();
+                    let stored = self.get_task_internal(tid_str).await;
+                    (
+                        tid_str.to_owned(),
+                        message.context_id.clone().unwrap_or_default(),
+                        stored,
+                    )
+                }
+                (Some(tid), None) => {
+                    let tid_str = tid.as_str();
+                    let stored = self
+                        .get_task_internal(tid_str)
+                        .await
+                        .ok_or_else(|| A2AError::TaskNotFound(tid_str.to_owned()))?;
+                    let cid = stored.context_id.to_string();
+                    (tid_str.to_owned(), cid, Some(stored))
+                }
+                (None, Some(_)) => (
+                    uuid::Uuid::now_v7().to_string(),
                     message.context_id.clone().unwrap_or_default(),
-                    stored,
-                )
-            }
-            (true, false) => {
-                let tid = message.task_id.as_ref().unwrap().as_str();
-                let stored = self
-                    .get_task_internal(tid)
-                    .await
-                    .ok_or_else(|| A2AError::TaskNotFound(tid.to_owned()))?;
-                let cid = stored.context_id.to_string();
-                (tid.to_owned(), cid, Some(stored))
-            }
-            (false, true) => (
-                uuid::Uuid::now_v7().to_string(),
-                message.context_id.clone().unwrap_or_default(),
-                None,
-            ),
-            (false, false) => (
-                uuid::Uuid::now_v7().to_string(),
-                uuid::Uuid::now_v7().to_string(),
-                None,
-            ),
-        };
+                    None,
+                ),
+                (None, None) => (
+                    uuid::Uuid::now_v7().to_string(),
+                    uuid::Uuid::now_v7().to_string(),
+                    None,
+                ),
+            };
 
         if let Some(ref t) = stored_task
             && t.status.state.is_terminal()
@@ -285,8 +310,8 @@ impl DefaultRequestHandler {
                 // Emit a failed task event
                 let mut task = Task::new(&ctx.task_id, &ctx.context_id);
                 task.status = TaskStatus::failed(e.to_string());
-                let _ = task_store.save(&task, None, TaskVersion::MISSING).await;
-                let _ = queue.send(Event::Task(task));
+                drop(task_store.save(&task, None, TaskVersion::MISSING).await);
+                drop(queue.send(Event::Task(task)));
             }
         });
 
@@ -368,7 +393,9 @@ impl DefaultRequestHandler {
                         .unwrap_or_else(|| Task::new(&e.task_id, ""));
                     SendMessageResponse::Task(t)
                 }
-                _ => return Err(A2AError::Other("Unexpected terminal event".into())),
+                Event::ArtifactUpdate(_) => {
+                    return Err(A2AError::Other("Unexpected terminal event".into()));
+                }
             };
             return Ok(EventAction::Return(resp));
         }
@@ -413,8 +440,8 @@ impl DefaultRequestHandler {
             error!(error = %e, task_id = %tid, "Cancel execution failed");
             let mut t = Task::new(&tid, &ctx.context_id);
             t.status = TaskStatus::failed(e.to_string());
-            let _ = task_store.save(&t, None, TaskVersion::MISSING).await;
-            let _ = q.send(Event::Task(t));
+            drop(task_store.save(&t, None, TaskVersion::MISSING).await);
+            drop(q.send(Event::Task(t)));
         }
     }
 
@@ -612,7 +639,7 @@ impl RequestHandler for DefaultRequestHandler {
                 .await;
             let mut ctx = RequestContext::new(task.id.to_string(), task.context_id.to_string());
             ctx.stored_task = Some(task);
-            ctx.metadata = Default::default();
+            ctx.metadata = HashMap::new();
 
             let rx = queue.subscribe();
 
@@ -631,7 +658,9 @@ impl RequestHandler for DefaultRequestHandler {
                     info!(task_id = %params.id, "Task canceled");
                     Ok(t)
                 }
-                _ => Err(A2AError::Other("Cancel did not produce a Task".into())),
+                SendMessageResponse::Message(_) => {
+                    Err(A2AError::Other("Cancel did not produce a Task".into()))
+                }
             }
         })
     }

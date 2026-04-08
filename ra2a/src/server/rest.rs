@@ -65,33 +65,48 @@ pub(super) fn rest_router_inner() -> Router<ServerState> {
         .route("/extendedAgentCard", get(handle_get_extended_agent_card))
 }
 
+/// Path parameter for task-specific endpoints.
 #[derive(Deserialize)]
 struct TaskIdPath {
+    /// The task identifier.
     id: String,
 }
 
+/// Path parameters for push config endpoints.
 #[derive(Deserialize)]
 struct PushConfigPath {
+    /// The task identifier.
     id: String,
+    /// The push notification config identifier.
     #[serde(rename = "configId")]
     config_id: String,
 }
 
+/// Query parameters for the get-task endpoint.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct GetTaskQuery {
+    /// Maximum number of history entries to return.
     history_length: Option<i32>,
 }
 
+/// Query parameters for the list-tasks endpoint.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct ListTasksQuery {
+    /// Filter by context ID.
     context_id: Option<String>,
+    /// Filter by task status.
     status: Option<String>,
+    /// Maximum number of results per page.
     page_size: Option<i32>,
+    /// Pagination token for the next page.
     page_token: Option<String>,
+    /// Maximum number of history entries per task.
     history_length: Option<i32>,
+    /// Filter tasks updated after this timestamp.
     status_timestamp_after: Option<String>,
+    /// Whether to include artifacts in the response.
     include_artifacts: Option<bool>,
 }
 
@@ -104,6 +119,7 @@ fn tenant_from_headers(headers: &axum::http::HeaderMap) -> Option<String> {
         .map(String::from)
 }
 
+/// Builds a REST error response from an [`A2AError`] in `google.rpc.Status` format.
 fn rest_error_response(err: &A2AError, task_id: Option<&str>) -> Response {
     let rest_err = err.to_rest_error(task_id);
     let status =
@@ -113,9 +129,10 @@ fn rest_error_response(err: &A2AError, task_id: Option<&str>) -> Response {
         .status(status)
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body))
-        .unwrap()
+        .unwrap_or_default()
 }
 
+/// Handles `POST /messages/send`.
 async fn handle_send_message(
     State(state): State<ServerState>,
     headers: axum::http::HeaderMap,
@@ -131,6 +148,7 @@ async fn handle_send_message(
     }
 }
 
+/// Handles `POST /messages/stream` (SSE).
 async fn handle_stream_message(
     State(state): State<ServerState>,
     headers: axum::http::HeaderMap,
@@ -166,6 +184,7 @@ async fn handle_stream_message(
         .into_response()
 }
 
+/// Handles `GET /tasks/{id}`.
 async fn handle_get_task(
     State(state): State<ServerState>,
     headers: axum::http::HeaderMap,
@@ -188,6 +207,7 @@ async fn handle_get_task(
     }
 }
 
+/// Handles `GET /tasks`.
 async fn handle_list_tasks(
     State(state): State<ServerState>,
     headers: axum::http::HeaderMap,
@@ -213,6 +233,7 @@ async fn handle_list_tasks(
     }
 }
 
+/// Handles `POST /tasks/{id}/cancel`.
 async fn handle_cancel_task(
     State(state): State<ServerState>,
     headers: axum::http::HeaderMap,
@@ -233,6 +254,7 @@ async fn handle_cancel_task(
     }
 }
 
+/// Handles `GET /tasks/{id}/subscribe` (SSE).
 async fn handle_subscribe_to_task(
     State(state): State<ServerState>,
     headers: axum::http::HeaderMap,
@@ -274,6 +296,7 @@ async fn handle_subscribe_to_task(
         .into_response()
 }
 
+/// Handles `POST /tasks/{id}/pushNotificationConfigs`.
 async fn handle_create_push_config(
     State(state): State<ServerState>,
     headers: axum::http::HeaderMap,
@@ -293,6 +316,7 @@ async fn handle_create_push_config(
     }
 }
 
+/// Handles `GET /tasks/{id}/pushNotificationConfigs/{configId}`.
 async fn handle_get_push_config(
     State(state): State<ServerState>,
     headers: axum::http::HeaderMap,
@@ -315,6 +339,7 @@ async fn handle_get_push_config(
     }
 }
 
+/// Handles `GET /tasks/{id}/pushNotificationConfigs`.
 async fn handle_list_push_configs(
     State(state): State<ServerState>,
     headers: axum::http::HeaderMap,
@@ -338,6 +363,7 @@ async fn handle_list_push_configs(
     }
 }
 
+/// Handles `DELETE /tasks/{id}/pushNotificationConfigs/{configId}`.
 async fn handle_delete_push_config(
     State(state): State<ServerState>,
     headers: axum::http::HeaderMap,
@@ -358,11 +384,12 @@ async fn handle_delete_push_config(
         Ok(()) => Response::builder()
             .status(StatusCode::NO_CONTENT)
             .body(Body::empty())
-            .unwrap(),
+            .unwrap_or_default(),
         Err(e) => rest_error_response(&e, Some(&path.id)),
     }
 }
 
+/// Handles `GET /extendedAgentCard`.
 async fn handle_get_extended_agent_card(
     State(state): State<ServerState>,
     headers: axum::http::HeaderMap,
@@ -382,11 +409,12 @@ async fn handle_get_extended_agent_card(
     }
 }
 
+/// Serializes a value into a `200 OK` JSON response.
 fn json_response<T: serde::Serialize>(value: &T) -> Response {
     let body = serde_json::to_string(value).unwrap_or_default();
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body))
-        .unwrap()
+        .unwrap_or_default()
 }

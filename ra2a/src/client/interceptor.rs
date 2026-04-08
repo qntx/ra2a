@@ -28,6 +28,7 @@ pub fn current_service_params() -> Option<ServiceParams> {
 /// Standard keys: `A2A-Version`, `A2A-Extensions`.
 #[derive(Debug, Clone, Default)]
 pub struct ServiceParams {
+    /// Key-value storage for service parameters.
     inner: HashMap<String, Vec<String>>,
 }
 
@@ -74,7 +75,6 @@ impl ServiceParams {
 }
 
 /// Transport-agnostic outgoing request that interceptors can observe and modify.
-#[allow(missing_debug_implementations)]
 pub struct Request {
     /// The method being called (e.g. `"SendMessage"`).
     pub method: String,
@@ -86,8 +86,18 @@ pub struct Request {
     pub payload: Box<dyn Any + Send>,
 }
 
+impl std::fmt::Debug for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Request")
+            .field("method", &self.method)
+            .field("card", &self.card.as_ref().map(|c| &c.name))
+            .field("service_params", &self.service_params)
+            .field("payload", &"<dyn Any>")
+            .finish()
+    }
+}
+
 /// Transport-agnostic response that interceptors can observe and modify.
-#[allow(missing_debug_implementations)]
 pub struct Response {
     /// The method that was called.
     pub method: String,
@@ -97,6 +107,17 @@ pub struct Response {
     pub payload: Option<Box<dyn Any + Send>>,
     /// The error, if the call failed.
     pub err: Option<A2AError>,
+}
+
+impl std::fmt::Debug for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Response")
+            .field("method", &self.method)
+            .field("card", &self.card.as_ref().map(|c| &c.name))
+            .field("payload", &self.payload.as_ref().map(|_| "<dyn Any>"))
+            .field("err", &self.err)
+            .finish()
+    }
 }
 
 /// Middleware for intercepting client calls.
@@ -143,6 +164,7 @@ impl CallInterceptor for PassthroughInterceptor {}
 /// ```
 #[derive(Debug)]
 pub struct StaticParamsInjector {
+    /// The static parameters to inject into every request.
     inject: ServiceParams,
 }
 

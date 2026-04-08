@@ -54,7 +54,7 @@ pub trait PushNotificationConfigStore: Send + Sync {
 /// Aligned with Go's `InMemoryPushNotificationConfigStore` in `push/store.go`.
 #[derive(Debug, Default)]
 pub struct InMemoryPushNotificationConfigStore {
-    // task_id -> (config_id -> PushNotificationConfig)
+    /// Map of task ID to its push notification configs (keyed by config ID).
     configs: RwLock<HashMap<String, HashMap<String, PushNotificationConfig>>>,
 }
 
@@ -83,8 +83,9 @@ impl PushNotificationConfigStore for InMemoryPushNotificationConfigStore {
             }
 
             let config_id = to_save.id.clone().unwrap_or_default();
-            let mut store = self.configs.write().await;
-            store
+            self.configs
+                .write()
+                .await
                 .entry(task_id)
                 .or_default()
                 .insert(config_id, to_save.clone());
@@ -132,8 +133,7 @@ impl PushNotificationConfigStore for InMemoryPushNotificationConfigStore {
         let task_id = task_id.to_owned();
         let config_id = config_id.to_owned();
         Box::pin(async move {
-            let mut store = self.configs.write().await;
-            if let Some(m) = store.get_mut(&task_id) {
+            if let Some(m) = self.configs.write().await.get_mut(&task_id) {
                 m.remove(&config_id);
             }
             Ok(())
@@ -146,8 +146,7 @@ impl PushNotificationConfigStore for InMemoryPushNotificationConfigStore {
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
         let task_id = task_id.to_owned();
         Box::pin(async move {
-            let mut store = self.configs.write().await;
-            store.remove(&task_id);
+            self.configs.write().await.remove(&task_id);
             Ok(())
         })
     }
@@ -186,7 +185,9 @@ pub trait PushSender: Send + Sync {
 /// Aligned with Go's `HTTPPushSender` in `push/sender.go`.
 #[derive(Debug)]
 pub struct HttpPushSender {
+    /// HTTP client used for push delivery.
     client: reqwest::Client,
+    /// Whether push failures should propagate as errors.
     fail_on_error: bool,
 }
 
@@ -216,12 +217,14 @@ impl HttpPushSender {
     }
 
     /// Creates a new sender with custom configuration.
+    ///
+    /// Falls back to a default `reqwest::Client` if the builder fails.
     #[must_use]
     pub fn with_config(config: HttpPushSenderConfig) -> Self {
         let client = reqwest::Client::builder()
             .timeout(config.timeout)
             .build()
-            .expect("failed to build HTTP client");
+            .unwrap_or_default();
         Self {
             client,
             fail_on_error: config.fail_on_error,
@@ -246,6 +249,7 @@ impl PushSender for HttpPushSender {
 }
 
 impl HttpPushSender {
+    /// Sends a push notification to the configured endpoint.
     async fn send_push(&self, config: &PushNotificationConfig, task: &Task) -> Result<()> {
         let json_data = serde_json::to_vec(task)
             .map_err(|e| A2AError::ServerError(format!("failed to serialize task: {e}")))?;
@@ -266,15 +270,15 @@ impl HttpPushSender {
             && let Some(ref credentials) = auth.credentials
             && !credentials.is_empty()
         {
-            req = self.apply_auth(req, &auth.scheme, credentials);
+            req = Self::apply_auth(req, &auth.scheme, credentials);
         }
 
         let result = req.send().await;
         self.handle_push_result(result)
     }
 
+    /// Applies authentication headers to the push request.
     fn apply_auth(
-        &self,
         req: reqwest::RequestBuilder,
         scheme: &str,
         credentials: &str,
@@ -286,6 +290,7 @@ impl HttpPushSender {
         }
     }
 
+    /// Handles the HTTP response from a push notification delivery.
     fn handle_push_result(
         &self,
         result: std::result::Result<reqwest::Response, reqwest::Error>,
@@ -303,6 +308,7 @@ impl HttpPushSender {
         }
     }
 
+    /// Logs or returns an error depending on `fail_on_error` configuration.
     fn maybe_fail(&self, msg: String) -> Result<()> {
         if self.fail_on_error {
             Err(A2AError::ServerError(msg))

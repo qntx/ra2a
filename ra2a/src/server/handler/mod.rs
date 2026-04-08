@@ -114,6 +114,10 @@ pub trait RequestHandler: Send + Sync {
 
 /// Dispatches a raw JSON-RPC request body to the appropriate
 /// [`RequestHandler`](super::RequestHandler) method and returns the serialized response.
+///
+/// # Errors
+///
+/// Returns an error if request parsing, handler dispatch, or response serialization fails.
 pub async fn handle_request(state: &ServerState, request_body: &str) -> Result<String> {
     // Parse the request envelope
     let request: JsonRpcRequest<serde_json::Value> =

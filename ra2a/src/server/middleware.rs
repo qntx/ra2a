@@ -32,6 +32,7 @@ pub fn request_meta() -> RequestMeta {
 /// lookups, matching Go's `RequestMeta`.
 #[derive(Debug, Clone, Default)]
 pub struct RequestMeta {
+    /// Key-value pairs of header-like metadata, normalized to lower-case keys.
     kv: HashMap<String, Vec<String>>,
 }
 
@@ -159,8 +160,11 @@ impl User for UnauthenticatedUser {
 /// incoming request and made available to [`CallInterceptor`]s and handlers.
 #[derive(Debug)]
 pub struct CallContext {
+    /// The handler method name being executed.
     method: String,
+    /// Request metadata from the transport layer.
     request_meta: RequestMeta,
+    /// Extension URIs activated during this call.
     activated_extensions: Vec<String>,
     /// The authenticated user for this request.
     pub user: Arc<dyn User>,
@@ -249,6 +253,10 @@ impl Request {
     }
 
     /// Attempts to downcast and take ownership of the payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(self)` if the payload is not of type `T`.
     pub fn downcast<T: 'static>(self) -> Result<T, Self> {
         match self.payload.downcast::<T>() {
             Ok(t) => Ok(*t),

@@ -78,8 +78,11 @@ impl TransportBuilder for RestBuilder {
 ///     .create_from_card(&card).await?;
 /// ```
 pub struct ClientFactory {
+    /// Client configuration for transport selection and timeouts.
     config: ClientConfig,
+    /// Call interceptors applied to all clients created by this factory.
     interceptors: Vec<Arc<dyn CallInterceptor>>,
+    /// Registered transport builders keyed by protocol name.
     builders: HashMap<String, Arc<dyn TransportBuilder>>,
 }
 
@@ -140,6 +143,10 @@ impl ClientFactory {
     ///
     /// Iterates through `card.supported_interfaces`, finds matching registered
     /// builders, sorts by client preference, and returns the first successful connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no compatible transport is found or all transports fail.
     pub async fn create_from_card(&self, card: &AgentCard) -> Result<Client> {
         if card.supported_interfaces.is_empty() {
             return Err(A2AError::InvalidParams(
@@ -209,6 +216,11 @@ impl ClientFactory {
 
     /// Creates a [`Client`] by fetching the agent card from the well-known URL,
     /// then selecting the best transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the agent card cannot be fetched or parsed,
+    /// or if no compatible transport is found.
     pub async fn create_from_url(&self, base_url: &str) -> Result<Client> {
         let card_url = crate::agent_card_url(base_url);
         let resp = reqwest::get(&card_url)
@@ -233,7 +245,9 @@ impl Default for ClientFactory {
 /// Applied automatically by [`ClientFactory`] when the selected `AgentInterface`
 /// has a non-empty `tenant` field, aligned with Go's `tenantTransportDecorator`.
 pub struct TenantTransportDecorator {
+    /// The wrapped transport implementation.
     inner: Box<dyn Transport>,
+    /// The tenant ID to inject into every request.
     tenant: String,
 }
 

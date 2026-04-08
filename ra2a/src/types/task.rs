@@ -69,6 +69,7 @@ impl TaskState {
         }
     }
 
+    /// Returns the proto enum string representation.
     const fn as_str(self) -> &'static str {
         match self {
             Self::Unspecified => "TASK_STATE_UNSPECIFIED",
@@ -283,15 +284,13 @@ impl Task {
             .position(|a| a.artifact_id == *artifact_id);
 
         if !event.append {
-            if let Some(idx) = existing_idx {
-                self.artifacts[idx] = event.artifact.clone();
+            if let Some(existing) = existing_idx.and_then(|i| self.artifacts.get_mut(i)) {
+                *existing = event.artifact.clone();
             } else {
                 self.artifacts.push(event.artifact.clone());
             }
-        } else if let Some(idx) = existing_idx {
-            self.artifacts[idx]
-                .parts
-                .extend(event.artifact.parts.clone());
+        } else if let Some(existing) = existing_idx.and_then(|i| self.artifacts.get_mut(i)) {
+            existing.parts.extend(event.artifact.parts.clone());
         }
     }
 }

@@ -16,6 +16,7 @@ pub type Event = StreamResponse;
 /// A queue for sending events to a specific task's subscribers.
 #[derive(Debug)]
 pub struct EventQueue {
+    /// Broadcast sender for streaming events.
     sender: broadcast::Sender<StreamResponse>,
 }
 
@@ -28,6 +29,10 @@ impl EventQueue {
     }
 
     /// Sends an event to all subscribers.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there are no active subscribers.
     pub fn send(&self, event: StreamResponse) -> Result<()> {
         self.sender
             .send(event)
@@ -57,7 +62,9 @@ impl Default for EventQueue {
 /// Manages event queues for multiple tasks.
 #[derive(Debug, Default)]
 pub struct QueueManager {
+    /// Task-keyed map of active event queues.
     queues: Arc<RwLock<HashMap<String, Arc<EventQueue>>>>,
+    /// Default capacity for newly created queues.
     capacity: usize,
 }
 
@@ -87,6 +94,7 @@ impl QueueManager {
         }
         let queue = Arc::new(EventQueue::new(self.capacity));
         queues.insert(task_id.to_owned(), Arc::clone(&queue));
+        drop(queues);
         Some(queue)
     }
 
@@ -126,6 +134,10 @@ impl QueueManager {
     }
 
     /// Sends an event to a specific task's queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the queue does not exist or has no subscribers.
     pub async fn send_event(&self, task_id: &str, event: StreamResponse) -> Result<()> {
         let queue = self
             .get_queue(task_id)

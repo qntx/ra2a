@@ -69,14 +69,23 @@ impl AgentCardProducer for AgentCard {
 ///     .build();
 /// ```
 pub struct HandlerBuilder {
+    /// The agent executor implementation.
     executor: Box<dyn AgentExecutor>,
+    /// Public agent card describing agent capabilities.
     agent_card: AgentCard,
+    /// Optional custom task store override.
     task_store: Option<Arc<dyn TaskStore>>,
+    /// Optional custom event queue manager override.
     queue_manager: Option<Arc<QueueManager>>,
+    /// Optional push notification config store.
     push_config_store: Option<Arc<dyn PushNotificationConfigStore>>,
+    /// Optional push notification sender.
     push_sender: Option<Arc<dyn PushSender>>,
+    /// Request context interceptors applied before execution.
     req_context_interceptors: Vec<Arc<dyn RequestContextInterceptor>>,
+    /// Call interceptors applied before/after each handler call.
     call_interceptors: Vec<Arc<dyn CallInterceptor>>,
+    /// Optional extended agent card producer for authenticated clients.
     extended_card_producer: Option<Arc<dyn AgentCardProducer>>,
 }
 
@@ -105,6 +114,7 @@ impl HandlerBuilder {
     }
 
     /// Overrides the task store (default: in-memory).
+    #[must_use]
     pub fn with_task_store(mut self, store: Arc<dyn TaskStore>) -> Self {
         self.task_store = Some(store);
         self
@@ -118,6 +128,7 @@ impl HandlerBuilder {
     }
 
     /// Adds push notification support.
+    #[must_use]
     pub fn with_push_notifications(
         mut self,
         store: Arc<dyn PushNotificationConfigStore>,
@@ -129,6 +140,7 @@ impl HandlerBuilder {
     }
 
     /// Adds a request context interceptor.
+    #[must_use]
     pub fn with_request_context_interceptor(
         mut self,
         interceptor: Arc<dyn RequestContextInterceptor>,
@@ -138,6 +150,7 @@ impl HandlerBuilder {
     }
 
     /// Adds a call interceptor (applied by [`InterceptedHandler`]).
+    #[must_use]
     pub fn with_call_interceptor(mut self, interceptor: Arc<dyn CallInterceptor>) -> Self {
         self.call_interceptors.push(interceptor);
         self
@@ -155,6 +168,7 @@ impl HandlerBuilder {
     /// Sets a dynamic extended authenticated agent card producer.
     ///
     /// Aligned with Go's `WithExtendedAgentCardProducer`.
+    #[must_use]
     pub fn with_extended_agent_card_producer(
         mut self,
         producer: Arc<dyn AgentCardProducer>,

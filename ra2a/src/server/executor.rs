@@ -108,9 +108,16 @@ pub trait RequestContextInterceptor: Send + Sync {
 
 /// Loads tasks referenced by [`Message::reference_task_ids`](crate::types::Message)
 /// into [`RequestContext::related_tasks`].
-#[allow(missing_debug_implementations)]
 pub struct ReferencedTasksLoader {
+    /// Task store used to load referenced tasks.
     store: Arc<dyn TaskStore>,
+}
+
+impl std::fmt::Debug for ReferencedTasksLoader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReferencedTasksLoader")
+            .finish_non_exhaustive()
+    }
 }
 
 impl ReferencedTasksLoader {
@@ -130,6 +137,7 @@ impl RequestContextInterceptor for ReferencedTasksLoader {
 }
 
 impl ReferencedTasksLoader {
+    /// Loads tasks referenced by the message's `reference_task_ids`.
     async fn load_referenced_tasks(&self, ctx: &mut RequestContext) -> Result<()> {
         let reference_ids = match ctx.message.as_ref() {
             Some(m) if !m.reference_task_ids.is_empty() => m.reference_task_ids.clone(),
