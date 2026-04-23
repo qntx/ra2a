@@ -1,0 +1,13 @@
+name: Publish to crates.io
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+jobs:
+  publish:
+    uses: qntx/workflows/.github/workflows/publish-crates.yml@main
+    with:
+      packages: "ra2a ra2a-ext"
+    secrets:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

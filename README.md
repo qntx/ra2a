@@ -8,8 +8,8 @@
 [![License][license-badge]][license-url]
 [![Rust][rust-badge]][rust-url]
 
-[ci-badge]: https://github.com/qntx/ra2a/actions/workflows/rust.yml/badge.svg
-[ci-url]: https://github.com/qntx/ra2a/actions/workflows/rust.yml
+[ci-badge]: https://github.com/qntx/ra2a/actions/workflows/ci.yml/badge.svg
+[ci-url]: https://github.com/qntx/ra2a/actions/workflows/ci.yml
 [ra2a-crate]: https://img.shields.io/crates/v/ra2a.svg
 [ra2a-crate-url]: https://crates.io/crates/ra2a
 [ra2a-doc]: https://img.shields.io/docsrs/ra2a.svg
