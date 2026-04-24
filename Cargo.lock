@@ -147,9 +147,9 @@ dependencies = [
 
 [[package]]
 name = "axum"
-version = "0.8.8"
+version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b52af3cb4058c895d37317bb27508dccc8e5f2d39454016b297bf4a400597b8"
+checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core 0.5.6",
  "bytes",
@@ -1826,7 +1826,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 name = "ra2a"
 version = "0.10.1"
 dependencies = [
- "axum 0.8.8",
+ "axum 0.8.9",
  "base64",
  "chrono",
  "futures",
@@ -2849,7 +2849,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fec7c61a0695dc1887c1b53952990f3ad2e3a31453e1f49f10e75424943a93ec"
 dependencies = [
  "async-trait",
- "axum 0.8.8",
+ "axum 0.8.9",
  "base64",
  "bytes",
  "h2",
