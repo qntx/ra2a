@@ -39,7 +39,7 @@ tonic = "0.14.5"
 tracing = "0.1.44"
 tracing-opentelemetry = "0.32.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-uuid = { version = "1.23.0", features = ["v4", "v7", "serde"] }
+uuid = { version = "1.23.1", features = ["v4", "v7", "serde"] }
 
 [profile.release]
 codegen-units = 1
