@@ -13,7 +13,7 @@ description = "Comprehensive Rust SDK for the Agent2Agent (A2A) Protocol"
 [workspace.dependencies]
 ra2a = { version = "0.10", path = "ra2a", features = ["server", "client"] }
 
-axum = "0.8.8"
+axum = "0.8.9"
 base64 = "0.22.1"
 chrono = { version = "0.4.44", features = ["serde"] }
 futures = "0.3.32"
