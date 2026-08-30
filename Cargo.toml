@@ -1,5 +1,5 @@
 [workspace]
-members = ["ra2a", "ra2a-ext"]
+members = ["ra2a", "ra2a-ext", "ra2a-ext-x402"]
 default-members = ["ra2a"]
 resolver = "3"
 
