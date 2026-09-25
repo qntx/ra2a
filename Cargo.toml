@@ -18,7 +18,7 @@ base64 = "0.23.1"
 chrono = { version = "0.4.44", features = ["serde"] }
 futures = "0.3.32"
 mockito = "1.7.2"
-opentelemetry = "0.32.0"
+opentelemetry = "0.33.0"
 pretty_assertions = "1.4.1"
 prost = "0.14.3"
 prost-types = "0.14.3"
